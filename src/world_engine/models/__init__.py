@@ -32,7 +32,8 @@ Layout, by stratum:
                         QuestOfferStep, QuestOfferRequirement, Quest;
                         TICKET-0108, schema v2.17), their terms and a
                         world's quest economy (QuestOfferTerm, QuestTerm,
-                        QuestEconomy; TICKET-0109, v2.18), canon.
+                        QuestEconomy; TICKET-0109, v2.18), and debts
+                        (Debt, DebtTerm; TICKET-0110, v2.19), canon.
 
 This module re-exports the ENTIRE former public surface of the flat
 `models.py` — every class, constant, and the two module functions
@@ -131,6 +132,9 @@ from .observation import (
     ObservationRunTemplate,
 )
 from .quests import (
+    DEBT_CURRENCIES,
+    DEBT_ORIGINS,
+    DEBT_STATUSES,
     QUEST_OFFER_STATUSES,
     QUEST_TERM_CURRENCIES,
     QUEST_TERM_DIRECTIONS,
@@ -141,6 +145,8 @@ from .quests import (
     QuestOfferStep,
     QuestOfferTerm,
     QuestTerm,
+    Debt,
+    DebtTerm,
 )
 
 __all__ = [
@@ -216,6 +222,11 @@ __all__ = [
     "QuestEconomy",
     "QuestOfferTerm",
     "QuestTerm",
+    "DEBT_CURRENCIES",
+    "DEBT_ORIGINS",
+    "DEBT_STATUSES",
+    "Debt",
+    "DebtTerm",
     "GoalAgendaLink",
     "EntityType",
     "EntityTypeHistory",

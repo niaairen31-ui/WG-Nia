@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.18
+Current schema version: v2.19
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -531,10 +531,12 @@ CREATE TABLE relation (
   entity_a_id         TEXT NOT NULL REFERENCES entity(id),
   entity_b_id         TEXT NOT NULL REFERENCES entity(id),
   type                TEXT NOT NULL,
-                      -- ally | enemy | debt | fear | fascination |
+                      -- ally | enemy | fear | fascination |
                       -- shared_secret | instrumentalizes | interest |
                       -- indifference | rejection | passive_attention | other |
                       -- connects_to | controls
+                      -- `debt` retired at v2.19 (TICKET-0110, I2): « X owes
+                      -- Y » is a `debt` row; `write_relation` refuses it.
   direction           TEXT DEFAULT 'mutual',
                       -- mutual | a_to_b | b_to_a
                       -- NOTE: magic relations = always a_to_b
@@ -860,7 +862,7 @@ CREATE TABLE ledger (
   amount          INTEGER NOT NULL,        -- signed: + credit, − debit; world base unit
   counterparty_id TEXT REFERENCES entity(id),           -- the other party (filled, not double-written)
   reason          TEXT,                    -- "pécule de départ", "correction prix"
-  source_type     TEXT,                    -- creator | correction | conversation | pass_play | tick | quest (v2.18 settlement)
+  source_type     TEXT,                    -- creator | correction | conversation | pass_play | tick | quest (v2.18 settlement) | debt, service (v2.19)
                                             -- ('conversation' written by
                                             -- _apply_mutation's resource_change
                                             -- branch, BRIEF-19/v1.32; 'pass_play'
@@ -2248,7 +2250,11 @@ a label); `has_met` an encounter row of the pair; `faction_member` an
 active membership of the target faction; `skill_rank_gte` the rank held in
 a base domain or a skill definition (`target_key`), `threshold` 1-5;
 `quest_completed` a quest taken from the offer `target_key` whose agenda is
-`completed`. Curated plan metadata, same family as `npc_schedule` -- no
+`completed`. Ten forms since v2.19 (TICKET-0110, BRIEF-0110-A, G1):
+`has_debt_to` and `no_debt_to`, creator only, with `target_entity_id` the
+creditor (a character or a faction) -- the character is the debtor of at
+least one OPEN `debt` toward it, or of none; existence only, no threshold.
+Curated plan metadata, same family as `npc_schedule` -- no
 `change_history`. THE POSITIONAL WALL: `location_reachable`'s target lives
 HERE, never on `agenda_step` -- a requirement states "the player must be
 able to reach L", a precondition on the player, never a position of an NPC
@@ -2262,12 +2268,14 @@ CREATE TABLE agenda_step_requirement (
   step_id           TEXT NOT NULL REFERENCES agenda_step(id),
   type              TEXT NOT NULL
                       CHECK (type IN ('knowledge','relation_gte','resource','location_reachable',
-                                      'has_met','faction_member','skill_rank_gte','quest_completed')),
+                                      'has_met','faction_member','skill_rank_gte','quest_completed',
+                                      'has_debt_to','no_debt_to')),
   target_entity_id  TEXT REFERENCES entity(id),
   target_key        TEXT,
   threshold         INTEGER,
   CHECK (
-    (type NOT IN ('relation_gte','location_reachable','has_met','faction_member')
+    (type NOT IN ('relation_gte','location_reachable','has_met','faction_member',
+                  'has_debt_to','no_debt_to')
        OR target_entity_id IS NOT NULL)
     AND (type NOT IN ('knowledge','resource','skill_rank_gte','quest_completed')
        OR target_key IS NOT NULL)
@@ -2290,12 +2298,16 @@ accepted again once the last quest taken from it is over; any other offer
 once per character. Its steps and requirements are replaced whole on save
 (the `npc_price` full-replace precedent); the offer row keeps a
 `change_history`. Written only by `writes.write_quest_offer`.
+`contact_entity_id` (v2.19, TICKET-0110, X1): when the giver is a faction,
+the active member who speaks for it -- the person a debt born of the offer
+is linked to; NULL for a character giver, optional for a faction.
 
 ```sql
 CREATE TABLE quest_offer (
   id               TEXT PRIMARY KEY,
   world_id         TEXT NOT NULL REFERENCES world(id),
   giver_entity_id  TEXT NOT NULL REFERENCES entity(id),
+  contact_entity_id TEXT REFERENCES entity(id),   -- v2.19
   title            TEXT NOT NULL,
   summary          TEXT,
   repeatable       BOOLEAN NOT NULL DEFAULT 0,
@@ -2436,7 +2448,10 @@ the `conversation_window_config` precedent. Each column NULL, or no row,
 reads the code's default (`quest_value.DEFAULT_RATES`: money 1, relation
 point 1, fact 5, skill 20; band 100-150 %); an item's rate is its own
 `value`. The unit is a display -- never converted, never spent. Written
-only by `writes.upsert_quest_economy`.
+only by `writes.upsert_quest_economy`. `debt_fact_relation` and
+`debt_skill_relation` (v2.19, TICKET-0110): what the creditor's regard
+toward the debtor falls by when a debt's fact or skill can no longer be
+delivered because he already holds it (defaults 10 and 20).
 
 ```sql
 CREATE TABLE quest_economy (
@@ -2448,10 +2463,93 @@ CREATE TABLE quest_economy (
   rate_skill     INTEGER,
   band_low_pct   INTEGER,
   band_high_pct  INTEGER,
+  debt_fact_relation   INTEGER,           -- v2.19
+  debt_skill_relation  INTEGER,           -- v2.19
   updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
   CHECK (every column IS NULL OR >= 0)
 );
 CREATE UNIQUE INDEX idx_quest_economy_world ON quest_economy(world_id);
+```
+
+-----
+
+### `debt`
+
+What one entity owes another (v2.19, TICKET-0110, BRIEF-0110-A, J2). Born
+of a service asked of a character (`origin = 'service'`, S2), of a quest
+settled on credit (`'quest'`, A2, with `origin_quest_id`), or of the
+creator's hand (`'creator'`). The debtor is a character; the creditor a
+character or a faction (J1). A faction creditor always names its contact,
+an active member (X1); a character creditor never does (writer-checked).
+`reason` is an optional motive, carried into the fact (V1). `is_secret`
+(F-b1) makes both parties' knowledge rows secret. `fact_id` is the debt's
+fact: a free `information` fact whose participants are the debtor, the
+creditor and the contact (F-a); the debtor and the creditor (his contact
+for a faction) learn it at `knows`, and a faction's members know a debt
+that is not secret through a `faction` default (U1). What is owed lives in
+`debt_term` (C2); its indicative value is computed at read, never stored.
+A debt is SETTLED or FORGIVEN, never deleted: `status` leaves `open` once,
+with `closed_at` and, for a remission, `closed_note`; the fact receives a
+`changement` then. This table is the one way to say « X owes Y » (I2).
+Written only by `writes/debts.py`.
+
+```sql
+CREATE TABLE debt (
+  id                 TEXT PRIMARY KEY,
+  world_id           TEXT NOT NULL REFERENCES world(id),
+  debtor_entity_id   TEXT NOT NULL REFERENCES entity(id),
+  creditor_entity_id TEXT NOT NULL REFERENCES entity(id),
+  contact_entity_id  TEXT REFERENCES entity(id),
+  origin             TEXT NOT NULL CHECK (origin IN ('service','quest','creator')),
+  origin_quest_id    TEXT REFERENCES quest(id),
+  reason             TEXT,
+  is_secret          BOOLEAN NOT NULL DEFAULT 0,
+  fact_id            TEXT NOT NULL REFERENCES fact(id),
+  status             TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','settled','forgiven')),
+  created_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+  closed_at          DATETIME,
+  closed_note        TEXT,
+  CHECK (debtor_entity_id <> creditor_entity_id),
+  CHECK ((origin = 'quest') = (origin_quest_id IS NOT NULL)),
+  CHECK ((status = 'open') = (closed_at IS NULL))
+);
+CREATE INDEX idx_debt_world ON debt(world_id);
+CREATE INDEX idx_debt_debtor ON debt(debtor_entity_id);
+CREATE INDEX idx_debt_creditor ON debt(creditor_entity_id);
+```
+
+-----
+
+### `debt_term`
+
+One thing a debt owes (v2.19, C2/T1), in order. `currency`: `money` and
+`item` count (`amount`); `fact` is delivered -- the debtor must know it,
+the creditor (his contact for a faction) learns it; `skill` is taught --
+the debtor must be at Maître in a skill definition. No relation term:
+regard is not repaid. When the receiver already holds the fact or the
+skill, that term is settled by his regard toward the debtor falling by the
+world's `debt_fact_relation` or `debt_skill_relation`. Written with its
+debt; immutable.
+
+```sql
+CREATE TABLE debt_term (
+  id          TEXT PRIMARY KEY,
+  world_id    TEXT NOT NULL REFERENCES world(id),
+  debt_id     TEXT NOT NULL REFERENCES debt(id),
+  term_order  INTEGER NOT NULL,
+  currency    TEXT NOT NULL CHECK (currency IN ('money','item','fact','skill')),
+  item_id     TEXT REFERENCES item(id),
+  fact_id     TEXT REFERENCES fact(id),
+  skill_key   TEXT,
+  amount      INTEGER,
+  CHECK (
+    (currency NOT IN ('money','item') OR (amount IS NOT NULL AND amount >= 1))
+    AND (currency <> 'item' OR item_id IS NOT NULL)
+    AND (currency <> 'fact' OR fact_id IS NOT NULL)
+    AND (currency <> 'skill' OR skill_key IS NOT NULL)
+  )
+);
+CREATE INDEX idx_debt_term_debt ON debt_term(debt_id);
 ```
 
 -----

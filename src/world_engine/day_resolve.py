@@ -267,6 +267,9 @@ _BLOCKED_DETAIL_FR: dict[str, str] = {
     "faction_member": "il n'appartient pas à {required}",
     "skill_rank_gte": "sa maîtrise de « {required} » ne suffit pas encore",
     "quest_completed": "il doit d'abord mener à bien « {required} »",
+    # TICKET-0110 (BRIEF-0110-A): the two debt forms.
+    "has_debt_to": "il ne doit rien à {required}",
+    "no_debt_to": "il a encore une dette envers {required}",
 }
 
 

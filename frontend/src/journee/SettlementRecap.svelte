@@ -4,12 +4,29 @@
      their outcomes, the days that advanced it, the step changes still
      awaiting review, its terms and their value) and why it cannot be
      settled now, if it cannot. Nothing here is a verdict: she decides. The
-     quest is named by its quest_id only. */
-  import { questState, settleQuest } from './quests.svelte.js';
+     quest is named by its quest_id only. TICKET-0110 (A2): when coins or
+     items are all that is lacking, « Régler à crédit » shows what would be
+     owed to whom -- a faction creditor's member to pick, its contact
+     preselected -- and settles with the rest as debts. */
+  import { questState, settleQuest, settleOnCredit } from './quests.svelte.js';
+  import { loadJourneeDebts } from './debts.svelte.js';
 
   let { questId } = $props();
 
   let ctx = $derived(questState.settlement);
+  let contacts = $state({});
+  let creditSecret = $state(false);
+
+  function contactOf(debt) {
+    return contacts[debt.creditor_id] ?? debt.contact_id ?? '';
+  }
+
+  async function onCredit() {
+    const chosen = Object.fromEntries((ctx.credit.debts || []).filter((d) => d.is_faction && contactOf(d))
+      .map((d) => [d.creditor_id, contactOf(d)]));
+    await settleOnCredit(questId, chosen, creditSecret);
+    await loadJourneeDebts();
+  }
 </script>
 
 <div class="recap">
@@ -52,6 +69,26 @@
     <button class="btn-send" disabled={!ctx.can_settle || questState.busy !== null} onclick={() => settleQuest(questId)}>
       {questState.busy === questId ? 'Règlement…' : 'Confirmer : quête accomplie'}
     </button>
+
+    {#if ctx.credit?.possible}
+      <h5>Régler à crédit</h5>
+      <p class="muted">Vous payez ce que vous avez ; le reste devient une dette.</p>
+      {#each ctx.credit.debts as debt (debt.creditor_id)}
+        <div class="credit">
+          <strong>Envers {debt.creditor_name}</strong> : {debt.lines.join(', ')}
+          {#if debt.is_faction}
+            <label>Lié à
+              <select value={contactOf(debt)} onchange={(e) => (contacts[debt.creditor_id] = e.target.value)}>
+                <option value="">— un membre</option>
+                {#each debt.members as m (m.id)}<option value={m.id}>{m.name}</option>{/each}
+              </select>
+            </label>
+          {/if}
+        </div>
+      {/each}
+      <label><input type="checkbox" bind:checked={creditSecret}> Transaction secrète</label>
+      <button disabled={questState.busy !== null} onclick={() => onCredit()}>Confirmer : régler à crédit</button>
+    {/if}
   {/if}
 </div>
 
@@ -62,4 +99,6 @@
   .day { margin: 2px 0 4px; }
   .muted { color: var(--muted); font-size: 12px; }
   .r-err { color: var(--red); }
+  .credit { margin: 2px 0 4px; }
+  .credit label { display: inline-flex; gap: 4px; margin-left: 8px; }
 </style>

@@ -19,9 +19,13 @@ from sqlmodel import Session, select
 from .models import Item, QuestEconomy
 
 # The code's defaults (E1); a NULL column of `quest_economy` reads these.
+# TICKET-0110 (BRIEF-0110-A): the two debt settings are not rates of the
+# unit but relation points -- what a creditor's regard falls by when a debt's
+# fact or skill can no longer be delivered (he already holds it).
 DEFAULT_RATES: dict[str, int] = {
     "rate_money": 1, "rate_relation": 1, "rate_fact": 5, "rate_skill": 20,
     "band_low_pct": 100, "band_high_pct": 150,
+    "debt_fact_relation": 10, "debt_skill_relation": 20,
 }
 
 # The verdict of a reward against the band, as the editor shows it.

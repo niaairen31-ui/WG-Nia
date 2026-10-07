@@ -204,6 +204,11 @@ _FIXTURE: tuple[tuple[str, dict], ...] = (
     ("quest_term", {"id": "qt-{w}", "world_id": "{w}", "quest_id": "qu-{w}", "term_order": 1,
                     "direction": "cost", "currency": "money", "amount": 3}),
     ("quest_economy", {"id": "qe-{w}", "world_id": "{w}", "rate_fact": 4}),
+    ("debt", {"id": "de-{w}", "world_id": "{w}", "debtor_entity_id": "{w}-char",
+              "creditor_entity_id": "{w}-fac", "origin": "quest", "origin_quest_id": "qu-{w}",
+              "fact_id": "fa-{w}"}),
+    ("debt_term", {"id": "dt-{w}", "world_id": "{w}", "debt_id": "de-{w}", "term_order": 1,
+                   "currency": "item", "item_id": "{w}-item", "amount": 2}),
 )
 
 

@@ -68,9 +68,10 @@ JOURNAL_DIR = Path.home() / ".world_engine" / "link_agent_journal"
 # Closed vocab for the pair-pass model (RECON-0036 s.1): deliberately
 # NARROWER than cockpit.crud._shared.RELATION_TYPES — connects_to/controls
 # are location-map topology / control edges, structurally impossible for
-# the link agent to propose.
+# the link agent to propose. `debt` is retired (TICKET-0110, I2): the model
+# never writes a debt as a link; « X owes Y » is a `debt` row.
 _LINK_RELATION_TYPES = (
-    "ally", "enemy", "debt", "fear", "fascination", "shared_secret",
+    "ally", "enemy", "fear", "fascination", "shared_secret",
     "instrumentalizes", "interest", "indifference", "rejection",
     "passive_attention", "other",
 )

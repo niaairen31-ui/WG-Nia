@@ -1,11 +1,12 @@
-/* TICKET-0108 (BRIEF-0108-C). The eight requirement forms as the offer
+/* TICKET-0108 (BRIEF-0108-C). The requirement forms as the offer
    editor shows them: a French label, the picker list its target comes
    from (a key of GET /api/quest-offers/choices, or 'money'), whether that
    target is an entity (`target_entity_id`) or a key (`target_key`), and
    whether it takes a threshold. Mirrors `day_plan.REQUIREMENT_TYPES`,
    `ENTITY_TARGET_TYPES`, `KEY_TARGET_TYPES` and `THRESHOLD_TYPES` across
    the network boundary -- kept equal by `quests.py` (QC1), never by hand
-   alone. */
+   alone. TICKET-0110 (BRIEF-0110-A): the two debt forms, whose target is
+   a creditor -- a character or a faction (the `givers` list). */
 
 export const REQUIREMENT_FORMS = {
   knowledge: { label: 'Connaît le fait', list: 'facts', column: 'key', threshold: false },
@@ -16,6 +17,8 @@ export const REQUIREMENT_FORMS = {
   faction_member: { label: 'Est membre de', list: 'factions', column: 'entity', threshold: false },
   skill_rank_gte: { label: 'Compétence au rang (≥)', list: 'skills', column: 'key', threshold: true },
   quest_completed: { label: 'A accompli la quête', list: 'offers', column: 'key', threshold: false },
+  has_debt_to: { label: 'A une dette envers', list: 'givers', column: 'entity', threshold: false },
+  no_debt_to: { label: 'N’a aucune dette envers', list: 'givers', column: 'entity', threshold: false },
 };
 
 // `resource`'s key is a label: one currency per world (the ledger has no
@@ -38,6 +41,7 @@ export function targetOptions(form, choices) {
     case 'characters': return choices.characters.map((c) => ({ value: c.id, label: c.name }));
     case 'locations': return choices.locations.map((c) => ({ value: c.id, label: c.name }));
     case 'factions': return choices.factions.map((c) => ({ value: c.id, label: c.name }));
+    case 'givers': return choices.givers.map((c) => ({ value: c.id, label: c.name }));
     default: return [];
   }
 }

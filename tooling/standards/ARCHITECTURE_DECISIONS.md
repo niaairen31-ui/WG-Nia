@@ -18235,6 +18235,128 @@ cost cannot be paid. A completed quest still to settle reads « accomplie —
 **Rejected.** Computing the value in the browser: a second implementation
 of the rates to keep in step; the server already has them.
 
+## A DEBT IS A ROW, NEVER A RELATION TYPE (TICKET-0110) -- TEN REQUIREMENT FORMS, AN OFFER'S CONTACT (BRIEF-0110-a, schema v2.19)
+
+**J2.** `debt` records what a character owes a character or a faction (J1):
+origin (`service`, `quest`, `creator`), an optional motive (V1), secrecy
+(F-b1), the debt's fact, a status that leaves `open` once -- `settled` or
+`forgiven`, never deleted: deleting would be a correction (I1 of 0105),
+paying is a change. What is owed is a list of typed terms in `debt_term`
+(C2): money, items, a fact to deliver, a skill to teach (T1) -- never
+relation, which is not repaid. Its value in the indicative unit is computed
+at read, never stored, never converted (C1 of the series).
+
+**I2.** « X owes Y » has one home. The relation type `debt` is retired:
+offered neither in the fiche's list nor to the link agent, and
+`write_relation` refuses it (`RETIRED_RELATION_TYPES`). Production held no
+such row. The live link-pair prompt loses it through
+`apply_ticket_0110_link_prompt.py`, which edits the current head's text so
+an edit of the creator is kept.
+
+**X1.** A faction creditor is always linked to a person: the contact, an
+active member. An offer given by a faction may name its contact
+(`quest_offer.contact_entity_id`); a debt born of it is linked to him.
+
+**G1.** `has_debt_to` and `no_debt_to`: the character is the debtor of at
+least one open debt toward the target, or of none -- existence only,
+creator only (the model still emits four forms). The target is a character
+or a faction.
+
+**The economy.** `quest_economy` gains `debt_fact_relation` and
+`debt_skill_relation` (defaults 10 and 20): what the creditor's regard falls
+by when a debt's fact or skill can no longer be delivered, because he
+already holds it. Set in the ⚖ panel with the rates.
+
+**Rejected.** A relation of type `debt` with a fact (I3): one social row per
+oriented pair would overwrite the feeling it stands on, and it has no place
+for terms, an origin or a settlement. A value in units alone (C1 of this
+ticket): repaying in any currency at the rates would make the unit a
+currency.
+
+
+## A DEBT IS WRITTEN WHOLE, REPAID AT ONCE OR FORGIVEN (TICKET-0110) -- A SERVICE OWES THE REST, A QUEST SETTLES ON CREDIT (BRIEF-0110-b, no schema change)
+
+**F-a, F-b1, U1.** Every debt has its fact: a free `information` fact whose
+participants are the debtor, the creditor and his contact, worded from its
+terms and motive. The debtor and the receiver (the creditor, his contact
+for a faction) know it at `knows`, secret when the debt is; a faction's
+members know a debt that is not secret, through a `faction` default.
+Repaying or forgiving rewrites it as a `changement`: whoever heard of the
+debt before keeps the old version until a later contact; the parties know
+at once.
+
+**D1, T1.** Repaying is all at once. Money and items move from the debtor to
+the creditor; a fact is delivered and a skill taught to the receiver -- so a
+debt of a fact or a skill may wait until the player knows it or is Maître,
+the way an NPC invests in him. A receiver who already holds that fact or
+skill lowers his regard toward the debtor instead, by the world's
+`debt_fact_relation` (10) or `debt_skill_relation` (20).
+
+**S2.** A service is asked of a character from Journée: what he does now is
+a list of quest terms applied as a settlement applies them (the ledger
+marks them `service`), what the player will owe is a debt -- toward him, or
+toward his faction when he acts for it, he being its contact (X1).
+
+**A2.** « Régler à crédit »: when coins or items are the only reasons a
+quest cannot be settled, the player pays what he has and the rest becomes
+one debt per creditor, motive the quest's title; a faction creditor's debt
+is linked to the offer's contact, or to the member Nia names. Every reward
+is given and the quest settled. « Déclarer accomplie » still refuses (D1 of
+0109).
+
+**Rejected.** A partial repayment (D2): one debt, one moment. A rule of
+relation at borrowing and repayment (E): it waits for a calendar, in its own
+ticket.
+
+
+## THE WORLD'S DEBTS IN CRÉATION (TICKET-0110) -- « DETTES » LISTS AND WRITES THEM, A FACTION OFFER NAMES ITS CONTACT (BRIEF-0110-c, no schema change)
+
+**Création › Dettes.** A new island lists every debt of the world: who owes
+whom (a faction's contact named), its origin and motive, what is owed line
+by line, its value in the world's unit, its state, secrecy and a
+remission's note. An open debt has « Rembourser » (all at once, its
+refusals shown) and « Remettre » with an optional note. « + Nouvelle dette »
+writes one by hand: any character as debtor, a character or a faction as
+creditor -- a faction asks for its contact among its members -- a motive,
+« transaction secrète », and the owed terms: money, items, a fact to
+transmit, a skill to teach (`debtTerms.js`, kept equal to
+`DEBT_CURRENCIES` by `debts.py` DC1). A debt is never edited nor deleted
+from here.
+
+**Création › Quêtes.** An offer given by a faction shows « Contact de la
+faction », its members to pick from; changing the giver clears it (X1).
+
+**Rejected.** Editing a debt's terms after the fact: a bargain is
+remitted and written anew, never rewritten (J2).
+
+
+## JOURNÉE IN THREE SUB-TABS (TICKET-0110) -- A SERVICE IS ASKED FROM THE DAY, DEBTS HAVE THEIR OWN TAB, A QUEST SETTLES ON CREDIT (BRIEF-0110-d, no schema change)
+
+**W-a.** Journée gains a sub-tab bar, like Play's: « Journée » (declare an
+action, « Demander un service », the days), « Quêtes » (the quest panel,
+moved as is) and « Dettes ». « Mes savoirs » is not ported: done right it
+reads resolved knowledge and its versions, and gets its own ticket.
+
+**« Dettes ».** What the player owes and what is owed to him: the other
+party, a faction's contact, the origin and motive, what is owed, its
+value, its state. An open debt shows why it cannot be repaid yet (a fact
+he does not know, a skill he is not Maître in, coins he lacks),
+« Rembourser » and « Remettre » with a note.
+
+**S2 in the day.** « Demander un service »: who helps (and the faction he
+acts for, among his own), what he does now -- the quest term rows, rewards
+and immediate costs -- and what the player will owe, prefilled with the
+coins and items received until Nia edits it; a motive; secrecy.
+
+**A2 in the recap.** When coins or items are all that is lacking, the recap
+of « Déclarer accomplie » adds « Régler à crédit »: what would be owed to
+whom, a faction's member to pick (its contact preselected), secrecy, and
+« Confirmer : régler à crédit ».
+
+**Rejected.** Porting « Mes savoirs » from Play as it is (W-b): it reads
+stored rows only and would show less than the player knows.
+
+
 ---
 
 *Co-built with Claude, June 2026.*

@@ -15,6 +15,7 @@ The player's quests (Journée):
     POST /api/quests/{quest_id}/abandon  abandon one quest (N1)
     GET  /api/quests/{quest_id}/settlement  what « déclarer accomplie » shows (G1)
     POST /api/quests/{quest_id}/settle      « déclarer accomplie » (D1, TICKET-0109)
+    POST /api/quests/{quest_id}/settle-on-credit  « régler à crédit » (A2, TICKET-0110)
 
 Every rule lives in `writes/quests.py` (what may be written) and
 `quest_reads.py` (what is shown); this module parses, maps a refusal to its
@@ -35,7 +36,10 @@ from ...db import get_session
 from ...models import Quest, QuestEconomy, QuestOffer
 from ...quest_value import DEFAULT_RATES, offer_value, value_dict, world_rates
 from ...quest_settlement_view import settlement_context
-from ...writes import TermSpec, abandon_quest, accept_quest, settle_quest, upsert_quest_economy, write_quest_offer
+from ...writes import (
+    TermSpec, abandon_quest, accept_quest, settle_quest, settle_quest_on_credit, upsert_quest_economy,
+    write_quest_offer,
+)
 from ...writes.quest_terms import ECONOMY_COLUMNS
 from .. import crud as _crud
 from .day import _resolve_player_character
@@ -70,6 +74,8 @@ class TermBody(BaseModel):
 
 class OfferBody(BaseModel):
     giver_entity_id: str
+    # TICKET-0110 (X1): a faction giver's contact; null clears it.
+    contact_entity_id: Optional[str] = None
     title: str
     summary: Optional[str] = None
     repeatable: bool = False
@@ -92,6 +98,8 @@ class EconomyBody(BaseModel):
     rate_skill: Optional[int] = None
     band_low_pct: Optional[int] = None
     band_high_pct: Optional[int] = None
+    debt_fact_relation: Optional[int] = None
+    debt_skill_relation: Optional[int] = None
 
 
 def _term(term: TermBody) -> TermSpec:
@@ -100,6 +108,12 @@ def _term(term: TermBody) -> TermSpec:
 
 class AcceptBody(BaseModel):
     offer_id: str
+
+
+class CreditBody(BaseModel):
+    is_secret: bool = False
+    # A faction creditor's id -> the member the debt is linked to (X1).
+    contacts: dict[str, str] = Field(default_factory=dict)
 
 
 def _spec(req: RequirementBody) -> RequirementSpec:
@@ -116,6 +130,7 @@ def _save_offer(body: OfferBody, offer: Optional[QuestOffer], world_id: str, db:
             summary=body.summary, repeatable=body.repeatable, status=body.status,
             eligibility=[_spec(r) for r in body.eligibility], steps=steps,
             terms=None if body.terms is None else [_term(t) for t in body.terms],
+            contact_entity_id=body.contact_entity_id or None,
         )
     except ValueError as exc:
         db.rollback()
@@ -232,6 +247,20 @@ def settle(quest_id: str, db: Session = Depends(get_session)) -> dict:
     quest, character = _players_quest(quest_id, db)
     try:
         settle_quest(db, quest=quest)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    db.commit()
+    return quest_reads.journee_payload(character, db)
+
+
+@router.post("/api/quests/{quest_id}/settle-on-credit")
+def settle_on_credit(quest_id: str, body: CreditBody, db: Session = Depends(get_session)) -> dict:
+    """A2 (TICKET-0110): what the player lacks of coins or items becomes a
+    debt per creditor; the quest is settled."""
+    quest, character = _players_quest(quest_id, db)
+    try:
+        settle_quest_on_credit(db, quest=quest, contacts=body.contacts, is_secret=body.is_secret)
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc

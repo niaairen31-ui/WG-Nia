@@ -13,7 +13,7 @@ export const questOffersState = $state({
   choices: null,
   loading: false,
   loadError: '',
-  draft: null, // { id|null, giver_entity_id, title, summary, repeatable, status, eligibility, steps }
+  draft: null, // { id|null, giver_entity_id, contact_entity_id, title, summary, repeatable, status, eligibility, steps }
   saving: false,
   saveError: '',
   value: null, // the draft's indicative value (cost, reward, ratio_pct, verdict_label)
@@ -28,7 +28,7 @@ export function blankStep() {
 export function newDraft() {
   questOffersState.saveError = '';
   questOffersState.draft = {
-    id: null, giver_entity_id: '', title: '', summary: '', repeatable: false, status: 'open',
+    id: null, giver_entity_id: '', contact_entity_id: '', title: '', summary: '', repeatable: false, status: 'open',
     eligibility: [], steps: [blankStep()], terms: [],
   };
   refreshValue();
@@ -37,7 +37,8 @@ export function newDraft() {
 export function editOffer(offer) {
   questOffersState.saveError = '';
   questOffersState.draft = {
-    id: offer.id, giver_entity_id: offer.giver_entity_id, title: offer.title, summary: offer.summary || '',
+    id: offer.id, giver_entity_id: offer.giver_entity_id, contact_entity_id: offer.contact_entity_id || '',
+    title: offer.title, summary: offer.summary || '',
     repeatable: offer.repeatable, status: offer.status,
     eligibility: offer.eligibility.map((r) => ({ ...r, target_entity_id: r.target_entity_id || '', target_key: r.target_key || '' })),
     steps: offer.steps.map((s) => ({
@@ -117,7 +118,8 @@ export async function loadOffers(worldId) {
 
 function draftBody(draft) {
   return {
-    giver_entity_id: draft.giver_entity_id, title: draft.title, summary: draft.summary || null,
+    giver_entity_id: draft.giver_entity_id, contact_entity_id: draft.contact_entity_id || null,
+    title: draft.title, summary: draft.summary || null,
     repeatable: draft.repeatable, status: draft.status,
     eligibility: draft.eligibility.map(requirementBody),
     steps: draft.steps.map((s) => ({

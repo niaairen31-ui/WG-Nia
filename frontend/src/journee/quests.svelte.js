@@ -85,3 +85,10 @@ export async function settleQuest(questId) {
   await act(questId, '/api/quests/' + questId + '/settle', null);
   if (!questState.actionError) questState.settling = null;
 }
+
+/** A2 (TICKET-0110): what the player lacks of coins or items becomes a
+ *  debt per creditor; `contacts` names a faction creditor's member. */
+export async function settleOnCredit(questId, contacts, isSecret) {
+  await act(questId, '/api/quests/' + questId + '/settle-on-credit', { contacts, is_secret: isSecret });
+  if (!questState.actionError) questState.settling = null;
+}

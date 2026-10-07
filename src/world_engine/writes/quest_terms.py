@@ -51,9 +51,11 @@ FACT_REWARD_LEVELS: tuple[str, ...] = tuple(sorted(KNOWLEDGE_LEVELS - {"unaware"
 TERM_COLUMNS: tuple[str, ...] = (
     "direction", "currency", "counterparty_entity_id", "item_id", "fact_id", "skill_key", "amount", "level",
 )
-# The economy columns a world may set (E1).
+# The economy columns a world may set (E1); the two debt settings since
+# v2.19 (TICKET-0110).
 ECONOMY_COLUMNS: tuple[str, ...] = (
     "rate_money", "rate_relation", "rate_fact", "rate_skill", "band_low_pct", "band_high_pct",
+    "debt_fact_relation", "debt_skill_relation",
 )
 
 

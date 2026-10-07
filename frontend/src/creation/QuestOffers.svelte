@@ -28,12 +28,17 @@
 
   let draft = $derived(questOffersState.draft);
   let choices = $derived(questOffersState.choices);
+  // TICKET-0110 (X1): a faction giver may name its contact, one of its members.
+  let giverMembers = $derived(draft ? choices?.members?.[draft.giver_entity_id] : null);
   let value = $derived(questOffersState.value);
 
   // TICKET-0109 (E1): the world's rates; '' = the code's default.
+  // TICKET-0110: the two debt settings, in relation points.
   const RATE_LABELS = {
     rate_money: 'Pièce', rate_relation: 'Point de relation', rate_fact: 'Fait', rate_skill: 'Compétence',
     band_low_pct: 'Bande basse (%)', band_high_pct: 'Bande haute (%)',
+    debt_fact_relation: 'Dette : fait déjà su (relation −)',
+    debt_skill_relation: 'Dette : compétence déjà connue (relation −)',
   };
   let showEconomy = $state(false);
   let economyDraft = $state({});
@@ -102,11 +107,20 @@
       <div class="queue-body">
         <label>Titre <input type="text" bind:value={draft.title}></label>
         <label>Donnée par
-          <select bind:value={draft.giver_entity_id}>
+          <select value={draft.giver_entity_id}
+                  onchange={(e) => { draft.giver_entity_id = e.target.value; draft.contact_entity_id = ''; }}>
             <option value="">—</option>
             {#each choices?.givers || [] as g (g.id)}<option value={g.id}>{g.name}</option>{/each}
           </select>
         </label>
+        {#if giverMembers}
+          <label>Contact de la faction
+            <select bind:value={draft.contact_entity_id}>
+              <option value="">— à choisir au besoin</option>
+              {#each giverMembers as m (m.id)}<option value={m.id}>{m.name}</option>{/each}
+            </select>
+          </label>
+        {/if}
         <label>Résumé <textarea rows="2" bind:value={draft.summary}></textarea></label>
         <div class="inline">
           <label><input type="checkbox" bind:checked={draft.repeatable}> Répétable</label>

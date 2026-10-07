@@ -1,0 +1,72 @@
+{
+  "ticket": "TICKET-0110-debts-services",
+  "when": "2026-10-07T22:18:59.252975+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "debts.py",
+      "status": "PASS",
+      "msg": "PASS: debts -- v2.19 lays the debt tables, an offer's contact and the economy's two debt settings, migrates from v2.18 only, widens the requirement vocabulary with has_debt_to and no_debt_to for the creator alone, judges an open debt toward a character or a faction, and retires the relation type debt; a debt is validated whole, written with its fact known by both parties (secret as it is, a faction's members when it is not), repaid at once or forgiven and never deleted, its fact changed; a service applies its terms and owes the rest; \u00c2\u00ab r\u00c3\u00a9gler \u00c3\u00a0 cr\u00c3\u00a9dit \u00c2\u00bb pays what the player has and owes the rest per creditor; the surfaces read every debt without an agenda or step id; Cr\u00c3\u00a9ation mirrors the owed currencies, lists every debt in \u00c2\u00ab Dettes \u00c2\u00bb, writes one by hand, and names a faction offer's contact; Journ\u00c3\u00a9e has its three sub-tabs, asks a service, repays and forgives, and settles a quest on credit"
+    },
+    {
+      "check": "quests.py",
+      "status": "PASS",
+      "msg": "PASS: quests -- v2.17 widens the requirement vocabulary to eight forms the model emits only four of, shared byte for byte by quest offers, migrates from v2.16 only, and judges what the target feels, encounters, memberships, ranks and completed quests; an offer is validated whole and saved whole, accepted only when eligible as a paused plan with its steps, once unless repeatable, abandoned unless a step awaits review, pinned to a day, and shown to the player without an agenda or step id; the editor mirrors the vocabulary, the \u00c2\u00ab Qu\u00c3\u00aates \u00c2\u00bb tab and Journ\u00c3\u00a9e's panel are wired"
+    },
+    {
+      "check": "quest_rewards.py",
+      "status": "PASS",
+      "msg": "PASS: quest_rewards -- v2.18 makes an item a kind held in quantity by any entity, migrates owners and places to holdings from v2.17 only, drops equipped, and one writer keeps every holding, its history, and zones empty; an offer's terms are validated whole, copied to the quest that accepts it, and valued in the world's indicative unit against its band; \u00c2\u00ab d\u00c3\u00a9clarer accomplie \u00c2\u00bb shows the measured context, refuses an unpayable cost with no write, and applies every cost then every reward at once; the editor mirrors the currencies and Journ\u00c3\u00a9e settles from the recap"
+    },
+    {
+      "check": "day_plan.py",
+      "status": "PASS",
+      "msg": "PASS: day_plan \u00e2\u20ac\u201d evaluator bijection, requirement CHECKs, budget derivation, P2/positional exclusion, the positional wall, budget_cut purity, emit_plan wiring, named bounds, the D1 traversal-independence gate, BRIEF-0075-f's reconciliation/Z4/AA2 gates (R11-R21), R22's finalizer-location gate, BRIEF-0077-c's selection/resume gates (R15 retargeted, R23-R24), BRIEF-0078-a's requirement-anchoring gates (R25-R28), and BRIEF-0080-b's continue-guard verdict split (R29-R30) are all intact"
+    },
+    {
+      "check": "day_narration.py",
+      "status": "PASS",
+      "msg": "PASS: day_narration \u00e2\u20ac\u201d dice-are-Python, truncation purity, narrate's DB boundary, the judge's Python-only and anti-vacuity guards, the bounded rewrite, history append-only, declared_action write-once, PROMPT_REGISTRY wiring, V1's no-direct-step-write boundary, BB1's remaining-work invariant, BRIEF-0078-b's blocked-band gates (R13-R18), and the bounded code repair, the retired model repair and the failure-surface gates (R19-R22) and the code-written markers (R23) are all intact"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "fact_spine.py",
+      "status": "PASS",
+      "msg": "PASS: fact_spine \u00e2\u20ac\u201d no participant on a typed fact, no NULL knowledge.fact_id, every fact/knowledge level in vocabulary, and Fact/FactParticipant writes stay inside writes/facts.py"
+    },
+    {
+      "check": "world_cascade.py",
+      "status": "PASS",
+      "msg": "PASS: world_cascade -- every world-scoped table is deleted or guarded; a populated world deletes under FK enforcement; refusals delete nothing"
+    },
+    {
+      "check": "schema_version_agreement.py",
+      "status": "PASS",
+      "msg": "PASS: code and doc agree on schema version 'v2.19'"
+    },
+    {
+      "check": "creation_island.py",
+      "status": "PASS",
+      "msg": "PASS: creation_island \u00e2\u20ac\u201d 17 island(s) registered (14 migration, 3 new), 14 retired legacy prefix set(s) confirmed gone, 17 component binding(s) agreed, 8 mount-action identifier(s) confined, 13 island primaryAction(s) wired, 2 secondaryAction(s) paired, Creation.svelte mounts no component"
+    },
+    {
+      "check": "page_contract.py",
+      "status": "PASS",
+      "msg": "PASS: page_contract \u00e2\u20ac\u201d CREATION_TABS registry, generic dispatcher, no duplicate Lieux create button, PJ on the entity archetype, standard shell + primaryAction on every entry; 17 of 17 CREATION_TABS entries mount at least one island, 0 mount none"
+    },
+    {
+      "check": "frontend_build_fresh.py",
+      "status": "PASS",
+      "msg": "PASS: frontend_build_fresh \u00e2\u20ac\u201d 123 source file(s), 1 output asset(s), manifest hash matches"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u00e2\u20ac\u201d 143 check(s) discovered, 143 executed, 143 passed"
+    }
+  ]
+}

@@ -74,6 +74,7 @@ from ..models import Entity, Fact, Knowledge, Relation
 from ..prose_render import entity_token
 from ..relation_orientation import (
     MAP_TOPOLOGY_TYPES,
+    RETIRED_RELATION_TYPES,
     borde_fact_content,
     connects_to_fact_content,
     is_social,
@@ -319,6 +320,15 @@ def _build_relation_set(
     )
 
 
+def _refuse_retired_type(relation_type: Optional[str]) -> None:
+    """I2 (TICKET-0110): a retired type is never written -- « X owes Y » is a
+    `debt` row, not a relation."""
+    if relation_type in RETIRED_RELATION_TYPES:
+        raise ValueError(
+            f"write_relation: the relation type {relation_type!r} is retired -- a debt lives in the debt table"
+        )
+
+
 def write_relation(
     db: Session,
     *,
@@ -360,6 +370,7 @@ def write_relation(
     """
     if mode not in ("delta", "set"):
         raise ValueError(f"write_relation: invalid mode {mode!r}")
+    _refuse_retired_type(type)
 
     now = datetime.now(UTC)
     provenance = changed_by or (f"mutation:{mutation_id}" if mutation_id else "creator_crud")

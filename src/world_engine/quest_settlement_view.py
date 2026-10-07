@@ -8,14 +8,23 @@ text the day chain read, each step's band), how many of its step changes
 still await review, and why it cannot be settled now, if it cannot. No
 model is called (G1). No agenda or step id appears: the quest is named by
 its `quest_id`.
+
+TICKET-0110 (A2): `credit` says whether « régler à crédit » applies and,
+per creditor, what would be owed and who the debt would be linked to -- a
+faction creditor lists its members, its contact preselected when the offer
+names one.
 """
 
 from __future__ import annotations
 
 from sqlmodel import Session, select
 
-from .models import Agenda, AgendaStep, Batch, Character, DayRewrite, PassPlay, ProposedMutation, Quest, QuestOffer
-from .quest_reads import QUEST_STATE_LABELS, _steps_view
+from .debt_reads import debt_term_line
+from .models import (
+    Agenda, AgendaStep, Batch, Character, DayRewrite, Entity, PassPlay, ProposedMutation, Quest, QuestOffer,
+)
+from .quest_reads import QUEST_STATE_LABELS, _steps_view, faction_members
+from .writes.debt_sources import credit_contact, credit_plan
 from .quest_value import offer_value, value_dict
 from .quest_wording import term_line
 from .skill_access import skill_label
@@ -63,6 +72,20 @@ def _pending_reviews(db: Session, agenda: Agenda) -> int:
     return sum(1 for m in pending if isinstance(m.payload, dict) and m.payload.get("step_id") in step_ids)
 
 
+def _credit(db: Session, quest: Quest) -> dict:
+    plan = credit_plan(db, quest)
+    members = faction_members(quest.world_id, db)
+    debts = []
+    for creditor_id, owed in plan.owed.items():
+        creditor = db.get(Entity, creditor_id)
+        is_faction = creditor.type == "faction"
+        debts.append({"creditor_id": creditor_id, "creditor_name": creditor.name, "is_faction": is_faction,
+                      "lines": [debt_term_line(db, t) for t in owed],
+                      "contact_id": credit_contact(db, quest, creditor_id, {}),
+                      "members": members.get(creditor_id, []) if is_faction else []})
+    return {"possible": not plan.refusals, "refusals": plan.refusals, "debts": debts}
+
+
 def settlement_context(db: Session, quest: Quest) -> dict:
     """GET /api/quests/{quest_id}/settlement (C-06)."""
     agenda = db.get(Agenda, quest.agenda_id)
@@ -79,4 +102,5 @@ def settlement_context(db: Session, quest: Quest) -> dict:
         "days": _days(db, agenda),
         "pending_reviews": _pending_reviews(db, agenda),
         "refusals": refusals, "can_settle": not refusals,
+        "credit": _credit(db, quest),
     }
