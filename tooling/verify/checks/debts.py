@@ -102,6 +102,21 @@ DC3 -- the offer's contact (static). `questOffers.svelte.js` loads and sends
    `contact_entity_id`; `QuestOffers.svelte` offers the giver's
    `choices.members` and clears the contact when the giver changes.
 
+DD1 -- Journée's three sub-tabs (BRIEF-0110-D, static, W-a).
+   `Journee.svelte`'s `SUB_TABS` is exactly « Journée », « Quêtes »,
+   « Dettes »; `<QuestPanel` renders under `quetes`, `<DebtsPanel` under
+   `dettes`, `<ServiceForm` and the declaration under `journee`.
+DD2 -- the debts and the service (static). `debts.svelte.js` reads `GET
+   /api/journee/debts`, posts `/api/services`, `/repay` and `/forgive`;
+   `ServiceForm.svelte` renders `<QuestTermRow` and `<DebtTermRow` and
+   prefills what is owed (`servicePrefill`) from `owedFromService`, which
+   keeps the money and item rewards only; none of the three files, nor
+   `DebtsPanel.svelte`, names `agenda_id` or `step_id`.
+DD3 -- « régler à crédit » (static). `quests.svelte.js` posts
+   `/settle-on-credit` with `contacts` and `is_secret`;
+   `SettlementRecap.svelte` shows it under `ctx.credit?.possible` and calls
+   `settleOnCredit(`.
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that collects nothing fails.
 """
@@ -988,6 +1003,53 @@ def check_dc3() -> None:
             fail(f"DC3: QuestOffers.svelte lacks {needle}")
 
 
+# --- DD --------------------------------------------------------------------------
+
+def check_dd1() -> None:
+    view = _read("journee/Journee.svelte")
+    tabs = re.search(r"const SUB_TABS = \{([^}]*)\};", view)
+    if tabs is None or re.findall(r"(\w+): '([^']+)'", tabs.group(1)) != [
+            ("journee", "Journée"), ("quetes", "Quêtes"), ("dettes", "Dettes")]:
+        fail(f"DD1: SUB_TABS is {tabs.group(1) if tabs else None}")
+    for needle in ("<div style:display={subTab === 'quetes' ? '' : 'none'}><QuestPanel /></div>",
+                   "<div style:display={subTab === 'dettes' ? '' : 'none'}><DebtsPanel /></div>"):
+        if needle not in view:
+            fail(f"DD1: Journee.svelte lacks {needle}")
+    journee = view.split("<div style:display={subTab === 'journee' ? '' : 'none'}>", 1)
+    if len(journee) != 2 or "<ServiceForm />" not in journee[1] or 'id="journee-declare-panel"' not in journee[1]:
+        fail("DD1: the « Journée » sub-tab does not hold the declaration and the service form")
+
+
+def check_dd2() -> None:
+    state = _read("journee/debts.svelte.js")
+    for needle in ("api('/api/journee/debts')", "api('/api/services', {", "'/repay'", "'/forgive'"):
+        if needle not in state:
+            fail(f"DD2: debts.svelte.js lacks {needle}")
+    form = _read("journee/ServiceForm.svelte")
+    for needle in ("<QuestTermRow", "<DebtTermRow", "servicePrefill()"):
+        if needle not in form:
+            fail(f"DD2: ServiceForm.svelte lacks {needle}")
+    if "owedFromService(draft.terms)" not in state:
+        fail("DD2: what is owed is not prefilled from the service's terms")
+    terms = _read("creation/debtTerms.js")
+    if "t.direction === 'reward' && (t.currency === 'money' || t.currency === 'item')" not in terms:
+        fail("DD2: owedFromService does not keep the money and item rewards only")
+    for rel in ("journee/debts.svelte.js", "journee/ServiceForm.svelte", "journee/DebtsPanel.svelte"):
+        text = _read(rel)
+        if "agenda_id" in text or "step_id" in text:
+            fail(f"DD2: {rel} names an agenda or a step")
+
+
+def check_dd3() -> None:
+    state = _read("journee/quests.svelte.js")
+    if "'/settle-on-credit', { contacts, is_secret: isSecret }" not in state:
+        fail("DD3: quests.svelte.js does not post the credit settlement with its contacts")
+    recap = _read("journee/SettlementRecap.svelte")
+    for needle in ("{#if ctx.credit?.possible}", "settleOnCredit("):
+        if needle not in recap:
+            fail(f"DD3: SettlementRecap.svelte lacks {needle}")
+
+
 def main() -> int:
     db_path = _fresh_db()
     check_da1a()
@@ -1001,6 +1063,9 @@ def main() -> int:
     check_dc1()
     check_dc2()
     check_dc3()
+    check_dd1()
+    check_dd2()
+    check_dd3()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -1013,7 +1078,8 @@ def main() -> int:
           "forgiven and never deleted, its fact changed; a service applies its terms and owes the rest; "
           "« régler à crédit » pays what the player has and owes the rest per creditor; the surfaces "
           "read every debt without an agenda or step id; Création mirrors the owed currencies, lists "
-          "every debt in « Dettes », writes one by hand, and names a faction offer's contact")
+          "every debt in « Dettes », writes one by hand, and names a faction offer's contact; Journée has "
+          "its three sub-tabs, asks a service, repays and forgives, and settles a quest on credit")
     return 0
 
 

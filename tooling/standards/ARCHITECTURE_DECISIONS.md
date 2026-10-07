@@ -18330,6 +18330,33 @@ faction », its members to pick from; changing the giver clears it (X1).
 remitted and written anew, never rewritten (J2).
 
 
+## JOURNÉE IN THREE SUB-TABS (TICKET-0110) -- A SERVICE IS ASKED FROM THE DAY, DEBTS HAVE THEIR OWN TAB, A QUEST SETTLES ON CREDIT (BRIEF-0110-d, no schema change)
+
+**W-a.** Journée gains a sub-tab bar, like Play's: « Journée » (declare an
+action, « Demander un service », the days), « Quêtes » (the quest panel,
+moved as is) and « Dettes ». « Mes savoirs » is not ported: done right it
+reads resolved knowledge and its versions, and gets its own ticket.
+
+**« Dettes ».** What the player owes and what is owed to him: the other
+party, a faction's contact, the origin and motive, what is owed, its
+value, its state. An open debt shows why it cannot be repaid yet (a fact
+he does not know, a skill he is not Maître in, coins he lacks),
+« Rembourser » and « Remettre » with a note.
+
+**S2 in the day.** « Demander un service »: who helps (and the faction he
+acts for, among his own), what he does now -- the quest term rows, rewards
+and immediate costs -- and what the player will owe, prefilled with the
+coins and items received until Nia edits it; a motive; secrecy.
+
+**A2 in the recap.** When coins or items are all that is lacking, the recap
+of « Déclarer accomplie » adds « Régler à crédit »: what would be owed to
+whom, a faction's member to pick (its contact preselected), secrecy, and
+« Confirmer : régler à crédit ».
+
+**Rejected.** Porting « Mes savoirs » from Play as it is (W-b): it reads
+stored rows only and would show less than the player knows.
+
+
 ---
 
 *Co-built with Claude, June 2026.*

@@ -9,7 +9,11 @@
      no delete control, and `declared_action` has no update path anywhere
      in the backend (writes/pipeline.py). No agenda data is fetched,
      rendered or referenced anywhere in this surface (Scope OUT): quests
-     (TICKET-0108) are shown by their own title, steps and `quest_id`. */
+     (TICKET-0108) are shown by their own title, steps and `quest_id`.
+
+     TICKET-0110 (BRIEF-0110-D, W-a): three sub-tabs, like Play's --
+     « Journée » (declare, ask a service, the days), « Quêtes » (the quest
+     panel, moved as is) and « Dettes » (what the player owes and is owed). */
   import { serverState } from '../lib/serverState.svelte.js';
   import { navigate } from '../lib/router.js';
   import {
@@ -17,9 +21,15 @@
     planDay, resolveDay,
   } from './journee.svelte.js';
   import QuestPanel from './QuestPanel.svelte';
+  import DebtsPanel from './DebtsPanel.svelte';
+  import ServiceForm from './ServiceForm.svelte';
   import { questState, loadQuests, openQuests } from './quests.svelte.js';
+  import { loadJourneeDebts, serviceState } from './debts.svelte.js';
 
   let { active = false } = $props();
+
+  const SUB_TABS = { journee: 'Journée', quetes: 'Quêtes', dettes: 'Dettes' };
+  let subTab = $state('journee');
 
   function goToPlay() {
     navigate('play');
@@ -34,6 +44,9 @@
     reloadForWorld();
     questState.pin = '';
     loadQuests();
+    serviceState.draft = null;
+    serviceState.choices = null;
+    loadJourneeDebts();
   });
 
   // A plan or a resolution moves a quest's steps: re-read the panel after either.
@@ -50,6 +63,16 @@
 
 <div class="app-view" id="journee-view" style:display={active ? '' : 'none'}>
 
+  <div class="creation-sub-tab-bar">
+    {#each Object.entries(SUB_TABS) as [key, label] (key)}
+      <button class="creation-sub-tab" class:active={subTab === key} onclick={() => (subTab = key)}>{label}</button>
+    {/each}
+  </div>
+
+  <div style:display={subTab === 'quetes' ? '' : 'none'}><QuestPanel /></div>
+  <div style:display={subTab === 'dettes' ? '' : 'none'}><DebtsPanel /></div>
+
+  <div style:display={subTab === 'journee' ? '' : 'none'}>
   <div class="queue-panel" id="journee-declare-panel">
     <div class="panel-head">
       <h2>Journée — déclarer une action</h2>
@@ -74,7 +97,7 @@
     </div>
   </div>
 
-  <QuestPanel />
+  <ServiceForm />
 
   <div class="queue-panel" id="journee-list-panel">
     <div class="panel-head">
@@ -213,6 +236,8 @@
       {/if}
     </div>
   </div>
+
+  </div><!-- the « Journée » sub-tab -->
 
 </div><!-- #journee-view -->
 

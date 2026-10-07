@@ -9,7 +9,7 @@ danger_class: [migration, db_write]
 blast_radius: medium
 lot_id: LOT-0110-debts-services.md
 brief_ids: [A, B, C, D]
-current_brief: C
+current_brief: D
 schema_version_touched: v2.19
 retry_count: 0
 slug: debts-services
