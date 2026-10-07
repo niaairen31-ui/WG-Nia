@@ -18132,6 +18132,33 @@ quest stays invisible, as in the rest of Journée.
 the creator's tools live in Création. The pin as a separate button per
 quest: one choice per day, made where the day is planned.
 
+
+## AN ITEM IS A KIND HELD IN QUANTITY (TICKET-0109) -- ANY ENTITY HOLDS IT, A PLACE INCLUDED; EQUIPPED IS GONE (BRIEF-0109-a, schema v2.18)
+
+**A1.** `item` is a kind (« Fourrure de loup »); `item_holding` says who
+holds how many -- a character, a faction, or a location (an object lying
+somewhere is held by that place). Ten furs are one item and one holding of
+10, never ten entities. `write_holding` is the one writer: it sets or moves
+a quantity, keeps a row at 0, appends the previous quantity to the row's
+history, and refuses a zone as a place that RECEIVES (taking items out of a
+place that just became a zone is how a promotion moves them to its first
+child). The MJ's inventory line reads « Fourrure de loup ×10 »; the list the
+interpretation model answers from names items without quantities, so the
+possession check still matches a name exactly, and passes when at least one
+is held.
+
+**Equipped is gone** (Nia: « cela ne sert à rien »): the column, its CHECK,
+the registry field and `item_update`, the equip toggle no producer had
+emitted since BRIEF-08.
+
+**Schema for the next briefs.** `quest_offer_term`, `quest_term`,
+`quest_economy`, `quest.settled_at` and `item.value` are added here, read
+from BRIEF-0109-b on.
+
+**Rejected.** A2, keeping `item.location_id`: a kind held in ten places
+cannot lie in one. A quantity on `item` with one owner (E2 of the series):
+two holders of furs would be two « Fourrure » entities.
+
 ---
 
 *Co-built with Claude, June 2026.*

@@ -351,8 +351,8 @@ def _say_possession_check(
     Code judges possession against canon `item` rows — the structural
     fix for the D1 finding that the 8b model does not reliably honor
     prohibition rules in free-text narration. `used_object` owned by the
-    player → pass; not owned or `unknown_object` → refused. The
-    equipped/stowed distinction is dormant — `item.equipped` is not read.
+    player → pass; not owned or `unknown_object` → refused. Owned means
+    held at least once (`item_holding`, TICKET-0109).
     A refusal no longer skips the NPC phase: the gesture is socially
     visible, so the turn proceeds as a normal dialogue turn with a
     one-shot [GESTE RATÉ] instruction telling the NPC what it just saw.

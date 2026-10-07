@@ -58,7 +58,7 @@ from sqlmodel import Session, select  # noqa: E402
 from world_engine import models  # noqa: E402
 from world_engine.db import engine  # noqa: E402
 from world_engine.models import (  # noqa: E402
-    Character, DiscoverableDetail, Entity, Item, NpcSchedule, Relation, World,
+    Character, DiscoverableDetail, Entity, NpcSchedule, Relation, World,
 )
 from world_engine.schema_version import EXPECTED_STATIC_SCHEMA_VERSION  # noqa: E402
 from world_engine.writes.relations import write_relation  # noqa: E402
@@ -147,10 +147,17 @@ def _report(session: Session, zones: set[str]) -> int:
         npc = session.get(Entity, row.npc_id)
         lines.append(f"  horaire {row.phase} de « {npc.name if npc else row.npc_id} » vise la zone "
                      f"« {names[row.location_id]} »")
-    for item, ent in session.exec(
-        select(Item, Entity).join(Entity, Entity.id == Item.id).where(Item.location_id.in_(zones))
-    ).all():
-        lines.append(f"  objet « {ent.name} » est posé dans la zone « {names[item.location_id]} »")
+    # Raw SQL (TICKET-0109): `item.location_id` exists on a v2.11/v2.12
+    # database; the v2.18 model no longer declares it, and a database built
+    # from today's models has no such column -- then no item lies anywhere.
+    item_columns = {row[1] for row in session.execute(text("PRAGMA table_info(item)")).fetchall()}
+    placed = session.execute(text(
+        "SELECT e.name, i.location_id FROM item i JOIN entity e ON e.id = i.id "
+        "WHERE i.location_id IS NOT NULL"
+    )).fetchall() if "location_id" in item_columns else []
+    for item_name, location_id in placed:
+        if location_id in zones:
+            lines.append(f"  objet « {item_name} » est posé dans la zone « {names[location_id]} »")
     for detail in session.exec(select(DiscoverableDetail).where(DiscoverableDetail.location_id.in_(zones))).all():
         lines.append(f"  détail « {detail.subject} » est dans la zone « {names[detail.location_id]} »")
     for line in lines:

@@ -19,6 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session as DbSession, select
 
 from ...db import get_session
+from ...holdings import items_held
 from ...entity_author import generate_npc_goals
 from ...gathering import attach_on_arrival, close_open_memberships, dissolve_emptied
 from ...ledger import get_balance, list_entries
@@ -195,11 +196,11 @@ ENTITY_TYPE_REGISTRY: dict[str, dict[str, Any]] = {
     "item": {
         "label": "Item",
         "model": Item,
+        # An item is a KIND since v2.18 (TICKET-0109, A1): who holds how many
+        # is `item_holding`, edited from the sheet's « Objets » panel.
         "fields": [
-            {"name": "owner_id", "label": "Owner", "kind": "entity_ref", "ref_type": "character"},
-            {"name": "location_id", "label": "Location", "kind": "entity_ref", "ref_type": "location"},
-            {"name": "equipped", "label": "Equipped", "kind": "bool", "default": False},
             {"name": "condition", "label": "Condition", "kind": "text", "default": "intact"},
+            {"name": "value", "label": "Valeur (unités)", "kind": "number", "default": 1, "min": 0},
         ],
     },
 }
@@ -338,13 +339,13 @@ def _apply_base_fields(db: DbSession, entity: Entity, data: dict) -> None:
         setattr(entity, name, value)
 
 
-# TICKET-0101 (B1/Q1): the registry fields that place a being or an item
-# somewhere -- a zone is refused there, on create and whenever the value
-# changes (an unchanged value already sitting in a zone is reported by the
-# v2.12 migration, never re-judged on an unrelated save).
+# TICKET-0101 (B1/Q1): the registry fields that place a being somewhere --
+# a zone is refused there, on create and whenever the value changes (an
+# unchanged value already sitting in a zone is reported by the v2.12
+# migration, never re-judged on an unrelated save). An item is placed by a
+# holding since v2.18 (`writes.write_holding` refuses a zone itself).
 _PLACEMENT_FIELDS: dict[str, tuple[str, str]] = {
     "character": ("current_location_id", "Lieu du personnage"),
-    "item": ("location_id", "Lieu de l'objet"),
 }
 
 
@@ -367,21 +368,14 @@ def _build_extension_kwargs(
 ) -> dict:
     """`present_only=False` (create): one entry per registry field, absent
     keys coerced from `None`. `present_only=True` (update): only fields whose
-    name is a key of `data` appear; the item/equipped guard then reads each
-    input's EFFECTIVE value -- the built value when present, else
-    `getattr(current, name, None)` -- so an omitted field still guards
-    correctly against the stored row."""
+    name is a key of `data` appear; the placement guard then reads the
+    stored row (`current`) to tell a changed value from an unchanged one."""
     spec = ENTITY_TYPE_REGISTRY[entity_type]
     fields = spec["fields"]
     if present_only:
         ext_kwargs = {f["name"]: _coerce_field(db, f, data[f["name"]]) for f in fields if f["name"] in data}
     else:
         ext_kwargs = {f["name"]: _coerce_field(db, f, data.get(f["name"])) for f in fields}
-    if entity_type == "item":
-        equipped = ext_kwargs["equipped"] if "equipped" in ext_kwargs else getattr(current, "equipped", None)
-        owner_id = ext_kwargs["owner_id"] if "owner_id" in ext_kwargs else getattr(current, "owner_id", None)
-        if equipped and not owner_id:
-            raise HTTPException(422, "Equipping an item requires an owner")
     _require_placement_visitable(db, entity_type, ext_kwargs, current)
     return ext_kwargs
 
@@ -902,25 +896,12 @@ def set_npc_prices(entity_id: str, body: NpcPricesBody, db: DbSession = Depends(
 
 @router.get("/entities/{entity_id}/items")
 def list_entity_items(entity_id: str, db: DbSession = Depends(get_session)) -> list[dict]:
-    """Items owned by `entity_id` — read-only listing for the character sheet.
-
-    Single write path: item edition lives only in the entity author flow
-    (ENTITY_TYPE_REGISTRY["item"]).
-    """
+    """What `entity_id` holds (TICKET-0109, A1) -- a character, a faction or a
+    location; read for the sheet's « Objets » panel. The one write path is
+    `PUT /api/item-holdings` (`crud/items.py`)."""
     _get_entity(db, entity_id)
-    rows = db.exec(
-        select(Item, Entity)
-        .join(Entity, Entity.id == Item.id)
-        .where(Item.owner_id == entity_id)
-        .order_by(Entity.name)
-    ).all()
     return [
-        {
-            "id": item.id,
-            "name": entity.name,
-            "equipped": item.equipped,
-            "condition": item.condition,
-            "location_id": item.location_id,
-        }
-        for item, entity in rows
+        {"id": item.id, "name": entity.name, "quantity": holding.quantity, "condition": item.condition,
+         "value": item.value}
+        for holding, item, entity in items_held(db, entity_id)
     ]

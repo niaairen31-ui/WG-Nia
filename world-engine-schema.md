@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.17
+Current schema version: v2.18
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -1439,8 +1439,10 @@ CREATE TABLE proposed_mutation (
   mutation_type   TEXT NOT NULL,
                   -- relation_change | new_knowledge | knowledge_change |
                   -- event_creation | status_change | entity_creation |
-                  -- item_update | resource_change | goal_change |
-                  -- npc_move | other
+                  -- resource_change | goal_change | npc_move | other
+                  -- (item_update, the equip toggle, retired at v2.18 with
+                  -- item.equipped -- TICKET-0109; no row of it was ever
+                  -- produced since BRIEF-08)
                   -- (goal_change targets npc_goal — TICKET-0013/BRIEF-0013-c)
                   -- (npc_move targets character.current_location_id,
                   -- tick-only producer, no schema bump — TICKET-0015/
@@ -1622,26 +1624,48 @@ CREATE TABLE artifact (
 
 ### `item`
 
-Mundane tracked objects — static possession (schema v1.18). Extension of
-entity for type `item`.
+A KIND of object (schema v1.18; a kind since v2.18, TICKET-0109,
+BRIEF-0109-A, A1) -- « Fourrure de loup », « Dague ». Extension of entity
+for type `item`. Who holds how many of it is `item_holding`; the kind
+carries its condition and its indicative `value` (units of the quest
+economy, never a price). `owner_id`, `location_id`, `equipped` and their
+CHECK were dropped at v2.18. `artifact` stays reserved for the unique,
+magical or historic object.
 
 ```sql
 CREATE TABLE item (
-  id           TEXT PRIMARY KEY REFERENCES entity(id),
-  owner_id     TEXT REFERENCES entity(id),   -- NULL = lying in a location
-  location_id  TEXT REFERENCES entity(id),   -- NULL = carried (follows owner)
-  equipped     BOOLEAN DEFAULT FALSE,
-  condition    TEXT DEFAULT 'intact',
-  CHECK (NOT equipped OR owner_id IS NOT NULL)
+  id         TEXT PRIMARY KEY REFERENCES entity(id),
+  condition  TEXT NOT NULL DEFAULT 'intact',
+  value      INTEGER NOT NULL DEFAULT 1 CHECK (value >= 0)
 );
 ```
 
-> Three states, never deletion: equipped (`owner_id` set + `equipped=TRUE`),
-> carried but stowed (`owner_id` set + `equipped=FALSE`), lying in a
-> location (`owner_id` NULL + `location_id` set). Mundane tracked objects
-> live here; `artifact` remains reserved for magical/historically
-> significant objects. An item can be promoted to artifact later if the
-> fiction demands it.
+-----
+
+### `item_holding`
+
+Who holds how many of an item (v2.18, A1). The holder is any entity of the
+world: a character, a faction, or a location (an object lying somewhere is
+held by that place; a zone never receives one -- `require_visitable`). One
+row per (item, holder); a row at 0 is kept, never deleted, and reads as
+absent. Written only by `writes.write_holding`, which appends the previous
+quantity to `change_history`. Read by the MJ's inventory line, the Play
+possession check (held at least once), the sheets' « Objets » panel and the
+zone promotion (a place's holdings move to its first child).
+
+```sql
+CREATE TABLE item_holding (
+  id                TEXT PRIMARY KEY,
+  world_id          TEXT NOT NULL REFERENCES world(id),
+  item_id           TEXT NOT NULL REFERENCES item(id),
+  holder_entity_id  TEXT NOT NULL REFERENCES entity(id),
+  quantity          INTEGER NOT NULL DEFAULT 0 CHECK (quantity >= 0),
+  updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+  change_history    JSON NOT NULL DEFAULT '[]'
+);
+CREATE UNIQUE INDEX idx_item_holding_pair ON item_holding(item_id, holder_entity_id);
+CREATE INDEX idx_item_holding_holder ON item_holding(holder_entity_id);
+```
 
 -----
 
@@ -2335,9 +2359,11 @@ CREATE INDEX idx_quest_offer_requirement_offer ON quest_offer_requirement(offer_
 
 An offer a character accepted (v2.17, B1): the link to the agenda the
 acceptance created, born `paused` (A1) -- one open plan among the player's,
-which a day selects or the player pins. Immutable: a quest's state is its
-agenda's status (M1: `active`/`paused` open, `completed`, `failed`,
-`abandoned`). Written only by `writes.accept_quest`.
+which a day selects or the player pins. A quest's state is its agenda's
+status (M1: `active`/`paused` open, `completed`, `failed`, `abandoned`).
+Written by `writes.accept_quest`; `settled_at` (v2.18, TICKET-0109, D1) is
+set once, by « déclarer accomplie », when the quest's terms were applied --
+the only column written after creation.
 
 ```sql
 CREATE TABLE quest (
@@ -2346,11 +2372,86 @@ CREATE TABLE quest (
   offer_id      TEXT NOT NULL REFERENCES quest_offer(id),
   character_id  TEXT NOT NULL REFERENCES entity(id),
   agenda_id     TEXT NOT NULL REFERENCES agenda(id),
-  accepted_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+  accepted_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+  settled_at    DATETIME                  -- v2.18: set once, at « déclarer accomplie »
 );
 CREATE UNIQUE INDEX idx_quest_agenda ON quest(agenda_id);
 CREATE INDEX idx_quest_character ON quest(character_id);
 CREATE INDEX idx_quest_offer ON quest(offer_id);
+```
+
+-----
+
+### `quest_offer_term`
+
+A cost or a reward of an offer (v2.18, TICKET-0109, B1). `direction`:
+`cost` (what the character gives to settle the quest) or `reward` (what he
+receives). `currency`: `money`, `item`, `relation`, `fact`, `skill`.
+`counterparty_entity_id` NULL = the offer's giver. `amount`: coins, items,
+or relation points; `item_id`, `fact_id`, `skill_key` (a base domain or a
+skill definition id) name the target; `level` is the knowledge level a fact
+reward gives (NULL = `knows`). Replaced whole with the offer's steps on
+save. Written only by `writes.write_quest_offer`.
+
+```sql
+CREATE TABLE quest_offer_term (
+  id                      TEXT PRIMARY KEY,
+  world_id                TEXT NOT NULL REFERENCES world(id),
+  offer_id                TEXT NOT NULL REFERENCES quest_offer(id),
+  term_order              INTEGER NOT NULL,
+  direction               TEXT NOT NULL CHECK (direction IN ('cost','reward')),
+  currency                TEXT NOT NULL CHECK (currency IN ('money','item','relation','fact','skill')),
+  counterparty_entity_id  TEXT REFERENCES entity(id),
+  item_id                 TEXT REFERENCES item(id),
+  fact_id                 TEXT REFERENCES fact(id),
+  skill_key               TEXT,
+  amount                  INTEGER,
+  level                   TEXT,
+  CHECK (
+    (currency NOT IN ('money','item','relation') OR (amount IS NOT NULL AND amount >= 1))
+    AND (currency <> 'item' OR item_id IS NOT NULL)
+    AND (currency <> 'fact' OR fact_id IS NOT NULL)
+    AND (currency <> 'skill' OR skill_key IS NOT NULL)
+  )
+);
+CREATE INDEX idx_quest_offer_term_offer ON quest_offer_term(offer_id);
+```
+
+-----
+
+### `quest_term`
+
+An accepted quest's own copy of its offer's terms (v2.18, B1): editing the
+offer never changes a bargain already struck. Same columns and CHECKs as
+`quest_offer_term`, `quest_id` (REFERENCES `quest`) in place of `offer_id`;
+index `idx_quest_term_quest`. Written only by `writes.accept_quest`;
+immutable.
+
+-----
+
+### `quest_economy`
+
+A world's rates of the indicative unit (v2.18, C1/E1): one row per world,
+the `conversation_window_config` precedent. Each column NULL, or no row,
+reads the code's default (`quest_value.DEFAULT_RATES`: money 1, relation
+point 1, fact 5, skill 20; band 100-150 %); an item's rate is its own
+`value`. The unit is a display -- never converted, never spent. Written
+only by `writes.upsert_quest_economy`.
+
+```sql
+CREATE TABLE quest_economy (
+  id             TEXT PRIMARY KEY,
+  world_id       TEXT NOT NULL REFERENCES world(id),
+  rate_money     INTEGER,
+  rate_relation  INTEGER,
+  rate_fact      INTEGER,
+  rate_skill     INTEGER,
+  band_low_pct   INTEGER,
+  band_high_pct  INTEGER,
+  updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+  CHECK (every column IS NULL OR >= 0)
+);
+CREATE UNIQUE INDEX idx_quest_economy_world ON quest_economy(world_id);
 ```
 
 -----

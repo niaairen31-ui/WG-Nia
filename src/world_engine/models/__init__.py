@@ -30,7 +30,9 @@ Layout, by stratum:
                         absent from canon_write_policy.txt's [CANON_TABLES].
     quests.py        — quest offers and accepted quests (QuestOffer,
                         QuestOfferStep, QuestOfferRequirement, Quest;
-                        TICKET-0108, schema v2.17), canon.
+                        TICKET-0108, schema v2.17), their terms and a
+                        world's quest economy (QuestOfferTerm, QuestTerm,
+                        QuestEconomy; TICKET-0109, v2.18), canon.
 
 This module re-exports the ENTIRE former public surface of the flat
 `models.py` — every class, constant, and the two module functions
@@ -61,6 +63,7 @@ from .canon import (
     GoalAgendaLink,
     GoalPrerequisite,
     Item,
+    ItemHolding,
     Ledger,
     Location,
     LocationTypeCatalog,
@@ -127,7 +130,18 @@ from .observation import (
     ObservationRun,
     ObservationRunTemplate,
 )
-from .quests import QUEST_OFFER_STATUSES, Quest, QuestOffer, QuestOfferRequirement, QuestOfferStep
+from .quests import (
+    QUEST_OFFER_STATUSES,
+    QUEST_TERM_CURRENCIES,
+    QUEST_TERM_DIRECTIONS,
+    Quest,
+    QuestEconomy,
+    QuestOffer,
+    QuestOfferRequirement,
+    QuestOfferStep,
+    QuestOfferTerm,
+    QuestTerm,
+)
 
 __all__ = [
     "World",
@@ -173,6 +187,7 @@ __all__ = [
     "EventEntity",
     "Artifact",
     "Item",
+    "ItemHolding",
     "SkillDefinition",
     "SkillSystem",
     "SkillRank",
@@ -196,6 +211,11 @@ __all__ = [
     "QuestOffer",
     "QuestOfferRequirement",
     "QuestOfferStep",
+    "QUEST_TERM_CURRENCIES",
+    "QUEST_TERM_DIRECTIONS",
+    "QuestEconomy",
+    "QuestOfferTerm",
+    "QuestTerm",
     "GoalAgendaLink",
     "EntityType",
     "EntityTypeHistory",

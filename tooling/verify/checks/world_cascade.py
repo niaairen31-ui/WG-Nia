@@ -197,6 +197,13 @@ _FIXTURE: tuple[tuple[str, dict], ...] = (
                                  "target_entity_id": "{w}-char"}),
     ("quest", {"id": "qu-{w}", "world_id": "{w}", "offer_id": "qo-{w}",
                "character_id": "{w}-char", "agenda_id": "ag-{w}"}),
+    ("item_holding", {"id": "ih-{w}", "world_id": "{w}", "item_id": "{w}-item",
+                      "holder_entity_id": "{w}-char", "quantity": 2}),
+    ("quest_offer_term", {"id": "qot-{w}", "world_id": "{w}", "offer_id": "qo-{w}", "term_order": 1,
+                          "direction": "reward", "currency": "item", "item_id": "{w}-item", "amount": 1}),
+    ("quest_term", {"id": "qt-{w}", "world_id": "{w}", "quest_id": "qu-{w}", "term_order": 1,
+                    "direction": "cost", "currency": "money", "amount": 3}),
+    ("quest_economy", {"id": "qe-{w}", "world_id": "{w}", "rate_fact": 4}),
 )
 
 

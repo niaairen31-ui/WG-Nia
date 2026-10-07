@@ -10,10 +10,10 @@ over world state.
 Package split from a single `crud.py` (TICKET-0027, BRIEF-0027-d, R5): one
 domain module per concern (`entities`, `relations`, `knowledge`, `goals`,
 `agendas`, `events`, `factions`, `skills`, `locations`, `ledger`,
-`prompts`), all decorating the single shared `router` (`_router.py`). This
-`__init__.py` is a re-export surface only — no logic lives here — so every
-existing call site (`from . import crud as _crud`, `_crud.<name>`) keeps
-working unchanged.
+`prompts`; `items` since TICKET-0109), all decorating the single shared
+`router` (`_router.py`). This `__init__.py` is a re-export surface only
+— no logic lives here — so every existing call site (`from . import crud
+as _crud`, `_crud.<name>`) keeps working unchanged.
 
 Scope (see Claude Code Brief — Author CRUD):
 - Composite editors for `character`, `faction`, `location` (entity + its
@@ -258,6 +258,7 @@ from .prompts import (
     update_prompt_text,
 )
 
+from .items import HoldingBody, list_item_holders, set_holding
 from .zone_hooks import take_promotion_gatherings
 
 __all__ = ["router", "ENTITY_TYPE_REGISTRY"]

@@ -68,7 +68,6 @@ from ...models import (
     FactionMembership,
     Gathering,
     GatheringMember,
-    Item,
     Knowledge,
     Location,
     NpcGoal,
@@ -308,7 +307,7 @@ def _find_applied_duplicate_conversation_sourced(mut: ProposedMutation, db: Sess
     channel awakens alongside the tick producer, so a --force re-analysis
     must not double an event either).
 
-    relation_change, item_update, knowledge_change, and resource_change all
+    relation_change, knowledge_change, and resource_change all
     fall through unguarded, deliberately — see `_find_applied_duplicate`'s
     docstring for the per-type rationale.
     """
@@ -377,16 +376,12 @@ def _find_applied_duplicate(
     already-applied comparison) otherwise — see each for its per-type match
     keys and deliberate inclusion/exclusion rationale.
 
-    relation_change, item_update, knowledge_change, and resource_change all
+    relation_change, knowledge_change, and resource_change all
     fall through BOTH entry points unguarded, deliberately:
     - relation_change deltas ACCUMULATE — two independent +5 events sum to
       +10 and must both apply. These come only from per-turn immediate
       flags (one per turn), so they are never re-proposed by the final
       pass and can never be double-applied by --force.
-    - item_update is a state transition (equipped true/false); a legitimate
-      draw→stow→draw sequence within one conversation must apply each
-      time. Dormant since BRIEF-08/D2a.1 — no live code path produces it
-      anymore (see "Auto-applied mutations" in ARCHITECTURE_DECISIONS.md).
     - knowledge_change: successive legitimate upgrades in one conversation
       (e.g. rumor → partial, then later partial → knows) must both apply —
       the monotone re-check inside _apply_mutation ("level already >=
@@ -457,7 +452,6 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
         "relation_change": _mutations._mutation_apply_relation_change,
         "new_knowledge": _mutations._mutation_apply_new_knowledge,
         "status_change": _mutations._mutation_apply_status_change,
-        "item_update": _mutations._mutation_apply_item_update,
         "knowledge_change": _mutations._mutation_apply_knowledge_change,
         "goal_change": _mutations._mutation_apply_goal_change,
         "npc_move": _mutations._mutation_apply_npc_move,
