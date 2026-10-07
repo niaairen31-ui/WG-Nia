@@ -262,6 +262,11 @@ _BLOCKED_DETAIL_FR: dict[str, str] = {
     "resource": "il ne dispose pas des moyens nécessaires",
     "relation_gte": "ses appuis ne sont pas encore assez solides pour cela",
     "location_reachable": "l'endroit n'est pas accessible depuis là où il se trouve",
+    # TICKET-0108 (BRIEF-0108-A): the four creator-only forms.
+    "has_met": "il n'a encore jamais rencontré {required}",
+    "faction_member": "il n'appartient pas à {required}",
+    "skill_rank_gte": "sa maîtrise de « {required} » ne suffit pas encore",
+    "quest_completed": "il doit d'abord mener à bien « {required} »",
 }
 
 

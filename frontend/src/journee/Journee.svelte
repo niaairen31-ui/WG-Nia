@@ -8,13 +8,16 @@
      Once submitted, a declaration is never editable here: no edit control,
      no delete control, and `declared_action` has no update path anywhere
      in the backend (writes/pipeline.py). No agenda data is fetched,
-     rendered or referenced anywhere in this surface (Scope OUT). */
+     rendered or referenced anywhere in this surface (Scope OUT): quests
+     (TICKET-0108) are shown by their own title, steps and `quest_id`. */
   import { serverState } from '../lib/serverState.svelte.js';
   import { navigate } from '../lib/router.js';
   import {
     journeeState, selectedDay, loadDays, selectDay, submitDeclaration, reloadForWorld,
     planDay, resolveDay,
   } from './journee.svelte.js';
+  import QuestPanel from './QuestPanel.svelte';
+  import { questState, loadQuests, openQuests } from './quests.svelte.js';
 
   let { active = false } = $props();
 
@@ -29,7 +32,20 @@
   $effect(() => {
     void serverState.worldId;
     reloadForWorld();
+    questState.pin = '';
+    loadQuests();
   });
+
+  // A plan or a resolution moves a quest's steps: re-read the panel after either.
+  async function plan(id) {
+    await planDay(id, questState.pin);
+    await loadQuests();
+  }
+
+  async function resolve(id) {
+    await resolveDay(id);
+    await loadQuests();
+  }
 </script>
 
 <div class="app-view" id="journee-view" style:display={active ? '' : 'none'}>
@@ -58,6 +74,8 @@
     </div>
   </div>
 
+  <QuestPanel />
+
   <div class="queue-panel" id="journee-list-panel">
     <div class="panel-head">
       <h2>Jours précédents</h2>
@@ -84,11 +102,19 @@
           <p>{day.declared_action}</p>
 
           {#if day.status === 'submitted'}
-            <button disabled={journeeState.planning} onclick={() => planDay(day.id)}>
+            {#if openQuests().length > 0}
+              <label class="quest-pin">Cette journée avance
+                <select bind:value={questState.pin} disabled={journeeState.planning}>
+                  <option value="">— le jeu choisit —</option>
+                  {#each openQuests() as q (q.quest_id)}<option value={q.quest_id}>la quête « {q.title} »</option>{/each}
+                </select>
+              </label>
+            {/if}
+            <button disabled={journeeState.planning} onclick={() => plan(day.id)}>
               {journeeState.planning ? '⟳ Émission du plan…' : 'Émettre le plan'}
             </button>
           {:else if day.status === 'resolving'}
-            <button disabled={journeeState.resolving} onclick={() => resolveDay(day.id)}>
+            <button disabled={journeeState.resolving} onclick={() => resolve(day.id)}>
               {journeeState.resolving ? '⟳ Résolution…' : 'Résoudre la journée'}
             </button>
           {/if}
@@ -208,4 +234,5 @@
   .muted { color: var(--muted); font-size: 12px; }
   .gains-list { list-style: none; padding: 0; margin: 0; }
   .gains-list li { padding: 2px 0; }
+  .quest-pin { display: block; margin: 6px 0; font-size: 13px; }
 </style>

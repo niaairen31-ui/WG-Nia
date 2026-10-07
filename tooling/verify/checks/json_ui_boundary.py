@@ -53,6 +53,9 @@ JSON_COLUMN_ALLOWLIST = {
     "Skill.change_history",
     "Agenda.change_history",
     "AgendaStep.change_history",
+    # TICKET-0108 (BRIEF-0108-A): an offer's audit trail, the same posture
+    # as the change_history columns above -- never rendered as a UI field.
+    "QuestOffer.change_history",
     # Internal engine snapshots — never rendered in any UI surface.
     "PassPlay.injected_context",
     "PassPlay.history",

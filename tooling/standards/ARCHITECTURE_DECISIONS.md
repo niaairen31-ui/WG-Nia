@@ -18039,6 +18039,99 @@ creator's bypass. Each row names its master. A skill's fiche carries
 **Rejected.** A second component for NPC sheets: the same rows, the same
 routes, two places to keep in step.
 
+
+## A QUEST IS OFFERED, THEN ACCEPTED AS AN OPEN PLAN (TICKET-0108) -- EIGHT REQUIREMENT FORMS, FOUR FOR THE MODEL (BRIEF-0108-a, schema v2.17)
+
+**B1, A1.** A quest offer (`quest_offer`, its steps, its requirements) is
+authored by the creator; accepting it creates an agenda of the player born
+`paused` -- one open plan among the others, so several quests run at once
+without lifting the one-active-agenda rule: a day selects the plan it
+advances (TICKET-0077), or the player pins it. `quest` links the agenda to
+its offer and holds no state of its own (M1).
+
+**B, one language.** `agenda_step_requirement` gains four forms --
+`has_met`, `faction_member`, `skill_rank_gte`, `quest_completed` -- and
+`quest_offer_requirement` carries its two CHECK texts byte for byte; a
+requirement with no step is eligibility. `day_plan.evaluate_specs` judges
+both. The day-plan model may still emit only the four forms it always
+could (`MODEL_REQUIREMENT_TYPES`); a creator form in its plan is a parse
+failure. `resource` stays money, its key a label: an object is never a
+resource.
+
+**B-dir.** `relation_gte` reads what the target feels toward the
+character (the social row target -> character), the same row the NPC-goal
+prerequisite judge reads (`_find_perceived_relation`); before this, a day
+plan read the first row of the pair in either direction, structural rows
+included.
+
+**A secret membership counts** for `faction_member`: it is the character's
+own (the `tick_context` self-briefing precedent).
+
+**Offers are curated content.** Saving an offer replaces its steps and
+requirements whole (the `npc_price` precedent, a named exception to
+"history is sacred"); an accepted quest keeps its own copy in its agenda,
+and the offer row keeps a `change_history`.
+
+**Rejected.** A3, several active agendas per character: `pass_play.
+agenda_id`, the resolve guard and `active_plan` all assume one. A separate
+targeting vocabulary for eligibility (B2): a second language. Renaming
+`resource`: a data migration and a prompt change for a label.
+
+
+## A QUEST IS TAKEN, PINNED, ABANDONED (TICKET-0108) -- THE WRITERS JUDGE, THE PLAYER NEVER SEES THE AGENDA (BRIEF-0108-b, no schema change)
+
+**E1.** The creator authors offers from her own routes (`/api/quest-offers`,
+creator CRUD); `write_quest_offer` validates the whole offer -- giver,
+title, status, steps, every requirement through `_clean_requirement` --
+before its first write.
+
+**B1, A1, L1, I1.** `accept_quest` judges the offer itself (open,
+eligibility met, L1: a non-repeatable offer once per character, a
+repeatable one again only once the last quest taken from it is over), so
+no caller can skip the judgment; the Journée list (`available_offers`) is
+the same judgment, never a second one. The agenda is born `paused` through
+`write_agenda` (which now takes `status="paused"`), its first step
+`active` -- the creator-agenda precedent -- and the player's active plan is
+untouched.
+
+**O1.** `POST /api/day/{id}/plan` takes an optional `quest_id`: the day is
+pinned to that open quest's plan and no selection call is made; the
+reconciliation then runs against it as against any selected plan, so a
+`replace` verdict still parks it.
+
+**N1.** `abandon_quest` refuses while a day is resolving against the quest
+or a step change of it awaits review (applying it afterwards would move an
+abandoned plan); otherwise the agenda becomes `abandoned`, nothing deleted.
+
+**The agenda stays invisible.** The player's payload names a quest by
+`quest_id` and an offer by `offer_id`; no agenda or step id reaches it
+(`quests.py` QB4, the TICKET-0075 Scope OUT kept for quests).
+
+**Rejected.** Accepting through a mutation in the review queue: Nia is the
+one accepting; the queue would ask her to approve her own click.
+
+
+## QUESTS ON TWO SURFACES (TICKET-0108) -- CRÉATION AUTHORS THE OFFERS, JOURNÉE TAKES THEM AND PINS A DAY (BRIEF-0108-c, no schema change)
+
+**E1.** « Quêtes » is a Création tab, an island created as such (origin
+`new`): the offers listed, one offer edited whole -- giver, title, summary,
+« répétable », open or closed, the conditions that decide who it is
+offered to, the steps (objective, cost, roll) with their own
+requirements. The editor's eight forms mirror `day_plan`'s vocabulary and
+its three shape groups across the network boundary (`questRequirements.js`,
+kept equal by `quests.py` QC1).
+
+**I1, N1, O1.** Journée shows a « Quêtes » panel: the offers the player is
+eligible for, with « Accepter », and his quests -- state, steps, what the
+active step still needs, « Abandonner » (asked twice). Above « Émettre le
+plan », « Cette journée avance » pins the day to an open quest, or lets the
+day choose. The panel names quests and offers only; the plan behind a
+quest stays invisible, as in the rest of Journée.
+
+**Rejected.** Offers authored in Journée: Journée is the player's surface;
+the creator's tools live in Création. The pin as a separate button per
+quest: one choice per day, made where the day is planned.
+
 ---
 
 *Co-built with Claude, June 2026.*

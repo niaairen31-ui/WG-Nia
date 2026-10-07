@@ -5,11 +5,11 @@ BRIEF-0075-b). Stdlib `ast` and text only, no DB — same FAILURES/fail()/
 R1 (evaluator bijection, `_SOURCE_LOOKUPS` precedent): `_EVALUATORS`' key set
 equals `REQUIREMENT_TYPES` exactly, in both directions.
 R2 (type vocabulary): `agenda_step_requirement`'s `type` CHECK
-(`ck_agenda_step_requirement_type`) quotes exactly `REQUIREMENT_TYPES`'s four
-values.
+(`ck_agenda_step_requirement_type`) quotes exactly `REQUIREMENT_TYPES`'s
+values (eight since TICKET-0108).
 R3 (shape CHECK): `ck_agenda_step_requirement_shape` exists and its
-expression mentions all six (type, column) pairs from the per-type shape
-rule.
+expression mentions every (type, column) pair from the per-type shape rule
+(eleven since TICKET-0108).
 R4 (budget derivation): `DAY_BUDGET_SLOTS` is a `len(...)` derivation, never
 a numeric literal.
 R5 (P2 / positional read exclusion): `day_plan.py` contains no reference to
@@ -187,7 +187,12 @@ SEED_PILOT_FILE = ROOT / "scripts" / "seed_pilot.py"
 # headroom, TICKET-0075/BRIEF-0075-b) — Agenda stays in canon.py.
 _MODEL_FILES = (CANON_FILE, CONFIG_FILE)
 
-EXPECTED_REQUIREMENT_TYPES = ("knowledge", "relation_gte", "resource", "location_reachable")
+# Eight forms since v2.17 (TICKET-0108, BRIEF-0108-A): the model's four, then
+# the creator's four. Which ones the model may emit is `quests.py`'s QA1.
+EXPECTED_REQUIREMENT_TYPES = (
+    "knowledge", "relation_gte", "resource", "location_reachable",
+    "has_met", "faction_member", "skill_rank_gte", "quest_completed",
+)
 EXPECTED_RECONCILE_VERDICTS = ("continue", "modify", "replace")
 EXPECTED_PLAN_ACTIONS = ("continue", "modify", "replace", "resume")
 # day_plans.OPEN_PLAN_STATUSES, restated here for the static R23 total-mapping
@@ -355,6 +360,11 @@ def check_shape_constraint() -> None:
         ("resource", "target_key"),
         ("relation_gte", "threshold"),
         ("resource", "threshold"),
+        ("has_met", "target_entity_id"),
+        ("faction_member", "target_entity_id"),
+        ("skill_rank_gte", "target_key"),
+        ("quest_completed", "target_key"),
+        ("skill_rank_gte", "threshold"),
     ]
     missing = [pair for pair in required_pairs if pair[0] not in expr or pair[1] not in expr]
     if missing:

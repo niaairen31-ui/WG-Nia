@@ -25,7 +25,7 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
-from .models import Skill, SkillDefinition
+from .models import BASE_SKILL_DOMAINS, Skill, SkillDefinition
 from .resolution import Verdict
 from .skill_ranks import DEFAULT_RANK, rank_modifier
 
@@ -77,6 +77,18 @@ def opposition_modifier(db: Session, npc_id: str, base_domain: str, definition: 
     if row is None:
         row = _base_row(db, npc_id, base_domain)
     return rank_modifier(row.rank if row is not None else DEFAULT_RANK)
+
+
+def held_rank(db: Session, character_id: str, skill_key: Optional[str]) -> Optional[int]:
+    """The rank a character holds in `skill_key` (TICKET-0108, BRIEF-0108-A,
+    the `skill_rank_gte` requirement): a base domain reads its base row, else
+    `DEFAULT_RANK` (every character has the four base domains, D1); a skill
+    definition id reads the character's row for it, else None -- not held."""
+    if skill_key in BASE_SKILL_DOMAINS:
+        row = _base_row(db, character_id, skill_key)
+        return row.rank if row is not None else DEFAULT_RANK
+    row = _definition_row(db, character_id, skill_key) if skill_key else None
+    return row.rank if row is not None else None
 
 
 def locked_verdict(skill_name: str) -> Verdict:

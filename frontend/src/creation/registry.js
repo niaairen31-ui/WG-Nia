@@ -551,4 +551,12 @@ export const CREATION_ISLANDS = Object.freeze({
     origin: 'new',
     createdBy: 'TICKET-0088',
   }),
+  // TICKET-0108 (BRIEF-0108-C, E1): the quest offers the creator authors --
+  // created directly as an island, no legacy predecessor.
+  questOffers: Object.freeze({
+    containerId: 'creation-quetes',
+    component: 'QuestOffers.svelte',
+    origin: 'new',
+    createdBy: 'TICKET-0108',
+  }),
 });

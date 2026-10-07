@@ -17,7 +17,7 @@ baselined.
   `active -> completed` and `active -> abandoned` — anything else (including
   reopening a closed goal) raises `ValueError`. Appends the previous state to
   `change_history` first (history is sacred).
-- `write_agenda(...)`                   : insert an `active` `agenda` row
+- `write_agenda(...)`                   : insert an `active` (or, for a quest, `paused`) `agenda` row
   (BRIEF-0018-a). A1 structural: `owner_entity_id` must resolve to an ACTIVE
   faction entity, else `ValueError`. The only constructor of `Agenda`.
 - `write_agenda_step(...)`              : insert one `agenda_step` row
@@ -43,15 +43,26 @@ from sqlalchemy import text
 from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
-from ..day_plan import REQUIREMENT_TYPES, PlanStep, RequirementSpec
+from ..day_plan import (
+    ENTITY_TARGET_TYPES,
+    KEY_TARGET_TYPES,
+    REQUIREMENT_TYPES,
+    THRESHOLD_TYPES,
+    PlanStep,
+    RequirementSpec,
+)
 from ..models import (
+    BASE_SKILL_DOMAINS,
     Agenda,
     AgendaStep,
     AgendaStepRequirement,
     Entity,
+    Fact,
     GoalAgendaLink,
     GoalPrerequisite,
     NpcGoal,
+    QuestOffer,
+    SkillDefinition,
 )
 
 # npc_goal.horizon enum (world-engine-schema.md v1.69): short | long.
@@ -238,9 +249,12 @@ def write_agenda(
     owner_entity_id: str,
     title: str,
     mutation_id: Optional[str] = None,
+    status: str = "active",
 ) -> Agenda:
     """Insert an `active` `agenda` row (TICKET-0018, BRIEF-0018-a; owner
-    unlock TICKET-0020, BRIEF-0020-a).
+    unlock TICKET-0020, BRIEF-0020-a) -- or a `paused` one (TICKET-0108,
+    BRIEF-0108-B, A1: an accepted quest is born parked, one open plan among
+    the player's, and displaces nothing). Any other `status` raises.
 
     The ONLY constructor of `Agenda` in gameplay code — both sanctioned
     canon-write paths (`_apply_mutation`'s `agenda_creation` branch and the
@@ -255,12 +269,14 @@ def write_agenda(
     `_apply_mutation` writers and is not otherwise used here.
     """
     del mutation_id
+    if status not in ("active", "paused"):
+        raise ValueError(f"write_agenda: an agenda is born 'active' or 'paused', got {status!r}")
     owner = db.get(Entity, owner_entity_id)
     if owner is None or owner.world_id != world_id:
         raise ValueError(f"write_agenda: owner {owner_entity_id!r} not found in world {world_id!r}")
     if owner.type not in ("faction", "character") or owner.status != "active":
         raise ValueError(f"write_agenda: owner {owner_entity_id!r} is not an active faction or character")
-    if owner.type == "character":
+    if owner.type == "character" and status == "active":
         existing = db.exec(
             select(Agenda).where(
                 Agenda.owner_entity_id == owner_entity_id,
@@ -274,7 +290,7 @@ def write_agenda(
         world_id=world_id,
         owner_entity_id=owner_entity_id,
         title=title,
-        status="active",
+        status=status,
         change_history=[],
     )
     db.add(agenda)
@@ -585,33 +601,69 @@ def write_agenda_status(
     return agenda
 
 
+# The entity type each entity-targeted form must name (TICKET-0108, C-01);
+# `None` accepts any entity of the world -- the two model-emitted forms keep
+# the check they always had, so a day plan is refused for nothing new.
+_TARGET_ENTITY_TYPE: dict[str, Optional[str]] = {
+    "relation_gte": None, "location_reachable": None, "has_met": None, "faction_member": "faction",
+}
+
+
+def _clean_target_key(db: Session, world_id: str, req: RequirementSpec) -> Optional[str]:
+    """The error for a key-targeted form whose key names nothing in
+    `world_id`, or None. `resource`'s key is a label (one currency per
+    world), never resolved."""
+    if req.type == "knowledge":
+        fact = db.get(Fact, req.target_key)
+        return None if fact is not None and fact.world_id == world_id else f"unknown fact {req.target_key!r}"
+    if req.type == "skill_rank_gte":
+        if req.target_key in BASE_SKILL_DOMAINS:
+            return None
+        definition = db.get(SkillDefinition, req.target_key)
+        ok = definition is not None and definition.world_id == world_id
+        return None if ok else f"unknown skill {req.target_key!r}"
+    if req.type == "quest_completed":
+        offer = db.get(QuestOffer, req.target_key)
+        return None if offer is not None and offer.world_id == world_id else f"unknown quest offer {req.target_key!r}"
+    return None
+
+
 def _clean_requirement(db: Session, world_id: str, step_index: int, req: RequirementSpec) -> dict:
-    """Validate one requirement against the six-condition per-type shape
-    (the `agenda_step_requirement` CHECK, duplicated here as a readable
-    `ValueError` rather than a bare `IntegrityError`) and resolve it into the
-    exact kwargs `AgendaStepRequirement` needs. Raises on any violation —
-    carved out of `write_day_plan` so that function fits the 80-line cap
-    (`_build_relation_delta`/`_build_relation_set` precedent, R7)."""
+    """Validate one requirement against the per-type shape (the
+    `*_requirement_shape` CHECK, duplicated here as a readable `ValueError`
+    rather than a bare `IntegrityError`; its groups are `day_plan`'s
+    `ENTITY_TARGET_TYPES`/`KEY_TARGET_TYPES`/`THRESHOLD_TYPES`), check that
+    its target exists in `world_id`, and resolve it into the exact kwargs a
+    requirement row needs. Raises on any violation. Shared by
+    `write_day_plan` and the quest writers (`writes/quests.py`, C-03)."""
     if req.type not in REQUIREMENT_TYPES:
         raise ValueError(f"write_day_plan: unknown requirement type {req.type!r}")
 
-    entity_gated = req.type in ("relation_gte", "location_reachable")
+    entity_gated = req.type in ENTITY_TARGET_TYPES
     if entity_gated:
         if not req.target_entity_id:
             raise ValueError(
                 f"write_day_plan: step {step_index} requirement type {req.type!r} needs a target_entity_id"
             )
         target = db.get(Entity, req.target_entity_id)
-        if target is None or target.world_id != world_id:
+        wanted = _TARGET_ENTITY_TYPE[req.type]
+        if target is None or target.world_id != world_id or (wanted is not None and target.type != wanted):
             raise ValueError(f"write_day_plan: unknown target entity {req.target_entity_id!r}")
-    elif not req.target_key:
-        raise ValueError(f"write_day_plan: step {step_index} requirement type {req.type!r} needs a target_key")
+    else:
+        if not req.target_key:
+            raise ValueError(f"write_day_plan: step {step_index} requirement type {req.type!r} needs a target_key")
+        error = _clean_target_key(db, world_id, req)
+        if error is not None:
+            raise ValueError(f"write_day_plan: step {step_index} requirement type {req.type!r}: {error}")
 
     threshold = req.threshold
-    if req.type in ("relation_gte", "resource"):
-        if not isinstance(threshold, int) or isinstance(threshold, bool) or threshold < 1:
+    if req.type in THRESHOLD_TYPES:
+        top = 5 if req.type == "skill_rank_gte" else None
+        if (not isinstance(threshold, int) or isinstance(threshold, bool) or threshold < 1
+                or (top is not None and threshold > top)):
             raise ValueError(
                 f"write_day_plan: step {step_index} requirement type {req.type!r} needs a positive integer threshold"
+                + (f" of at most {top}" if top is not None else "")
             )
     else:
         threshold = None

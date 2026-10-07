@@ -13,6 +13,14 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.17** — TICKET-0108, BRIEF-0108-A: quest offers and quests.
+  `quest_offer`, `quest_offer_step`, `quest_offer_requirement` and `quest`
+  are added. `agenda_step_requirement`'s two CHECKs gain four forms
+  (`has_met`, `faction_member`, `skill_rank_gte`, `quest_completed`), which
+  only the creator authors; `quest_offer_requirement` carries the same two
+  CHECK texts. `migrate_v2_17_quests.py` rebuilds `agenda_step_requirement`
+  from the model (rows copied), creates the four tables, and refuses a
+  database older than v2.16.
 - **v2.16** — TICKET-0107, BRIEF-0107-A: NPC skill sheets and skills
   learned from a master. `skill_definition.requires_master` (default 0) and
   `skill.taught_by_id` (FK `entity`, nullable) are added; an NPC holds skill

@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.16
+Current schema version: v2.17
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -2205,20 +2205,31 @@ CREATE UNIQUE INDEX idx_agenda_step_one_active
 
 Day-plan precondition gate on one `agenda_step` (schema v1.94, TICKET-0075,
 BRIEF-0075-b). `goal_prerequisite` shape precedent, widened to a closed
-four-form vocabulary (`knowledge`, `relation_gte`, `resource`,
-`location_reachable`) and a `target_key` column for the two forms that gate
-on a string (a knowledge fact id since v2.09, TICKET-0097; a resource tag)
-rather than an entity. The
-per-type shape CHECK is the structural guarantee that an ill-formed row
-cannot exist: `relation_gte`/`location_reachable` require `target_entity_id`
-NOT NULL; `knowledge`/`resource` require `target_key` NOT NULL;
-`relation_gte`/`resource` require `threshold` NOT NULL. Curated plan
-metadata, same family as `npc_schedule` — no `change_history`. THE
-POSITIONAL WALL: `location_reachable`'s target lives HERE, never on
-`agenda_step` — a requirement states "the player must be able to reach L", a
-precondition on the player, never a position of an NPC (see
-BRIEF-0074-a-amendment-1). Written only by `writes.write_day_plan`, read
-only by `day_plan.evaluate_requirements`.
+vocabulary and a `target_key` column for the forms that gate on a string
+(a knowledge fact id since v2.09, TICKET-0097; a resource label; a skill
+key; a quest offer id) rather than an entity. Eight forms since v2.17
+(TICKET-0108, BRIEF-0108-A): `knowledge`, `relation_gte`, `resource`,
+`location_reachable` -- the four the day-plan model may emit
+(`day_plan.MODEL_REQUIREMENT_TYPES`) -- and `has_met`, `faction_member`,
+`skill_rank_gte`, `quest_completed`, authored by the creator only, on a
+quest offer. The per-type shape CHECK is the structural guarantee that an
+ill-formed row cannot exist: `relation_gte`/`location_reachable`/`has_met`/
+`faction_member` require `target_entity_id` NOT NULL;
+`knowledge`/`resource`/`skill_rank_gte`/`quest_completed` require
+`target_key` NOT NULL; `relation_gte`/`resource`/`skill_rank_gte` require
+`threshold` NOT NULL. Meanings: `relation_gte` reads what the TARGET feels
+toward the character (the social row target -> character, v2.17);
+`resource` is the character's money (one currency per world, `target_key`
+a label); `has_met` an encounter row of the pair; `faction_member` an
+active membership of the target faction; `skill_rank_gte` the rank held in
+a base domain or a skill definition (`target_key`), `threshold` 1-5;
+`quest_completed` a quest taken from the offer `target_key` whose agenda is
+`completed`. Curated plan metadata, same family as `npc_schedule` -- no
+`change_history`. THE POSITIONAL WALL: `location_reachable`'s target lives
+HERE, never on `agenda_step` -- a requirement states "the player must be
+able to reach L", a precondition on the player, never a position of an NPC
+(see BRIEF-0074-a-amendment-1). Written by `writes.write_day_plan` and the
+quest acceptance; read by `day_plan.evaluate_specs`.
 
 ```sql
 CREATE TABLE agenda_step_requirement (
@@ -2226,18 +2237,120 @@ CREATE TABLE agenda_step_requirement (
   world_id          TEXT NOT NULL REFERENCES world(id),
   step_id           TEXT NOT NULL REFERENCES agenda_step(id),
   type              TEXT NOT NULL
-                      CHECK (type IN ('knowledge','relation_gte','resource','location_reachable')),
+                      CHECK (type IN ('knowledge','relation_gte','resource','location_reachable',
+                                      'has_met','faction_member','skill_rank_gte','quest_completed')),
   target_entity_id  TEXT REFERENCES entity(id),
   target_key        TEXT,
   threshold         INTEGER,
   CHECK (
-    (type NOT IN ('relation_gte','location_reachable') OR target_entity_id IS NOT NULL)
-    AND (type NOT IN ('knowledge','resource') OR target_key IS NOT NULL)
-    AND (type NOT IN ('relation_gte','resource') OR threshold IS NOT NULL)
+    (type NOT IN ('relation_gte','location_reachable','has_met','faction_member')
+       OR target_entity_id IS NOT NULL)
+    AND (type NOT IN ('knowledge','resource','skill_rank_gte','quest_completed')
+       OR target_key IS NOT NULL)
+    AND (type NOT IN ('relation_gte','resource','skill_rank_gte') OR threshold IS NOT NULL)
   )
 );
 CREATE UNIQUE INDEX idx_agenda_step_requirement_unique
   ON agenda_step_requirement(step_id, type, target_entity_id, target_key);
+```
+
+-----
+
+### `quest_offer`
+
+A quest the creator authored (schema v2.17, TICKET-0108, BRIEF-0108-A, E1).
+The giver is a character or a faction of the world (H1). `status`: `open`
+(proposed to whoever is eligible) or `closed` (proposed to no one); an
+offer is never deleted. `repeatable` (L1): a repeatable offer may be
+accepted again once the last quest taken from it is over; any other offer
+once per character. Its steps and requirements are replaced whole on save
+(the `npc_price` full-replace precedent); the offer row keeps a
+`change_history`. Written only by `writes.write_quest_offer`.
+
+```sql
+CREATE TABLE quest_offer (
+  id               TEXT PRIMARY KEY,
+  world_id         TEXT NOT NULL REFERENCES world(id),
+  giver_entity_id  TEXT NOT NULL REFERENCES entity(id),
+  title            TEXT NOT NULL,
+  summary          TEXT,
+  repeatable       BOOLEAN NOT NULL DEFAULT 0,
+  status           TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed')),
+  created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+  change_history   JSON NOT NULL DEFAULT '[]'
+);
+CREATE INDEX idx_quest_offer_world ON quest_offer(world_id);
+```
+
+-----
+
+### `quest_offer_step`
+
+One step of an offer, in order (v2.17). Copied to `agenda_step` when the
+offer is accepted: `cost` and `domain` mean what they mean there.
+
+```sql
+CREATE TABLE quest_offer_step (
+  id          TEXT PRIMARY KEY,
+  world_id    TEXT NOT NULL REFERENCES world(id),
+  offer_id    TEXT NOT NULL REFERENCES quest_offer(id),
+  step_order  INTEGER NOT NULL,
+  objective   TEXT NOT NULL,
+  cost        INTEGER NOT NULL CHECK (cost BETWEEN 1 AND 4),
+  domain      TEXT
+);
+CREATE UNIQUE INDEX idx_quest_offer_step_order ON quest_offer_step(offer_id, step_order);
+```
+
+-----
+
+### `quest_offer_requirement`
+
+A requirement of an offer (v2.17): with no `step_id`, an ELIGIBILITY
+requirement -- the offer is proposed only to a character who meets all of
+them; with a `step_id`, a requirement of that step, copied to
+`agenda_step_requirement` on acceptance. The vocabulary is
+`agenda_step_requirement`'s, never a second one (B1): its two CHECK texts
+are that table's, byte for byte (checked by `quests.py`).
+
+```sql
+CREATE TABLE quest_offer_requirement (
+  id                TEXT PRIMARY KEY,
+  world_id          TEXT NOT NULL REFERENCES world(id),
+  offer_id          TEXT NOT NULL REFERENCES quest_offer(id),
+  step_id           TEXT REFERENCES quest_offer_step(id),
+  type              TEXT NOT NULL,      -- agenda_step_requirement's type CHECK
+  target_entity_id  TEXT REFERENCES entity(id),
+  target_key        TEXT,
+  threshold         INTEGER
+  -- agenda_step_requirement's shape CHECK
+);
+CREATE INDEX idx_quest_offer_requirement_offer ON quest_offer_requirement(offer_id);
+```
+
+-----
+
+### `quest`
+
+An offer a character accepted (v2.17, B1): the link to the agenda the
+acceptance created, born `paused` (A1) -- one open plan among the player's,
+which a day selects or the player pins. Immutable: a quest's state is its
+agenda's status (M1: `active`/`paused` open, `completed`, `failed`,
+`abandoned`). Written only by `writes.accept_quest`.
+
+```sql
+CREATE TABLE quest (
+  id            TEXT PRIMARY KEY,
+  world_id      TEXT NOT NULL REFERENCES world(id),
+  offer_id      TEXT NOT NULL REFERENCES quest_offer(id),
+  character_id  TEXT NOT NULL REFERENCES entity(id),
+  agenda_id     TEXT NOT NULL REFERENCES agenda(id),
+  accepted_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX idx_quest_agenda ON quest(agenda_id);
+CREATE INDEX idx_quest_character ON quest(character_id);
+CREATE INDEX idx_quest_offer ON quest(offer_id);
 ```
 
 -----

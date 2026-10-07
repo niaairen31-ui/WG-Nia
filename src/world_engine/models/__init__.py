@@ -28,13 +28,16 @@ Layout, by stratum:
     observation.py   — observed-scene instrumentation (ObservationRun and
                         friends, TICKET-0051); telemetry, never canon —
                         absent from canon_write_policy.txt's [CANON_TABLES].
+    quests.py        — quest offers and accepted quests (QuestOffer,
+                        QuestOfferStep, QuestOfferRequirement, Quest;
+                        TICKET-0108, schema v2.17), canon.
 
 This module re-exports the ENTIRE former public surface of the flat
 `models.py` — every class, constant, and the two module functions
 (`_uuid`, `_created_ts`) — so every existing `from .models import X` /
 `from world_engine.models import X` in `src/` and `scripts/` resolves
 unchanged. Import order (canon, canon_faction, canon_knowledge, config,
-ephemeral, pipeline, observation) keeps table registration on
+ephemeral, pipeline, observation, quests) keeps table registration on
 `SQLModel.metadata` deterministic;
 cross-stratum foreign keys (string table-name references) resolve
 regardless of file order.
@@ -124,6 +127,7 @@ from .observation import (
     ObservationRun,
     ObservationRunTemplate,
 )
+from .quests import QUEST_OFFER_STATUSES, Quest, QuestOffer, QuestOfferRequirement, QuestOfferStep
 
 __all__ = [
     "World",
@@ -187,6 +191,11 @@ __all__ = [
     "Agenda",
     "AgendaStep",
     "AgendaStepRequirement",
+    "QUEST_OFFER_STATUSES",
+    "Quest",
+    "QuestOffer",
+    "QuestOfferRequirement",
+    "QuestOfferStep",
     "GoalAgendaLink",
     "EntityType",
     "EntityTypeHistory",

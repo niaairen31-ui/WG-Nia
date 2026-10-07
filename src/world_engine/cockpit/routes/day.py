@@ -32,7 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
-from ... import day_plan_select, day_plans, day_rewrite
+from ... import day_plan_select, day_plans, day_rewrite, quest_reads
 from ...day_choice import choose
 from ...day_concordance import AmbiguousMention, ConcordanceResult, concord, emit_germs
 from ...day_extract import extract_factions, extract_persons, extract_places
@@ -626,8 +626,12 @@ def _record_refused_choices(world_id: str, pass_play_id: str, records: tuple[dic
         db.commit()
 
 
+class PlanDayBody(BaseModel):
+    quest_id: Optional[str] = None  # O1 (TICKET-0108): the quest this day advances
+
+
 @router.post("/api/day/{batch_id}/plan")
-def plan_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
+def plan_day(batch_id: str, body: Optional[PlanDayBody] = None, db: Session = Depends(get_session)) -> dict:
     """Emit and persist a day plan (TICKET-0075, BRIEF-0075-b; extraction and
     concordance, BRIEF-0075-c; reconciliation, BRIEF-0075-f as corrected by
     AMENDMENT 1; dedicated plan selection, TICKET-0077/BRIEF-0077-c). ONE
@@ -642,7 +646,9 @@ def plan_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     the active one; `None` means the declaration opens something new, and
     the standing active plan (if any) is parked before a fresh one is
     emitted. `agenda_id`/`step_id` never appear in the response — the
-    player never sees the agenda (ticket Scope OUT)."""
+    player never sees the agenda (ticket Scope OUT). O1 (TICKET-0108): a
+    `quest_id` pins the day to that open quest's plan -- no selection call,
+    the reconciliation runs against it as against any selected plan."""
     world_id = _crud._world_id(db)
     pass_play = _load_plannable_day(batch_id, world_id, db)
     character = _resolve_player_character(world_id, db)
@@ -672,11 +678,16 @@ def plan_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     rendered, rewrite_row = _write_declaration_rewrite(world_id, pass_play, concordance_result, db)
     write_day_mention_choices(db, world_id=world_id, pass_play_id=pass_play.id, records=list(choice_records))
 
-    plans = day_plans.open_plans(character, db)
-    try:
-        selected = day_plan_select.select_plan(rendered, plans, db)
-    except LlmParseError as exc:
-        raise HTTPException(status_code=502, detail=f"plan selection failed: {exc}") from exc
+    if body is not None and body.quest_id:  # O1: the player pinned the quest; no selection call
+        try:
+            selected = quest_reads.pinned_plan(body.quest_id, character, db)
+        except (LookupError, ValueError) as exc:
+            raise HTTPException(status_code=404 if isinstance(exc, LookupError) else 409, detail=str(exc)) from exc
+    else:
+        try:
+            selected = day_plan_select.select_plan(rendered, day_plans.open_plans(character, db), db)
+        except LlmParseError as exc:
+            raise HTTPException(status_code=502, detail=f"plan selection failed: {exc}") from exc
     if selected is not None:
         result = _reconcile_and_finalize(character, pass_play, selected, concordance_result, rendered, db)
     else:

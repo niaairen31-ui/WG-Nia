@@ -69,12 +69,16 @@ export function selectDay(id) {
   loadDayDetail(id);
 }
 
-export async function planDay(id) {
+/** O1 (TICKET-0108): `questId` pins the day to one open quest -- no plan
+ *  selection; '' or null lets the day choose, as before. */
+export async function planDay(id, questId) {
   journeeState.planning = true;
   journeeState.planError = '';
   journeeState.reconciliation = null;
   try {
-    const result = await api('/api/day/' + id + '/plan', { method: 'POST' });
+    const result = await api('/api/day/' + id + '/plan', questId
+      ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quest_id: questId }) }
+      : { method: 'POST' });
     journeeState.reconciliation = result.reconciliation || null;
     await loadDays();
     await loadDayDetail(id);

@@ -5,7 +5,7 @@ event artifact npc_goal agenda agenda_step goal_agenda_link
 npc_price world_law obstacle obstacle_vertex door
 location_type_catalog entity_type entity_type_history conversation_window_config
 npc_schedule agenda_step_requirement fact fact_participant fact_default
-skill_rank
+skill_rank quest_offer quest_offer_step quest_offer_requirement quest
 
 [ALLOWED_SITES]
 # path::function                                              tables
@@ -48,6 +48,10 @@ src/world_engine/writes/config.py::upsert_skill_rank           skill_rank
 src/world_engine/writes/zone_promotion.py::apply_promotion     item discoverable_detail
 # TICKET-0075, BRIEF-0075-b: write_day_plan is the 30th site — its OWN body writes agenda_step_requirement only (it calls write_agenda/write_agenda_step, whose own db.add sites are already allow-listed above; single_canon_write.py is function-scoped, not interprocedural).
 src/world_engine/writes/goals_agendas.py::write_day_plan       agenda_step_requirement
+# TICKET-0108, BRIEF-0108-B: write_quest_offer creates or saves one quest offer -- its steps and requirements replaced whole (the write_npc_prices full-replace shape), the offer row snapshotted; creator CRUD only.
+src/world_engine/writes/quests.py::write_quest_offer           quest_offer quest_offer_step quest_offer_requirement
+# TICKET-0108, BRIEF-0108-B: accept_quest writes the quest row and copies the offer's step requirements; its agenda and steps go through write_agenda/write_agenda_step, allow-listed above (the write_day_plan precedent).
+src/world_engine/writes/quests.py::accept_quest                agenda_step_requirement quest
 # TICKET-0044, BRIEF-0044-c: create_entity_type is the 26th site — the governed
 # structural-write authority (D2), a NEW sanctioned site distinct from the two
 # canon-write paths (AI-proposal pipeline, creator CRUD). Its `CREATE TABLE
