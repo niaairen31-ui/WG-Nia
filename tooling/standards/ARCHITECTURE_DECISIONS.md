@@ -18213,6 +18213,28 @@ awaiting review, and the refusals. No model is asked.
 exists. A mutation in the review queue (D2 of the series): Nia would
 approve her own click.
 
+
+## QUEST TERMS ON BOTH SURFACES (TICKET-0109) -- THE EDITOR WEIGHS THEM LIVE, JOURNÉE SETTLES FROM THE RECAP (BRIEF-0109-d, no schema change)
+
+**Création › Quêtes.** The offer editor gains « Coûts » and « Récompenses »:
+one row per term (currency, target, amount, a fact reward's level,
+counterparty -- « le donneur » by default, a character for a relation, a
+fact or a skill). Its total in the indicative unit is recomputed by the
+server at every change (`POST /api/quest-offers/value`) and shown with the
+band's verdict; the list marks each offer « maigre », « équilibrée » or
+« généreuse ». ⚖ opens the world's rates, each empty field at the code's
+default. The five currencies mirror the server's across the network
+boundary (`questTerms.js`, kept equal by `quest_rewards.py` RD1).
+
+**Journée › Quêtes.** Offers and quests list their terms. A quest not yet
+settled, open or completed by its steps, offers « Déclarer accomplie »: it
+opens the measured recap and its « Confirmer » button, disabled while a
+cost cannot be paid. A completed quest still to settle reads « accomplie —
+à régler »; a settled one, « réglée ». No agenda or step id is named.
+
+**Rejected.** Computing the value in the browser: a second implementation
+of the rates to keep in step; the server already has them.
+
 ---
 
 *Co-built with Claude, June 2026.*

@@ -8,9 +8,12 @@
      questOffers.svelte.js. */
   import { serverState } from '../lib/serverState.svelte.js';
   import QuestRequirementRow from './QuestRequirementRow.svelte';
+  import QuestTermRow from './QuestTermRow.svelte';
   import {
     questOffersState, loadOffers, newDraft, editOffer, saveDraft, blankStep, addRequirement,
+    addTerm, refreshValue, saveEconomy,
   } from './questOffers.svelte.js';
+  import { TERM_DIRECTIONS } from './questTerms.js';
   import { STEP_DOMAINS } from './questRequirements.js';
 
   $effect(() => {
@@ -25,6 +28,20 @@
 
   let draft = $derived(questOffersState.draft);
   let choices = $derived(questOffersState.choices);
+  let value = $derived(questOffersState.value);
+
+  // TICKET-0109 (E1): the world's rates; '' = the code's default.
+  const RATE_LABELS = {
+    rate_money: 'Pièce', rate_relation: 'Point de relation', rate_fact: 'Fait', rate_skill: 'Compétence',
+    band_low_pct: 'Bande basse (%)', band_high_pct: 'Bande haute (%)',
+  };
+  let showEconomy = $state(false);
+  let economyDraft = $state({});
+  function openEconomy() {
+    const stored = questOffersState.economy?.stored || {};
+    economyDraft = Object.fromEntries(Object.keys(RATE_LABELS).map((k) => [k, stored[k] ?? '']));
+    showEconomy = !showEconomy;
+  }
 
   function moveStep(index, delta) {
     const steps = draft.steps;
@@ -39,9 +56,24 @@
     <div class="panel-head">
       <h2>Quêtes proposées</h2>
       <span>{questOffersState.offers.length}</span>
+      <button class="btn-icon" onclick={() => openEconomy()} title="Unité indicative du monde">⚖</button>
       <button class="btn-icon" onclick={() => loadOffers(serverState.worldId)} title="Rafraîchir">↻</button>
     </div>
     <div class="queue-body">
+      {#if showEconomy}
+        <div class="economy">
+          <strong>Unité indicative</strong>
+          <p class="muted">Ce que vaut chaque terme, en unités ; vide = défaut. Un objet vaut sa propre valeur.</p>
+          {#each Object.entries(RATE_LABELS) as [key, label] (key)}
+            <label>{label}
+              <input type="number" min="0" style="width:70px" bind:value={economyDraft[key]}
+                     placeholder={String(questOffersState.economy?.defaults?.[key] ?? '')}>
+            </label>
+          {/each}
+          {#if questOffersState.economyError}<div class="r-err">{questOffersState.economyError}</div>{/if}
+          <button onclick={() => saveEconomy(economyDraft)}>Enregistrer les taux</button>
+        </div>
+      {/if}
       {#if !serverState.worldId}
         <div class="empty">Aucun monde actif.</div>
       {:else if questOffersState.loadError}
@@ -52,6 +84,7 @@
         {#each questOffersState.offers as offer (offer.id)}
           <div class="row-card" class:selected={draft?.id === offer.id} onclick={() => editOffer(offer)}>
             <strong>{offer.title}</strong>
+            {#if offer.value && offer.value.verdict !== 'free'}<span class="badge b-other">{offer.value.verdict_label}</span>{/if}
             <span class="badge b-other">{offer.status === 'open' ? 'proposée' : 'fermée'}</span>
             {#if offer.repeatable}<span class="badge b-other">répétable</span>{/if}
             <div class="muted">par {offer.giver_name || '—'} · {offer.steps.length} étape(s)</div>
@@ -120,6 +153,25 @@
         {/each}
         <button onclick={() => draft.steps.push(blankStep())}>+ étape</button>
 
+        {#each Object.entries(TERM_DIRECTIONS) as [direction, label] (direction)}
+          <h4>{direction === 'cost' ? 'Coûts (payés en déclarant la quête accomplie)' : 'Récompenses'}</h4>
+          {#each draft.terms as term, k (k)}
+            {#if term.direction === direction}
+              <QuestTermRow {term} {choices} onchange={() => refreshValue()}
+                            onremove={() => draft.terms.splice(k, 1)} />
+            {/if}
+          {/each}
+          <button onclick={() => addTerm(direction)}>+ {label.toLowerCase()}</button>
+        {/each}
+
+        {#if value}
+          <div class="value" class:warn={value.verdict === 'meagre' || value.verdict === 'generous'}>
+            Valeur indicative : coût {value.cost}, récompense {value.reward}
+            {#if value.ratio_pct !== null} — {value.ratio_pct} % (bande {value.band_low_pct}-{value.band_high_pct} %){/if}
+            — <strong>{value.verdict_label}</strong>
+          </div>
+        {/if}
+
         {#if questOffersState.saveError}<div class="r-err">{questOffersState.saveError}</div>{/if}
         <div style="margin-top:10px">
           <button class="btn-send" disabled={questOffersState.saving} onclick={() => saveDraft(serverState.worldId)}>
@@ -145,4 +197,8 @@
   .muted { color: var(--muted); font-size: 12px; }
   .r-err { color: var(--red); }
   h4 { margin: 12px 0 4px; font-size: 13px; color: var(--muted); }
+  .economy { border: 1px solid var(--border); padding: 6px 8px; margin-bottom: 8px; }
+  .economy label { display: inline-flex; gap: 4px; align-items: center; margin: 2px 8px 2px 0; }
+  .value { margin-top: 10px; font-size: 13px; }
+  .value.warn { color: var(--red); }
 </style>

@@ -87,6 +87,20 @@ RC3 -- what Nia sees (fixture and static). `settlement_context` gives the
    409 on a refusal; `journee_payload` marks the quest `settled`, not
    `settleable`, with its term lines.
 
+RD1 -- the editor's mirror (BRIEF-0109-D, static). `frontend/src/creation/
+   questTerms.js`'s `CURRENCY_FORMS` has exactly the keys of
+   `QUEST_TERM_CURRENCIES`, in order; its forms with `counted: true` are
+   `COUNTED_CURRENCIES`, with `personal: true` `PERSONAL_CURRENCIES`;
+   `TERM_DIRECTIONS` has the keys of `QUEST_TERM_DIRECTIONS`.
+RD2 -- the editor (static). `questOffers.svelte.js` sends `terms:
+   draft.terms.map(termBody)`, reads `/api/quest-offers/value` and
+   `/api/quest-economy`; `QuestOffers.svelte` renders `<QuestTermRow`.
+RD3 -- Journée (static). `quests.svelte.js` reads `'/settlement'` and posts
+   `'/settle'`; `QuestPanel.svelte` shows « Déclarer accomplie » under
+   `quest.settleable` and renders `<SettlementRecap`; the recap's confirm
+   button is `disabled={!ctx.can_settle`; none of the three names
+   `agenda_id` or `step_id`.
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that collects nothing fails.
 """
@@ -929,6 +943,63 @@ def _keys(value) -> set:
     return set()
 
 
+# --- RD --------------------------------------------------------------------------
+
+FRONTEND = ROOT / "frontend" / "src"
+
+
+def _read(rel: str) -> str:
+    path = FRONTEND / rel
+    if not path.is_file():
+        fail(f"RD: {rel} not found")
+        return ""
+    return path.read_text(encoding="utf-8")
+
+
+def check_rd1() -> None:
+    import re
+
+    from world_engine.models import QUEST_TERM_CURRENCIES, QUEST_TERM_DIRECTIONS
+    from world_engine.writes.quest_terms import COUNTED_CURRENCIES, PERSONAL_CURRENCIES
+
+    text = _read("creation/questTerms.js")
+    forms = dict(re.findall(r"^  (\w+): \{ label: '[^']*', list: [^,]+, (counted: \w+, personal: \w+) \},$", text, re.M))
+    if list(forms) != list(QUEST_TERM_CURRENCIES):
+        fail(f"RD1: CURRENCY_FORMS keys {list(forms)} != {QUEST_TERM_CURRENCIES}")
+    for marker, expected in (("counted: true", COUNTED_CURRENCIES), ("personal: true", PERSONAL_CURRENCIES)):
+        found = tuple(c for c, spec in forms.items() if marker in spec)
+        if found != tuple(expected):
+            fail(f"RD1: the currencies with {marker} are {found}, expected {tuple(expected)}")
+    directions = re.search(r"TERM_DIRECTIONS = \{([^}]*)\}", text)
+    keys = re.findall(r"(\w+):", directions.group(1)) if directions else []
+    if tuple(keys) != tuple(QUEST_TERM_DIRECTIONS):
+        fail(f"RD1: TERM_DIRECTIONS keys {keys}")
+
+
+def check_rd2() -> None:
+    state = _read("creation/questOffers.svelte.js")
+    for needle in ("terms: draft.terms.map(termBody)", "'/api/quest-offers/value'", "'/api/quest-economy'"):
+        if needle not in state:
+            fail(f"RD2: questOffers.svelte.js lacks {needle}")
+    if "<QuestTermRow" not in _read("creation/QuestOffers.svelte"):
+        fail("RD2: QuestOffers.svelte renders no QuestTermRow")
+
+
+def check_rd3() -> None:
+    state, panel, recap = (_read("journee/quests.svelte.js"), _read("journee/QuestPanel.svelte"),
+                           _read("journee/SettlementRecap.svelte"))
+    for needle, text, where in (("'/settlement'", state, "quests.svelte.js"), ("'/settle'", state, "quests.svelte.js"),
+                                ("{#if quest.settleable}", panel, "QuestPanel.svelte"),
+                                ("<SettlementRecap", panel, "QuestPanel.svelte"),
+                                ("disabled={!ctx.can_settle", recap, "SettlementRecap.svelte")):
+        if needle not in text:
+            fail(f"RD3: {where} lacks {needle}")
+    for name, text in (("quests.svelte.js", state), ("QuestPanel.svelte", panel), ("SettlementRecap.svelte", recap)):
+        for token in ("agenda_id", "step_id"):
+            if token in text:
+                fail(f"RD3: {name} names {token}")
+
+
 def main() -> int:
     db_path = _fresh_db()
     check_ra1()
@@ -938,6 +1009,9 @@ def main() -> int:
     check_ra3(engine)
     check_rb(engine)
     check_rc(engine)
+    check_rd1()
+    check_rd2()
+    check_rd3()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -947,7 +1021,8 @@ def main() -> int:
           "keeps every holding, its history, and zones empty; an offer's terms are validated whole, "
           "copied to the quest that accepts it, and valued in the world's indicative unit against "
           "its band; « déclarer accomplie » shows the measured context, refuses an unpayable cost "
-          "with no write, and applies every cost then every reward at once")
+          "with no write, and applies every cost then every reward at once; the editor mirrors the "
+          "currencies and Journée settles from the recap")
     return 0
 
 
