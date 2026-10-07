@@ -1,0 +1,62 @@
+{
+  "ticket": "TICKET-0109-quest-terms",
+  "when": "2026-10-07T17:46:35.547268+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "quest_rewards.py",
+      "status": "PASS",
+      "msg": "PASS: quest_rewards -- v2.18 makes an item a kind held in quantity by any entity, migrates owners and places to holdings from v2.17 only, drops equipped, and one writer keeps every holding, its history, and zones empty; an offer's terms are validated whole, copied to the quest that accepts it, and valued in the world's indicative unit against its band; \u00ab d\u00e9clarer accomplie \u00bb shows the measured context, refuses an unpayable cost with no write, and applies every cost then every reward at once; the editor mirrors the currencies and Journ\u00e9e settles from the recap"
+    },
+    {
+      "check": "quests.py",
+      "status": "PASS",
+      "msg": "PASS: quests -- v2.17 widens the requirement vocabulary to eight forms the model emits only four of, shared byte for byte by quest offers, migrates from v2.16 only, and judges what the target feels, encounters, memberships, ranks and completed quests; an offer is validated whole and saved whole, accepted only when eligible as a paused plan with its steps, once unless repeatable, abandoned unless a step awaits review, pinned to a day, and shown to the player without an agenda or step id; the editor mirrors the vocabulary, the \u00ab Qu\u00eates \u00bb tab and Journ\u00e9e's panel are wired"
+    },
+    {
+      "check": "zone_placement.py",
+      "status": "PASS",
+      "msg": "PASS: zone_placement \u2014 (a) every placement path refuses a zone [15 outcomes], (b) NPC batch vocabulary visitable only [1], (c) 3 current_location_id write sites, all named"
+    },
+    {
+      "check": "zone_promotion.py",
+      "status": "PASS",
+      "msg": "PASS: zone_promotion \u2014 (a) S1 refusal + preview [7 rows], (b) K applied [7], (c) silent promotion [1], (d) demotion moves nothing [3], (e) re-parent / reactivation [3], (f) a zone child receives nothing [5]"
+    },
+    {
+      "check": "zone_migration.py",
+      "status": "PASS",
+      "msg": "PASS: zone_migration \u2014 (a) refuses a v2.10 database [1], (b) index + in-place borde [5], (c) T1 reports, never moves [3], (d) idempotent [2]"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "world_cascade.py",
+      "status": "PASS",
+      "msg": "PASS: world_cascade -- every world-scoped table is deleted or guarded; a populated world deletes under FK enforcement; refusals delete nothing"
+    },
+    {
+      "check": "schema_version_agreement.py",
+      "status": "PASS",
+      "msg": "PASS: code and doc agree on schema version 'v2.18'"
+    },
+    {
+      "check": "day_mutations.py",
+      "status": "PASS",
+      "msg": "PASS: day_mutations \u2014 emission bijection, npc_move absence, status/vocabulary discipline, never-applies, every-type-applicable, route shape, no agenda_id/step_id, entity_creation parks, the effects contract, no forced subject, BB1's resolve precondition, and BRIEF-0078-c's new_knowledge emission/duplicate-guard gates (R13-R17) are all intact"
+    },
+    {
+      "check": "frontend_build_fresh.py",
+      "status": "PASS",
+      "msg": "PASS: frontend_build_fresh \u2014 116 source file(s), 1 output asset(s), manifest hash matches"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u2014 142 check(s) discovered, 142 executed, 142 passed"
+    }
+  ]
+}
