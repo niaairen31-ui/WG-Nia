@@ -2,7 +2,7 @@
 id: TICKET-0108
 title: Quest offers authored by the creator, accepted as open plans, pinned to a day
 type: feature
-status: exec
+status: live-gate
 created: 2026-10-06
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: [migration, db_write]
