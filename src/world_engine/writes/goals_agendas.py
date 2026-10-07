@@ -17,7 +17,7 @@ baselined.
   `active -> completed` and `active -> abandoned` — anything else (including
   reopening a closed goal) raises `ValueError`. Appends the previous state to
   `change_history` first (history is sacred).
-- `write_agenda(...)`                   : insert an `active` `agenda` row
+- `write_agenda(...)`                   : insert an `active` (or, for a quest, `paused`) `agenda` row
   (BRIEF-0018-a). A1 structural: `owner_entity_id` must resolve to an ACTIVE
   faction entity, else `ValueError`. The only constructor of `Agenda`.
 - `write_agenda_step(...)`              : insert one `agenda_step` row
@@ -249,9 +249,12 @@ def write_agenda(
     owner_entity_id: str,
     title: str,
     mutation_id: Optional[str] = None,
+    status: str = "active",
 ) -> Agenda:
     """Insert an `active` `agenda` row (TICKET-0018, BRIEF-0018-a; owner
-    unlock TICKET-0020, BRIEF-0020-a).
+    unlock TICKET-0020, BRIEF-0020-a) -- or a `paused` one (TICKET-0108,
+    BRIEF-0108-B, A1: an accepted quest is born parked, one open plan among
+    the player's, and displaces nothing). Any other `status` raises.
 
     The ONLY constructor of `Agenda` in gameplay code — both sanctioned
     canon-write paths (`_apply_mutation`'s `agenda_creation` branch and the
@@ -266,12 +269,14 @@ def write_agenda(
     `_apply_mutation` writers and is not otherwise used here.
     """
     del mutation_id
+    if status not in ("active", "paused"):
+        raise ValueError(f"write_agenda: an agenda is born 'active' or 'paused', got {status!r}")
     owner = db.get(Entity, owner_entity_id)
     if owner is None or owner.world_id != world_id:
         raise ValueError(f"write_agenda: owner {owner_entity_id!r} not found in world {world_id!r}")
     if owner.type not in ("faction", "character") or owner.status != "active":
         raise ValueError(f"write_agenda: owner {owner_entity_id!r} is not an active faction or character")
-    if owner.type == "character":
+    if owner.type == "character" and status == "active":
         existing = db.exec(
             select(Agenda).where(
                 Agenda.owner_entity_id == owner_entity_id,
@@ -285,7 +290,7 @@ def write_agenda(
         world_id=world_id,
         owner_entity_id=owner_entity_id,
         title=title,
-        status="active",
+        status=status,
         change_history=[],
     )
     db.add(agenda)

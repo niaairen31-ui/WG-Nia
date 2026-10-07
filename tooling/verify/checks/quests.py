@@ -37,6 +37,36 @@ QA3 -- the evaluators (fixture). `relation_gte` reads what the target feels
    6, an unknown skill, an unknown quest offer, and accepts each form well
    aimed.
 
+QB1 -- the offer writer (BRIEF-0108-B, fixture). `write_quest_offer` refuses
+   a location as giver, an empty title, a status `draft`, no step, a cost of
+   5, a domain `magic`, a `faction_member` aimed at a character, and an
+   offer requiring its own completion -- each with no row written. A valid
+   offer writes its eligibility and its steps with their requirements;
+   saving it again replaces its steps and requirements whole (the old rows
+   gone) and appends one `change_history` entry.
+QB2 -- acceptance (fixture, B1, A1, L1). An unmet eligibility refuses with
+   no agenda written. Met: one agenda, `paused`, titled as the offer, the
+   player's active plan still `active`; its steps copied in order, the first
+   `active`, the others `pending`, with their requirements; one `quest` row.
+   The same non-repeatable offer is refused a second time; a repeatable one
+   is refused while its quest is open, accepted again once it is
+   `completed`; a `closed` offer is refused. `available_offers` lists
+   exactly the offers accepted would succeed for.
+QB3 -- abandon (fixture, N1). A quest with an `agenda_step_change` of its
+   step still `proposed` is refused; without it, its agenda becomes
+   `abandoned` (one more `change_history` entry, nothing deleted); a second
+   abandon is refused. `pinned_plan` (O1) returns the agenda of the player's
+   open quest, raises `LookupError` for another character's quest and
+   `ValueError` for an abandoned one. The non-repeatable offer, its quest
+   now over, is still neither available nor accepted (L1).
+QB4 -- what the player sees (fixture and static). `journee_payload` and the
+   route functions `journee_quests`, `accept`, `abandon` return no key
+   `agenda_id` or `step_id` at any depth; a quest's state reads `en cours`,
+   then `abandonnée`. Statically, `routes/quests.py` and `quest_reads.py`
+   build no dict literal with either key, and `plan_day` calls
+   `quest_reads.pinned_plan(` in the branch that does not call
+   `select_plan(`.
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that collects nothing fails.
 """
@@ -409,6 +439,324 @@ def check_qa3(engine) -> None:
         _qa3_wording_and_cleaning(session, ids, pc)
 
 
+# --- QB --------------------------------------------------------------------------
+
+def _qb_world(session) -> dict:
+    from world_engine.models import Agenda, Character, Entity, Faction, World
+
+    world = World(name="Quests QB", is_active=False)
+    session.add(world)
+    session.flush()
+    ids = {"world": world.id}
+    for key, kind in (("pc", "player"), ("npc", "npc"), ("other", "npc")):
+        row = Entity(world_id=world.id, type="character", name=key.upper())
+        session.add(row)
+        session.flush()
+        session.add(Character(id=row.id, world_id=world.id, character_type=kind))
+        ids[key] = row.id
+    for key, kind in (("guild", "faction"), ("place", "location")):
+        row = Entity(world_id=world.id, type=kind, name=key.title())
+        session.add(row)
+        session.flush()
+        if kind == "faction":
+            session.add(Faction(id=row.id))
+        ids[key] = row.id
+    plan = Agenda(world_id=world.id, owner_entity_id=ids["pc"], title="Plan du jour", status="active",
+                  change_history=[])
+    session.add(plan)
+    session.commit()
+    ids["plan"] = plan.id
+    return ids
+
+
+def _offer_kwargs(ids: dict, **over) -> dict:
+    from world_engine.day_plan import PlanStep, RequirementSpec
+
+    steps = [
+        PlanStep(objective="Traquer le loup", cost=2, domain="perception",
+                 requirements=(RequirementSpec(type="has_met", target_entity_id=ids["npc"]),)),
+        PlanStep(objective="Rapporter la fourrure", cost=1, domain=None),
+    ]
+    base = dict(world_id=ids["world"], offer=None, giver_entity_id=ids["npc"], title="La fourrure",
+                summary="Le chasseur veut la fourrure.", repeatable=False, status="open",
+                eligibility=[RequirementSpec(type="faction_member", target_entity_id=ids["guild"])], steps=steps)
+    base.update(over)
+    return base
+
+
+def _counts(session) -> tuple:
+    from sqlmodel import func, select
+
+    from world_engine.models import Agenda, Quest, QuestOffer, QuestOfferRequirement, QuestOfferStep
+
+    return tuple(session.exec(select(func.count()).select_from(m)).one()
+                 for m in (QuestOffer, QuestOfferStep, QuestOfferRequirement, Quest, Agenda))
+
+
+def _qb1_refusals(session, ids) -> None:
+    from world_engine.day_plan import PlanStep, RequirementSpec
+    from world_engine.writes import write_quest_offer
+
+    bad = (
+        {"giver_entity_id": ids["place"]}, {"title": "  "}, {"status": "draft"}, {"steps": []},
+        {"steps": [PlanStep(objective="o", cost=5, domain=None)]},
+        {"steps": [PlanStep(objective="o", cost=1, domain="magic")]},
+        {"eligibility": [RequirementSpec(type="faction_member", target_entity_id=ids["npc"])]},
+    )
+    for over in bad:
+        before = _counts(session)
+        try:
+            write_quest_offer(session, **_offer_kwargs(ids, **over))
+        except ValueError:
+            session.rollback()
+            if _counts(session) != before:
+                fail(f"QB1: a refused offer {over} wrote rows")
+            continue
+        session.rollback()
+        fail(f"QB1: write_quest_offer accepts {over}")
+
+
+def check_qb1(session, ids) -> None:
+    from sqlmodel import select
+
+    from world_engine.day_plan import PlanStep, RequirementSpec
+    from world_engine.models import QuestOfferRequirement, QuestOfferStep
+    from world_engine.writes import write_quest_offer
+
+    _qb1_refusals(session, ids)
+    offer = write_quest_offer(session, **_offer_kwargs(ids))
+    session.commit()
+    ids["offer"] = offer.id
+    steps = session.exec(select(QuestOfferStep).where(QuestOfferStep.offer_id == offer.id)).all()
+    reqs = session.exec(select(QuestOfferRequirement).where(QuestOfferRequirement.offer_id == offer.id)).all()
+    if [s.step_order for s in sorted(steps, key=lambda s: s.step_order)] != [1, 2] or len(reqs) != 2:
+        fail(f"QB1: a new offer wrote {len(steps)} step(s), {len(reqs)} requirement(s)")
+    try:
+        write_quest_offer(session, **_offer_kwargs(ids, offer=offer, eligibility=[
+            RequirementSpec(type="quest_completed", target_key=offer.id)]))
+        fail("QB1: an offer requiring its own completion was saved")
+    except ValueError:
+        session.rollback()
+    old_ids = {s.id for s in steps}
+    write_quest_offer(session, **_offer_kwargs(ids, offer=offer, steps=[PlanStep(objective="Seule", cost=1, domain=None)]))
+    session.commit()
+    after = session.exec(select(QuestOfferStep).where(QuestOfferStep.offer_id == offer.id)).all()
+    if len(after) != 1 or {s.id for s in after} & old_ids or len(offer.change_history) != 1:
+        fail(f"QB1: a save left {len(after)} step(s), history {len(offer.change_history)}")
+    write_quest_offer(session, **_offer_kwargs(ids, offer=offer))
+    session.commit()
+
+
+def _accept_refused(session, offer, pc, label: str) -> None:
+    from world_engine.writes import accept_quest
+
+    before = _counts(session)
+    try:
+        accept_quest(session, offer=offer, character=pc)
+    except ValueError:
+        session.rollback()
+        if _counts(session) != before:
+            fail(f"QB2: a refused acceptance ({label}) wrote rows")
+        return
+    session.rollback()
+    fail(f"QB2: accept_quest accepts {label}")
+
+
+def _qb2_accepted(session, ids, quest) -> None:
+    from sqlmodel import select
+
+    from world_engine.models import Agenda, AgendaStep, AgendaStepRequirement
+
+    agenda = session.get(Agenda, quest.agenda_id)
+    if agenda is None or agenda.status != "paused" or agenda.title != "La fourrure":
+        fail(f"QB2: the quest's agenda is {agenda}")
+        return
+    if session.get(Agenda, ids["plan"]).status != "active":
+        fail("QB2: accepting a quest displaced the active plan")
+    steps = sorted(session.exec(select(AgendaStep).where(AgendaStep.agenda_id == agenda.id)).all(),
+                   key=lambda s: s.step_order)
+    if [(s.objective, s.status, s.cost) for s in steps] != [
+            ("Traquer le loup", "active", 2), ("Rapporter la fourrure", "pending", 1)]:
+        fail(f"QB2: the copied steps are {[(s.objective, s.status, s.cost) for s in steps]}")
+    reqs = session.exec(select(AgendaStepRequirement).where(AgendaStepRequirement.step_id == steps[0].id)).all()
+    if [(r.type, r.target_entity_id) for r in reqs] != [("has_met", ids["npc"])]:
+        fail(f"QB2: the copied requirements are {[(r.type, r.target_entity_id) for r in reqs]}")
+
+
+def check_qb2(session, ids) -> None:
+    from world_engine.models import Agenda, Character, FactionMembership, QuestOffer
+    from world_engine.quest_reads import available_offers
+    from world_engine.writes import accept_quest, write_quest_offer
+
+    pc = session.get(Character, ids["pc"])
+    offer = session.get(QuestOffer, ids["offer"])
+    if available_offers(pc, session):
+        fail("QB2: an offer whose eligibility is unmet is available")
+    _accept_refused(session, offer, pc, "an unmet eligibility")
+    session.add(FactionMembership(world_id=ids["world"], entity_id=ids["pc"], faction_id=ids["guild"]))
+    session.commit()
+    if [o.id for o in available_offers(pc, session)] != [offer.id]:
+        fail("QB2: the eligible offer is not available")
+    try:
+        quest = accept_quest(session, offer=offer, character=pc)
+    except ValueError as exc:
+        session.rollback()
+        fail(f"QB2: an eligible offer was refused: {exc}")
+        return
+    session.commit()
+    ids["quest"] = quest.id
+    _qb2_accepted(session, ids, quest)
+    if available_offers(pc, session):
+        fail("QB2: an offer already taken is still available")
+    _accept_refused(session, offer, pc, "a non-repeatable offer taken twice")
+
+    errand = write_quest_offer(session, **_offer_kwargs(ids, title="Bois", repeatable=True, eligibility=[]))
+    session.commit()
+    first = accept_quest(session, offer=errand, character=pc)
+    session.commit()
+    _accept_refused(session, errand, pc, "a repeatable offer still open")
+    done = session.get(Agenda, first.agenda_id)
+    done.status = "completed"
+    session.add(done)
+    session.commit()
+    accept_quest(session, offer=errand, character=pc)
+    session.commit()
+    closed = write_quest_offer(session, **_offer_kwargs(ids, title="Fermée", status="closed", eligibility=[]))
+    session.commit()
+    _accept_refused(session, closed, pc, "a closed offer")
+
+
+def check_qb3(session, ids) -> None:
+    from sqlmodel import select
+
+    from world_engine.models import Agenda, AgendaStep, Character, ProposedMutation, Quest, QuestOffer
+    from world_engine.quest_reads import available_offers, pinned_plan
+    from world_engine.writes import abandon_quest
+
+    quest = session.get(Quest, ids["quest"])
+    pc, other = session.get(Character, ids["pc"]), session.get(Character, ids["other"])
+    if pinned_plan(quest.id, pc, session).id != quest.agenda_id:
+        fail("QB3: pinned_plan does not return the open quest's agenda")
+    try:
+        pinned_plan(quest.id, other, session)
+        fail("QB3: pinned_plan returns another character's quest")
+    except LookupError:
+        pass
+    step = session.exec(select(AgendaStep).where(AgendaStep.agenda_id == quest.agenda_id,
+                                                 AgendaStep.status == "active")).first()
+    proposal = ProposedMutation(world_id=ids["world"], source_type="pass_play", mutation_type="agenda_step_change",
+                                payload={"step_id": step.id, "action": "complete"}, status="proposed")
+    session.add(proposal)
+    session.commit()
+    try:
+        abandon_quest(session, quest=quest)
+        fail("QB3: a quest with a step change awaiting review was abandoned")
+    except ValueError:
+        session.rollback()
+    proposal.status = "rejected"
+    session.add(proposal)
+    session.commit()
+    agenda = session.get(Agenda, quest.agenda_id)
+    history = len(agenda.change_history)
+    if agenda.status == "paused":
+        abandon_quest(session, quest=quest)
+        session.commit()
+    if agenda.status != "abandoned" or len(agenda.change_history) != history + 1:
+        fail(f"QB3: the abandoned agenda is {agenda.status}, history {len(agenda.change_history)}")
+    # L1, the quest now over: a non-repeatable offer is still never taken twice.
+    if ids["offer"] in {o.id for o in available_offers(pc, session)}:
+        fail("QB3: a non-repeatable offer whose quest is over is available again")
+    _accept_refused(session, session.get(QuestOffer, ids["offer"]), pc, "a non-repeatable offer after its quest")
+    try:
+        abandon_quest(session, quest=quest)
+        fail("QB3: a quest was abandoned twice")
+    except ValueError:
+        session.rollback()
+    try:
+        pinned_plan(quest.id, pc, session)
+        fail("QB3: pinned_plan returns an abandoned quest")
+    except ValueError:
+        pass
+
+
+def _keys(value) -> set:
+    if isinstance(value, dict):
+        return set(value) | {k for v in value.values() for k in _keys(v)}
+    if isinstance(value, list):
+        return {k for v in value for k in _keys(v)}
+    return set()
+
+
+def _dict_literal_keys(path: pathlib.Path) -> set:
+    import ast
+
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    return {k.value for n in ast.walk(tree) if isinstance(n, ast.Dict)
+            for k in n.keys if isinstance(k, ast.Constant)}
+
+
+def _pin_branch_ok() -> bool:
+    import ast
+
+    tree = ast.parse((ROOT / "src" / "world_engine" / "cockpit" / "routes" / "day.py").read_text(encoding="utf-8"))
+    plan = next((n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "plan_day"), None)
+    for node in ast.walk(plan) if plan is not None else ():
+        if isinstance(node, ast.If):
+            pinned = ast.unparse(ast.Module(body=node.body, type_ignores=[]))
+            other = ast.unparse(ast.Module(body=node.orelse, type_ignores=[]))
+            if "quest_reads.pinned_plan(" in pinned and "select_plan(" not in pinned and "select_plan(" in other:
+                return True
+    return False
+
+
+def check_qb4(session, ids) -> None:
+    from world_engine.models import Character, World
+    from world_engine.quest_reads import journee_payload
+
+    payload = journee_payload(session.get(Character, ids["pc"]), session)
+    states = [q["state"] for q in payload["quests"]]
+    if not payload["quests"] or "abandonnée" not in states or "en cours" not in states:
+        fail(f"QB4: the quest states are {states}")
+    from sqlmodel import select
+
+    for world in session.exec(select(World).where(World.is_active == True)).all():  # noqa: E712
+        world.is_active = False
+        session.add(world)
+    session.flush()
+    ours = session.get(World, ids["world"])
+    ours.is_active = True
+    session.add(ours)
+    session.commit()
+    from world_engine.cockpit.routes import quests as routes
+
+    seen = [payload, routes.journee_quests(db=session)]
+    if seen[1].get("quests") is None:
+        fail("QB4: GET /api/quests returned no quests")
+    leaked = {"agenda_id", "step_id"} & set().union(*(_keys(v) for v in seen))
+    if leaked:
+        fail(f"QB4: the player's payload carries {sorted(leaked)}")
+    for path in (ROOT / "src" / "world_engine" / "cockpit" / "routes" / "quests.py",
+                 ROOT / "src" / "world_engine" / "quest_reads.py"):
+        found = {"agenda_id", "step_id"} & _dict_literal_keys(path)
+        if found:
+            fail(f"QB4: {path.name} builds a dict with {sorted(found)}")
+    if not _pin_branch_ok():
+        fail("QB4: plan_day does not call quest_reads.pinned_plan( apart from select_plan(")
+
+
+def check_qb(engine) -> None:
+    from sqlmodel import Session
+
+    with Session(engine) as session:
+        ids = _qb_world(session)
+        check_qb1(session, ids)
+        check_qb2(session, ids)
+        if "quest" not in ids:  # QB2 already failed: no quest to abandon or show
+            return
+        check_qb3(session, ids)
+        check_qb4(session, ids)
+
+
 def main() -> int:
     db_path = _fresh_db()
     check_qa1()
@@ -416,13 +764,17 @@ def main() -> int:
     from world_engine.db import create_db_and_tables, engine
     create_db_and_tables()
     check_qa3(engine)
+    check_qb(engine)
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
         return 1
     print("PASS: quests -- v2.17 widens the requirement vocabulary to eight forms the model "
           "emits only four of, shared byte for byte by quest offers, migrates from v2.16 only, "
-          "and judges what the target feels, encounters, memberships, ranks and completed quests")
+          "and judges what the target feels, encounters, memberships, ranks and completed quests; "
+          "an offer is validated whole and saved whole, accepted only when eligible as a paused "
+          "plan with its steps, once unless repeatable, abandoned unless a step awaits review, "
+          "pinned to a day, and shown to the player without an agenda or step id")
     return 0
 
 

@@ -38,6 +38,10 @@ Layout, by canon domain:
     prompts.py          — `prompt_version`/`prompt_variable` (non-canon;
                           moved for module hygiene, not policy).
     pipeline.py         — `batch`/`pass_play` (TICKET-0075, BRIEF-0075-a).
+    quests.py           — `quest_offer`/`quest_offer_step`/
+                          `quest_offer_requirement`/`quest`:
+                          `write_quest_offer`, `accept_quest`,
+                          `abandon_quest` (TICKET-0108, BRIEF-0108-B).
     worlds.py           — `delete_world_cascade` (the sole delete-side
                           helper, wildcard-allowed in canon_write_policy.txt).
 
@@ -113,6 +117,16 @@ from .knowledge import (
     write_knowledge,
 )
 from .mentions import bind_mention, dismiss_mention, record_unresolved, resolve_mention
+from .quests import (
+    OPEN_QUEST_STATUSES,
+    QUEST_GIVER_TYPES,
+    abandon_quest,
+    abandon_refusal,
+    accept_quest,
+    acceptance_refusal,
+    offer_requirements,
+    write_quest_offer,
+)
 from .pipeline import (
     BATCH_RESOLVED_STATUS,
     BATCH_STATUSES,

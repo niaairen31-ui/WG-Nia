@@ -18077,6 +18077,39 @@ agenda_id`, the resolve guard and `active_plan` all assume one. A separate
 targeting vocabulary for eligibility (B2): a second language. Renaming
 `resource`: a data migration and a prompt change for a label.
 
+
+## A QUEST IS TAKEN, PINNED, ABANDONED (TICKET-0108) -- THE WRITERS JUDGE, THE PLAYER NEVER SEES THE AGENDA (BRIEF-0108-b, no schema change)
+
+**E1.** The creator authors offers from her own routes (`/api/quest-offers`,
+creator CRUD); `write_quest_offer` validates the whole offer -- giver,
+title, status, steps, every requirement through `_clean_requirement` --
+before its first write.
+
+**B1, A1, L1, I1.** `accept_quest` judges the offer itself (open,
+eligibility met, L1: a non-repeatable offer once per character, a
+repeatable one again only once the last quest taken from it is over), so
+no caller can skip the judgment; the Journée list (`available_offers`) is
+the same judgment, never a second one. The agenda is born `paused` through
+`write_agenda` (which now takes `status="paused"`), its first step
+`active` -- the creator-agenda precedent -- and the player's active plan is
+untouched.
+
+**O1.** `POST /api/day/{id}/plan` takes an optional `quest_id`: the day is
+pinned to that open quest's plan and no selection call is made; the
+reconciliation then runs against it as against any selected plan, so a
+`replace` verdict still parks it.
+
+**N1.** `abandon_quest` refuses while a day is resolving against the quest
+or a step change of it awaits review (applying it afterwards would move an
+abandoned plan); otherwise the agenda becomes `abandoned`, nothing deleted.
+
+**The agenda stays invisible.** The player's payload names a quest by
+`quest_id` and an offer by `offer_id`; no agenda or step id reaches it
+(`quests.py` QB4, the TICKET-0075 Scope OUT kept for quests).
+
+**Rejected.** Accepting through a mutation in the review queue: Nia is the
+one accepting; the queue would ask her to approve her own click.
+
 ---
 
 *Co-built with Claude, June 2026.*
