@@ -55,6 +55,10 @@ src/world_engine/writes/goals_agendas.py::write_day_plan       agenda_step_requi
 src/world_engine/writes/quests.py::write_quest_offer           quest_offer quest_offer_step quest_offer_requirement
 # TICKET-0108, BRIEF-0108-B: accept_quest writes the quest row and copies the offer's step requirements; its agenda and steps go through write_agenda/write_agenda_step, allow-listed above (the write_day_plan precedent).
 src/world_engine/writes/quests.py::accept_quest                agenda_step_requirement quest
+# TICKET-0109, BRIEF-0109-B: write_offer_terms replaces an offer's costs and rewards whole (write_quest_offer's full-replace shape); copy_terms_to_quest gives an accepted quest its own copy; upsert_quest_economy sets a world's rates (curated config, upsert-one).
+src/world_engine/writes/quest_terms.py::write_offer_terms      quest_offer_term
+src/world_engine/writes/quest_terms.py::copy_terms_to_quest    quest_term
+src/world_engine/writes/quest_terms.py::upsert_quest_economy   quest_economy
 # TICKET-0044, BRIEF-0044-c: create_entity_type is the 26th site — the governed
 # structural-write authority (D2), a NEW sanctioned site distinct from the two
 # canon-write paths (AI-proposal pipeline, creator CRUD). Its `CREATE TABLE

@@ -18159,6 +18159,29 @@ from BRIEF-0109-b on.
 cannot lie in one. A quantity on `item` with one owner (E2 of the series):
 two holders of furs would be two « Fourrure » entities.
 
+
+## A QUEST HAS COSTS AND REWARDS IN FIVE CURRENCIES (TICKET-0109) -- COPIED AT ACCEPTANCE, WEIGHED IN AN INDICATIVE UNIT (BRIEF-0109-b, no schema change)
+
+**B1.** An offer's terms -- each a cost or a reward in money, items,
+relation, a fact or a skill -- are written with the offer and replaced
+whole with its steps; accepting the offer copies them into the quest
+(`quest_term`), so an offer edited later never changes a bargain already
+struck. A term's counterparty is its own entity, else the giver; a
+relation, a fact or a skill needs a character there (a faction feels,
+knows and learns nothing). A skill cost is teaching it (C-teach1), so it
+names a skill definition: every character holds the base domains.
+
+**C1/E1.** The indicative unit weighs a term: a coin 1, a relation point 1,
+a fact 5, a skill 20, an item its own `value` a piece -- each rate set per
+world in `quest_economy`, a missing one at the code's default. The editor
+reads the two totals and whether the reward lies in the world's band
+(default 100-150 % of the cost): « maigre », « équilibrée », « généreuse »,
+or « sans coût ». The unit is never converted, never spent.
+
+**Rejected.** Reading the offer's terms at settlement (B2): an edited offer
+would reprice a bargain. Fixed rates in code (E2): each world has its own
+economy.
+
 ---
 
 *Co-built with Claude, June 2026.*

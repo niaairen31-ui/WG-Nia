@@ -26,12 +26,16 @@ from .models import (
     Character,
     Entity,
     Fact,
+    Item,
     Quest,
     QuestOffer,
     QuestOfferStep,
     SkillDefinition,
 )
 from .prose_render import fact_texts
+from .quest_value import offer_value, value_dict, world_rates
+from .quest_wording import term_dict, term_line
+from .writes.quest_terms import FACT_REWARD_LEVELS, offer_terms
 from .writes.quests import QUEST_GIVER_TYPES, acceptance_refusal, offer_requirements
 
 # M1: the agenda's status, as the player reads it.
@@ -59,6 +63,7 @@ def offer_dict(offer: QuestOffer, db: Session) -> dict:
     steps with their requirements, in order."""
     steps = db.exec(select(QuestOfferStep).where(QuestOfferStep.offer_id == offer.id)
                     .order_by(QuestOfferStep.step_order)).all()
+    terms = offer_terms(db, offer.id)
     return {
         "id": offer.id, "giver_entity_id": offer.giver_entity_id, "giver_name": _name(db, offer.giver_entity_id),
         "title": offer.title, "summary": offer.summary, "repeatable": offer.repeatable, "status": offer.status,
@@ -67,6 +72,9 @@ def offer_dict(offer: QuestOffer, db: Session) -> dict:
             "objective": step.objective, "cost": step.cost, "domain": step.domain,
             "requirements": [_requirement_dict(r) for r in offer_requirements(db, offer.id, step.id)],
         } for step in steps],
+        # TICKET-0109 (B1, C1): the costs and rewards, and their indicative value.
+        "terms": [term_dict(db, t, offer.giver_entity_id) for t in terms],
+        "value": value_dict(offer_value(db, offer.world_id, terms)),
     }
 
 
@@ -84,8 +92,9 @@ def _named(db: Session, world_id: str, entity_type: str) -> list[dict]:
 
 def editor_choices(world_id: str, db: Session) -> dict:
     """What the offer editor's pickers list: givers, characters, locations,
-    factions, facts (their text), skills (base domains, then definitions)
-    and offers."""
+    factions, facts (their text), skills (base domains, then definitions),
+    offers; items with their value, the fact reward levels and the world's
+    rates (TICKET-0109)."""
     facts = db.exec(select(Fact).where(Fact.world_id == world_id)).all()
     definitions = db.exec(select(SkillDefinition).where(SkillDefinition.world_id == world_id)).all()
     characters = _named(db, world_id, "character")
@@ -101,6 +110,9 @@ def editor_choices(world_id: str, db: Session) -> dict:
         + sorted(({"key": d.id, "label": d.name} for d in definitions), key=lambda d: d["label"].lower()),
         "offers": [{"id": o.id, "title": o.title} for o in world_offers(world_id, db)],
         "giver_types": list(QUEST_GIVER_TYPES),
+        "items": [{**i, "value": db.get(Item, i["id"]).value} for i in _named(db, world_id, "item")],
+        "fact_levels": list(FACT_REWARD_LEVELS),
+        "rates": world_rates(db, world_id),
     }
 
 
@@ -151,6 +163,7 @@ def journee_payload(character: Character, db: Session) -> dict:
     quests. No agenda or step id (checked by `quests.py`)."""
     offers = [{"offer_id": o.id, "title": o.title, "summary": o.summary,
                "giver_name": _name(db, o.giver_entity_id),
+               "terms": [term_line(db, t, o.giver_entity_id) for t in offer_terms(db, o.id)],
                "steps": [s.objective for s in db.exec(select(QuestOfferStep).where(
                    QuestOfferStep.offer_id == o.id).order_by(QuestOfferStep.step_order)).all()]}
               for o in available_offers(character, db)]

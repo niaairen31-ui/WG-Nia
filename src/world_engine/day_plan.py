@@ -64,13 +64,12 @@ from .models import (
     QuestOffer,
     Relation,
     Rencontre,
-    SkillDefinition,
 )
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
 from .prose_render import fact_text, fact_texts
 from .relation_orientation import is_social
-from .skill_access import held_rank
+from .skill_access import held_rank, skill_label
 
 _log = logging.getLogger(__name__)
 
@@ -293,13 +292,6 @@ def _eval_faction_member(req: RequirementSpec, character: Character, db: Session
     )
 
 
-def _skill_label(db: Session, skill_key: Optional[str]) -> str:
-    if skill_key in BASE_SKILL_DOMAINS:
-        return str(skill_key)
-    definition = db.get(SkillDefinition, skill_key) if skill_key else None
-    return definition.name if definition is not None else str(skill_key)
-
-
 def _eval_skill_rank_gte(req: RequirementSpec, character: Character, db: Session, reachable_ids) -> Verdict:
     """`target_key` is a base domain or a skill definition id; the rank held
     is `skill_access.held_rank` (a missing base row is Initié, a missing
@@ -308,7 +300,7 @@ def _eval_skill_rank_gte(req: RequirementSpec, character: Character, db: Session
     rank = held_rank(db, character.id, req.target_key)
     threshold = req.threshold or 0
     met = rank is not None and rank >= threshold
-    label = _skill_label(db, req.target_key)
+    label = skill_label(db, req.target_key)
     current = rank if rank is not None else "not held"
     reason = (
         f"skill {label!r} at rank {rank}, meets requires >= {threshold}" if met

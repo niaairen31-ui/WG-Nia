@@ -8,7 +8,7 @@ contract C-03).
 - `accept_quest(...)`      : the player takes an offer (B1, A1): one agenda
   born `paused` through `write_agenda`, its steps (the first `active`, the
   creator-agenda precedent) and their requirements copied from the offer,
-  and the `quest` row. Eligibility and L1 are judged HERE, so no caller can
+  the `quest` row, and its own copy of the offer's terms (TICKET-0109, B1). Eligibility and L1 are judged HERE, so no caller can
   skip them.
 - `abandon_quest(...)`     : N1, the quest's agenda to `abandoned` through
   `write_agenda_status`; nothing is deleted.
@@ -44,6 +44,7 @@ from ..models import (
     QuestOfferStep,
 )
 from .goals_agendas import _clean_requirement, write_agenda, write_agenda_status, write_agenda_step
+from .quest_terms import TERM_COLUMNS, TermSpec, clean_terms, copy_terms_to_quest, offer_terms, write_offer_terms
 
 # An offer is given by a character or a faction of the world (H1).
 QUEST_GIVER_TYPES: tuple[str, ...] = ("character", "faction")
@@ -97,10 +98,13 @@ def write_quest_offer(
     status: str,
     eligibility: list[RequirementSpec],
     steps: list[PlanStep],
+    terms: Optional[list[TermSpec]] = None,
 ) -> QuestOffer:
     """Create (`offer` None) or save one offer (C-03). Everything is
     validated before the first write; a `quest_completed` requirement on the
-    offer itself is refused (it could never be met)."""
+    offer itself is refused (it could never be met). `terms` (TICKET-0109,
+    B1) replaces the offer's costs and rewards whole; None keeps them, each
+    re-validated against the giver, who may have changed."""
     if not isinstance(title, str) or not title.strip():
         raise ValueError("write_quest_offer: title is required")
     if status not in QUEST_OFFER_STATUSES:
@@ -111,6 +115,9 @@ def write_quest_offer(
         raise ValueError("write_quest_offer: an offer cannot require its own completion")
     clean_eligibility = [_clean_requirement(db, world_id, -1, req) for req in eligibility]
     clean_steps = _clean_offer_steps(db, world_id, steps)
+    if terms is None:
+        terms = [TermSpec(**{c: getattr(t, c) for c in TERM_COLUMNS}) for t in offer_terms(db, offer.id)] if offer else []
+    clean_term_rows = clean_terms(db, world_id, giver_entity_id, terms)
 
     if offer is None:
         offer = QuestOffer(world_id=world_id, giver_entity_id=giver_entity_id, title=title.strip(), change_history=[])
@@ -136,6 +143,7 @@ def write_quest_offer(
         db.flush()
         for clean in clean_requirements:
             db.add(QuestOfferRequirement(world_id=world_id, offer_id=offer.id, step_id=row.id, **clean))
+    write_offer_terms(db, world_id=world_id, offer_id=offer.id, clean=clean_term_rows)
     return offer
 
 
@@ -195,6 +203,8 @@ def accept_quest(db: Session, *, offer: QuestOffer, character: Character) -> Que
             db.add(AgendaStepRequirement(world_id=offer.world_id, step_id=row.id, **clean))
     quest = Quest(world_id=offer.world_id, offer_id=offer.id, character_id=character.id, agenda_id=agenda.id)
     db.add(quest)
+    db.flush()
+    copy_terms_to_quest(db, world_id=offer.world_id, offer_id=offer.id, quest_id=quest.id)
     return quest
 
 
