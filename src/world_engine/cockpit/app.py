@@ -56,6 +56,7 @@ from . import crud as _crud
 from .origin_guard import origin_guard
 from .routes import creator as _routes_creator
 from .routes import day as _routes_day
+from .routes import debts as _routes_debts
 from .routes import link_agent as _routes_link_agent
 from .routes import lore as _routes_lore
 from .routes import lore_mentions as _routes_lore_mentions
@@ -140,6 +141,7 @@ app.include_router(_routes_lore_mentions.router)
 app.include_router(_routes_lore_choices.router)
 app.include_router(_routes_lore_write.router)
 app.include_router(_routes_quests.router)
+app.include_router(_routes_debts.router)
 
 app.mount("/static", _FreshnessAwareStaticFiles(directory=_STATIC_DIR), name="static")
 

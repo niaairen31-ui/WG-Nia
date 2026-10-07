@@ -18274,6 +18274,41 @@ ticket): repaying in any currency at the rates would make the unit a
 currency.
 
 
+## A DEBT IS WRITTEN WHOLE, REPAID AT ONCE OR FORGIVEN (TICKET-0110) -- A SERVICE OWES THE REST, A QUEST SETTLES ON CREDIT (BRIEF-0110-b, no schema change)
+
+**F-a, F-b1, U1.** Every debt has its fact: a free `information` fact whose
+participants are the debtor, the creditor and his contact, worded from its
+terms and motive. The debtor and the receiver (the creditor, his contact
+for a faction) know it at `knows`, secret when the debt is; a faction's
+members know a debt that is not secret, through a `faction` default.
+Repaying or forgiving rewrites it as a `changement`: whoever heard of the
+debt before keeps the old version until a later contact; the parties know
+at once.
+
+**D1, T1.** Repaying is all at once. Money and items move from the debtor to
+the creditor; a fact is delivered and a skill taught to the receiver -- so a
+debt of a fact or a skill may wait until the player knows it or is Maître,
+the way an NPC invests in him. A receiver who already holds that fact or
+skill lowers his regard toward the debtor instead, by the world's
+`debt_fact_relation` (10) or `debt_skill_relation` (20).
+
+**S2.** A service is asked of a character from Journée: what he does now is
+a list of quest terms applied as a settlement applies them (the ledger
+marks them `service`), what the player will owe is a debt -- toward him, or
+toward his faction when he acts for it, he being its contact (X1).
+
+**A2.** « Régler à crédit »: when coins or items are the only reasons a
+quest cannot be settled, the player pays what he has and the rest becomes
+one debt per creditor, motive the quest's title; a faction creditor's debt
+is linked to the offer's contact, or to the member Nia names. Every reward
+is given and the quest settled. « Déclarer accomplie » still refuses (D1 of
+0109).
+
+**Rejected.** A partial repayment (D2): one debt, one moment. A rule of
+relation at borrowing and repayment (E): it waits for a calendar, in its own
+ticket.
+
+
 ---
 
 *Co-built with Claude, June 2026.*

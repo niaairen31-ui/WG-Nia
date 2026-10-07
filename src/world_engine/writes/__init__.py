@@ -42,6 +42,12 @@ Layout, by canon domain:
                           BRIEF-0109-A).
     quest_settlement.py — « déclarer accomplie »: `settle_quest`,
                           `settlement_refusals` (TICKET-0109, BRIEF-0109-C).
+    debts.py            — `debt`/`debt_term`: `prepare_debt`, `write_debt`,
+                          `create_debt`, `debt_refusals`, `settle_debt`,
+                          `forgive_debt` (TICKET-0110, BRIEF-0110-B).
+    debt_sources.py     — a service (`request_service`) and « régler à
+                          crédit » (`credit_plan`, `settle_quest_on_credit`)
+                          (TICKET-0110, BRIEF-0110-B).
     quest_terms.py      — `quest_offer_term`/`quest_term`/`quest_economy`:
                           `clean_terms`, `write_offer_terms`,
                           `copy_terms_to_quest`, `upsert_quest_economy`
@@ -127,6 +133,8 @@ from .knowledge import (
 from .items import write_holding
 from .mentions import bind_mention, dismiss_mention, record_unresolved, resolve_mention
 from .quest_settlement import settle_quest, settlement_refusals
+from .debts import DebtTermSpec, create_debt, debt_refusals, debt_terms, forgive_debt, settle_debt
+from .debt_sources import credit_plan, request_service, settle_quest_on_credit
 from .quest_terms import (
     FACT_REWARD_LEVELS,
     PERSONAL_CURRENCIES,

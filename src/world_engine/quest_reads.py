@@ -26,6 +26,7 @@ from .models import (
     Character,
     Entity,
     Fact,
+    FactionMembership,
     Item,
     Quest,
     QuestOffer,
@@ -66,6 +67,8 @@ def offer_dict(offer: QuestOffer, db: Session) -> dict:
     terms = offer_terms(db, offer.id)
     return {
         "id": offer.id, "giver_entity_id": offer.giver_entity_id, "giver_name": _name(db, offer.giver_entity_id),
+        # TICKET-0110 (X1): a faction giver's contact.
+        "contact_entity_id": offer.contact_entity_id, "contact_name": _name(db, offer.contact_entity_id),
         "title": offer.title, "summary": offer.summary, "repeatable": offer.repeatable, "status": offer.status,
         "eligibility": [_requirement_dict(r) for r in offer_requirements(db, offer.id, None)],
         "steps": [{
@@ -90,11 +93,23 @@ def _named(db: Session, world_id: str, entity_type: str) -> list[dict]:
     return sorted(({"id": e.id, "name": e.name} for e in rows), key=lambda d: (d["name"].lower(), d["id"]))
 
 
+def faction_members(world_id: str, db: Session) -> dict[str, list[dict]]:
+    """TICKET-0110 (X1): each faction's active character members, by name --
+    who may be a contact."""
+    rows = db.exec(select(FactionMembership.faction_id, Entity).join(Entity, Entity.id == FactionMembership.entity_id)
+                   .where(Entity.world_id == world_id, Entity.type == "character", Entity.status == "active",
+                          FactionMembership.left_at.is_(None))).all()
+    members: dict[str, list[dict]] = {}
+    for faction_id, entity in rows:
+        members.setdefault(faction_id, []).append({"id": entity.id, "name": entity.name})
+    return {fid: sorted(people, key=lambda d: (d["name"].lower(), d["id"])) for fid, people in members.items()}
+
+
 def editor_choices(world_id: str, db: Session) -> dict:
     """What the offer editor's pickers list: givers, characters, locations,
     factions, facts (their text), skills (base domains, then definitions),
     offers; items with their value, the fact reward levels and the world's
-    rates (TICKET-0109)."""
+    rates (TICKET-0109); each faction's members (TICKET-0110, X1)."""
     facts = db.exec(select(Fact).where(Fact.world_id == world_id)).all()
     definitions = db.exec(select(SkillDefinition).where(SkillDefinition.world_id == world_id)).all()
     characters = _named(db, world_id, "character")
@@ -113,6 +128,7 @@ def editor_choices(world_id: str, db: Session) -> dict:
         "items": [{**i, "value": db.get(Item, i["id"]).value} for i in _named(db, world_id, "item")],
         "fact_levels": list(FACT_REWARD_LEVELS),
         "rates": world_rates(db, world_id),
+        "members": faction_members(world_id, db),
     }
 
 

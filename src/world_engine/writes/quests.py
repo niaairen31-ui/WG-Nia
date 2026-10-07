@@ -43,6 +43,7 @@ from ..models import (
     QuestOfferRequirement,
     QuestOfferStep,
 )
+from .debts import is_active_member
 from .goals_agendas import _clean_requirement, write_agenda, write_agenda_status, write_agenda_step
 from .quest_terms import TERM_COLUMNS, TermSpec, clean_terms, copy_terms_to_quest, offer_terms, write_offer_terms
 
@@ -75,10 +76,24 @@ def _check_giver(db: Session, world_id: str, giver_entity_id: str) -> None:
         raise ValueError(f"write_quest_offer: giver {giver_entity_id!r} is not an active character or faction")
 
 
+def _check_contact(db: Session, world_id: str, giver_entity_id: str, contact_entity_id: Optional[str]) -> None:
+    """X1 (TICKET-0110): an offer's contact is an active character member of
+    its faction giver; a character giver has none."""
+    if contact_entity_id is None:
+        return
+    giver, contact = db.get(Entity, giver_entity_id), db.get(Entity, contact_entity_id)
+    if giver is None or giver.type != "faction":
+        raise ValueError("write_quest_offer: only an offer given by a faction names a contact")
+    if (contact is None or contact.world_id != world_id or contact.type != "character" or contact.status != "active"
+            or not is_active_member(db, contact.id, giver.id)):
+        raise ValueError(f"write_quest_offer: contact {contact_entity_id!r} is not an active member of the giver")
+
+
 def _snapshot(offer: QuestOffer) -> None:
     history = list(offer.change_history or [])
     history.append({
-        "giver_entity_id": offer.giver_entity_id, "title": offer.title, "summary": offer.summary,
+        "giver_entity_id": offer.giver_entity_id, "contact_entity_id": offer.contact_entity_id,
+        "title": offer.title, "summary": offer.summary,
         "repeatable": offer.repeatable, "status": offer.status,
         "updated_at": offer.updated_at.isoformat() if offer.updated_at else None,
     })
@@ -99,17 +114,20 @@ def write_quest_offer(
     eligibility: list[RequirementSpec],
     steps: list[PlanStep],
     terms: Optional[list[TermSpec]] = None,
+    contact_entity_id: Optional[str] = None,
 ) -> QuestOffer:
     """Create (`offer` None) or save one offer (C-03). Everything is
     validated before the first write; a `quest_completed` requirement on the
     offer itself is refused (it could never be met). `terms` (TICKET-0109,
     B1) replaces the offer's costs and rewards whole; None keeps them, each
-    re-validated against the giver, who may have changed."""
+    re-validated against the giver, who may have changed.
+    `contact_entity_id` (TICKET-0110, X1) is written as given."""
     if not isinstance(title, str) or not title.strip():
         raise ValueError("write_quest_offer: title is required")
     if status not in QUEST_OFFER_STATUSES:
         raise ValueError(f"write_quest_offer: status must be one of {QUEST_OFFER_STATUSES}, got {status!r}")
     _check_giver(db, world_id, giver_entity_id)
+    _check_contact(db, world_id, giver_entity_id, contact_entity_id or None)
     every = list(eligibility) + [req for step in steps for req in step.requirements]
     if offer is not None and any(r.type == "quest_completed" and r.target_key == offer.id for r in every):
         raise ValueError("write_quest_offer: an offer cannot require its own completion")
@@ -126,6 +144,7 @@ def write_quest_offer(
         db.execute(text("DELETE FROM quest_offer_requirement WHERE offer_id = :oid"), {"oid": offer.id})
         db.execute(text("DELETE FROM quest_offer_step WHERE offer_id = :oid"), {"oid": offer.id})
     offer.giver_entity_id = giver_entity_id
+    offer.contact_entity_id = contact_entity_id or None
     offer.title = title.strip()
     offer.summary = (summary or "").strip() or None
     offer.repeatable = bool(repeatable)

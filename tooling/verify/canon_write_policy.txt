@@ -60,8 +60,11 @@ src/world_engine/writes/quests.py::accept_quest                agenda_step_requi
 src/world_engine/writes/quest_terms.py::write_offer_terms      quest_offer_term
 src/world_engine/writes/quest_terms.py::copy_terms_to_quest    quest_term
 src/world_engine/writes/quest_terms.py::upsert_quest_economy   quest_economy
-# TICKET-0109, BRIEF-0109-C: settle_quest sets quest.settled_at once, at « déclarer accomplie »; every term it applies goes through write_ledger_entry, write_holding, write_relation, write_knowledge, write_skill_row, write_skill_progress and write_agenda_status, allow-listed above.
-src/world_engine/writes/quest_settlement.py::settle_quest       quest
+# TICKET-0109, BRIEF-0109-C: settle_quest sets quest.settled_at once, at « déclarer accomplie »; every term it applies goes through write_ledger_entry, write_holding, write_relation, write_knowledge, write_skill_row, write_skill_progress and write_agenda_status, allow-listed above. TICKET-0110, BRIEF-0110-B: the write moved, unchanged, to finish_settlement, which settle_quest and settle_quest_on_credit both end with -- the same one site, relocated.
+src/world_engine/writes/quest_settlement.py::finish_settlement  quest
+# TICKET-0110, BRIEF-0110-B: write_debt writes a debt and its owed terms, once (its fact, participants, knowledge and faction default go through create_fact, attach_participants, write_knowledge and create_fact_default, allow-listed above); _close closes it once -- status, closed_at, closed_note -- never deleted. Creator CRUD, a service, or a settlement on credit.
+src/world_engine/writes/debts.py::write_debt                    debt debt_term
+src/world_engine/writes/debts.py::_close                        debt
 # TICKET-0044, BRIEF-0044-c: create_entity_type is the 26th site — the governed
 # structural-write authority (D2), a NEW sanctioned site distinct from the two
 # canon-write paths (AI-proposal pipeline, creator CRUD). Its `CREATE TABLE

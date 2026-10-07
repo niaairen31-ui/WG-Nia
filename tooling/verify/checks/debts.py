@@ -38,6 +38,55 @@ DA3 -- the evaluators (fixture). With an OPEN debt of the character toward
    `_clean_requirement` accepts a character and a faction as target and
    refuses a location.
 
+DB1 -- writing a debt (BRIEF-0110-B, fixture). `create_debt` refuses, each
+   with no row written: a location debtor, a debtor owing himself, a faction
+   creditor with no contact, a contact who is not its active member, a
+   character creditor with a contact, an origin `quest` with no quest, a
+   money term of 0, a skill term on a base domain, and nothing owed without
+   a reason. A valid debt toward a character: one row `open`, its terms in
+   order, its fact free (`information`, aspect `dette`) with the debtor and
+   the creditor as participants and the reason in its text, both parties
+   knowing it at `knows`, secret as the debt is. Toward a faction, not
+   secret: the contact is a participant and knows it, the faction has a
+   `faction` default at `knows`; secret: no default.
+DB2 -- repaying and forgiving (fixture). `settle_debt` refuses, with no row
+   written: coins or items the debtor lacks, a fact he does not know and the
+   receiver does not, a skill he is not Maître in. Once he can: the coins
+   (ledger `debt`) and the items move to the creditor, the fact is learned
+   and the skill taught by the receiver; a fact or a skill the receiver
+   already holds lowers the receiver's regard toward the debtor by the
+   world's setting instead (here 7 and 11). The debt is `settled` with
+   `closed_at`, its fact rewritten as a `changement` (« a réglé »), both
+   parties' rows refreshed, `has_debt_to` no longer met; a second repayment
+   is refused. `forgive_debt` closes an open debt `forgiven` with its note
+   (« a fait grâce »), and refuses a closed one.
+DB3 -- a service (fixture, S2). `request_service` refuses, with no row
+   written: the player as his own provider, a provider acting for a faction
+   he is not a member of, a cost the player cannot pay now, nothing owed
+   without a reason. Valid: the reward reaches the player (ledger
+   `service`), the cost lowers the provider's regard, and one debt
+   `service` is owed to the provider -- or to his faction, the provider its
+   contact.
+DB4 -- « régler à crédit » (fixture, A2). A quest whose giver is a faction
+   with a contact costs 30 coins and 3 furs; the player has 10 coins and 1
+   fur: `settle_quest` refuses, `credit_plan` pays 10 and 1 and owes the
+   faction 20 coins and 2 furs; `settle_quest_on_credit` pays them, gives
+   the reward, settles the quest and writes that one debt, origin `quest`,
+   linked to the offer's contact. A quest with a fact cost the player does
+   not know, or with nothing lacking, is refused credit with no row
+   written. A faction creditor that is not the giver needs a contact named,
+   and a member.
+DB5 -- what the surfaces read (fixture and route functions). `debt_dict`
+   carries exactly C-06's keys and its value in the world's unit; nothing
+   the routes return carries `agenda_id` or `step_id`. `player_debts` splits
+   what the player owes from what he is owed, an open one with its
+   refusals. The routes answer 201/422 on a debt by hand, 409 on a refused
+   repayment and forgiveness, 201/422 on a service. An offer's contact is
+   refused on a character giver and for a non-member, kept and shown by
+   `offer_dict`; `editor_choices` lists each faction's members; the
+   settlement context's `credit` names the creditor, the lines owed and the
+   preselected contact.
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that collects nothing fails.
 """
@@ -446,6 +495,437 @@ def check_da3(engine) -> None:
                     fail(f"DA3: _clean_requirement {'refuses' if ok else 'accepts'} {form} toward {target}")
 
 
+# --- DB --------------------------------------------------------------------------
+
+def _db_world(session, active: bool = False) -> dict:
+    from world_engine.models import Character, Entity, Fact, Faction, Item, SkillDefinition, World
+    from world_engine.writes import write_membership
+
+    world = World(name="Debts DB", is_active=active)
+    session.add(world)
+    session.flush()
+    ids = {"world": world.id}
+    for key, kind, name in (("pc", "character", "Millys"), ("npc", "character", "Garde"),
+                            ("agent", "character", "Ivo"), ("outsider", "character", "Pell"),
+                            ("guild", "faction", "Guilde"), ("other_guild", "faction", "Ordre"),
+                            ("place", "location", "Col"), ("fur", "item", "Fourrure")):
+        row = Entity(world_id=world.id, type=kind, name=name)
+        session.add(row)
+        session.flush()
+        ids[key] = row.id
+    session.add_all([Character(id=ids[k], world_id=world.id, character_type="player" if k == "pc" else "npc")
+                     for k in ("pc", "npc", "agent", "outsider")]
+                    + [Faction(id=ids["guild"]), Faction(id=ids["other_guild"]), Item(id=ids["fur"], value=3)])
+    for key, name in (("herb", "Herboristerie"), ("forge", "Forge")):
+        definition = SkillDefinition(world_id=world.id, name=name, base_domain="perception")
+        session.add(definition)
+        session.flush()
+        ids[key] = definition.id
+    for key, text in (("secret", "Le passage secret"), ("map", "La carte du col"), ("rumor", "Une rumeur")):
+        fact = Fact(world_id=world.id, content_raw=text, created_by="check", facet="information")
+        session.add(fact)
+        session.flush()
+        ids[key] = fact.id
+    for member, faction in (("agent", "guild"), ("npc", "other_guild")):
+        session.add(write_membership(session, mode="open", world_id=world.id, entity_id=ids[member],
+                                     faction_id=ids[faction]))
+    session.commit()
+    return ids
+
+
+def _counts(session) -> tuple:
+    from sqlmodel import func, select
+
+    from world_engine.models import Debt, DebtTerm, Fact, FactDefault, ItemHolding, Knowledge, Ledger, Relation, Skill
+
+    return tuple(session.exec(select(func.count()).select_from(m)).one()
+                 for m in (Debt, DebtTerm, Fact, FactDefault, Knowledge, Ledger, ItemHolding, Relation, Skill))
+
+
+def _refused(session, label: str, call) -> None:
+    before = _counts(session)
+    try:
+        call()
+    except ValueError:
+        session.rollback()
+        if _counts(session) != before:
+            fail(f"{label}: a refusal wrote rows")
+        return
+    session.rollback()
+    fail(f"{label}: accepted")
+
+
+def _new_debt(session, ids, creditor="npc", contact=None, secret=False, terms=None, reason="pour la corde"):
+    from world_engine.writes import DebtTermSpec, create_debt
+
+    terms = terms if terms is not None else [DebtTermSpec(currency="money", amount=5)]
+    debt = create_debt(session, world_id=ids["world"], debtor_id=ids["pc"], creditor_id=ids[creditor],
+                       contact_id=ids[contact] if contact else None, origin="creator", reason=reason,
+                       is_secret=secret, terms=terms, changed_by="check")
+    session.commit()
+    return debt
+
+
+def _knowledge(session, entity_id, fact_id):
+    from sqlmodel import select
+
+    from world_engine.models import Knowledge
+
+    return session.exec(select(Knowledge).where(Knowledge.entity_id == entity_id, Knowledge.fact_id == fact_id)).first()
+
+
+def check_db1(session, ids) -> None:
+    from sqlmodel import select
+
+    from world_engine.models import DebtTerm, Fact, FactDefault, FactParticipant
+    from world_engine.writes import DebtTermSpec, create_debt
+
+    def make(**over):
+        fields = dict(world_id=ids["world"], debtor_id=ids["pc"], creditor_id=ids["npc"], contact_id=None,
+                      origin="creator", reason="r", is_secret=False, terms=[DebtTermSpec(currency="money", amount=5)])
+        fields.update(over)
+        return lambda: create_debt(session, changed_by="check", **fields)
+
+    bad = {
+        "a location debtor": make(debtor_id=ids["place"]),
+        "a debtor owing himself": make(creditor_id=ids["pc"]),
+        "a faction with no contact": make(creditor_id=ids["guild"]),
+        "a contact not a member": make(creditor_id=ids["guild"], contact_id=ids["outsider"]),
+        "a character creditor with a contact": make(contact_id=ids["agent"]),
+        "origin quest with no quest": make(origin="quest"),
+        "a money term of 0": make(terms=[DebtTermSpec(currency="money", amount=0)]),
+        "a skill term on a base domain": make(terms=[DebtTermSpec(currency="skill", skill_key="perception")]),
+        "nothing owed without a reason": make(terms=[], reason="  "),
+    }
+    for label, call in bad.items():
+        _refused(session, f"DB1 ({label})", call)
+    debt = _new_debt(session, ids, secret=True, terms=[DebtTermSpec(currency="money", amount=5),
+                                                       DebtTermSpec(currency="item", item_id=ids["fur"], amount=2)])
+    terms = session.exec(select(DebtTerm).where(DebtTerm.debt_id == debt.id).order_by(DebtTerm.term_order)).all()
+    fact = session.get(Fact, debt.fact_id)
+    parts = set(session.exec(select(FactParticipant.entity_id).where(FactParticipant.fact_id == fact.id)).all())
+    if debt.status != "open" or [(t.term_order, t.currency) for t in terms] != [(1, "money"), (2, "item")]:
+        fail(f"DB1: the debt is {debt.status} with terms {[(t.term_order, t.currency) for t in terms]}")
+    if fact.facet != "information" or fact.aspect != "dette" or "pour la corde" not in fact.content_raw:
+        fail(f"DB1: the fact is {fact.facet}/{fact.aspect} « {fact.content_raw} »")
+    if parts != {ids["pc"], ids["npc"]}:
+        fail(f"DB1: the participants are {parts}")
+    for party in ("pc", "npc"):
+        row = _knowledge(session, ids[party], fact.id)
+        if row is None or row.level != "knows" or not row.is_secret:
+            fail(f"DB1: {party} does not know the secret debt at knows")
+    open_debt = _new_debt(session, ids, creditor="guild", contact="agent")
+    secret_debt = _new_debt(session, ids, creditor="guild", contact="agent", secret=True)
+    for d, expected in ((open_debt, 1), (secret_debt, 0)):
+        defaults = session.exec(select(FactDefault).where(FactDefault.fact_id == d.fact_id)).all()
+        if len(defaults) != expected or any(x.scope_type != "faction" or x.scope_id != ids["guild"] for x in defaults):
+            fail(f"DB1: a faction debt (secret {d.is_secret}) has defaults {[(x.scope_type, x.scope_id) for x in defaults]}")
+    if _knowledge(session, ids["agent"], open_debt.fact_id) is None:
+        fail("DB1: the contact does not know the faction debt")
+
+
+def _db2_stock(session, ids) -> None:
+    from world_engine.models import Knowledge, Skill
+    from world_engine.writes import upsert_quest_economy, write_holding, write_ledger_entry
+
+    w = ids["world"]
+    write_ledger_entry(session, world_id=w, entity_id=ids["pc"], amount=50, source_type="creator")
+    write_holding(session, world_id=w, item_id=ids["fur"], holder_entity_id=ids["pc"], quantity=5, changed_by="check")
+    session.add_all([Knowledge(entity_id=ids["pc"], fact_id=ids["secret"], level="knows"),
+                     Knowledge(entity_id=ids["pc"], fact_id=ids["map"], level="knows"),
+                     Knowledge(entity_id=ids["npc"], fact_id=ids["map"], level="knows"),
+                     Skill(character_id=ids["pc"], domain="perception", skill_definition_id=ids["herb"], rank=5,
+                           change_history=[]),
+                     Skill(character_id=ids["pc"], domain="perception", skill_definition_id=ids["forge"], rank=5,
+                           change_history=[]),
+                     Skill(character_id=ids["npc"], domain="perception", skill_definition_id=ids["forge"], rank=0,
+                           change_history=[])])
+    upsert_quest_economy(session, world_id=w, values={"debt_fact_relation": 7, "debt_skill_relation": 11})
+    session.commit()
+
+
+def _regard(session, ids, who="npc") -> int:
+    from sqlmodel import select
+
+    from world_engine.models import Relation
+
+    row = session.exec(select(Relation).where(Relation.entity_a_id == ids[who], Relation.entity_b_id == ids["pc"])).first()
+    return row.intensity if row else 50
+
+
+def check_db2(session, ids) -> None:
+    from world_engine.day_plan import RequirementSpec, evaluate_specs
+    from world_engine.ledger import get_balance
+    from world_engine.holdings import held_quantity
+    from sqlmodel import select
+
+    from world_engine.models import Character, Debt, Fact
+    from world_engine.writes import DebtTermSpec, forgive_debt, settle_debt
+    from world_engine.writes.quest_settlement import skill_row
+
+    lacking = (("coins", [DebtTermSpec(currency="money", amount=500)]),
+               ("furs", [DebtTermSpec(currency="item", item_id=ids["fur"], amount=9)]),
+               ("a fact", [DebtTermSpec(currency="fact", fact_id=ids["secret"])]),
+               ("a skill", [DebtTermSpec(currency="skill", skill_key=ids["herb"])]))
+    for label, terms in lacking:
+        debt = _new_debt(session, ids, creditor="outsider", terms=terms)
+        _refused(session, f"DB2 ({label} lacking)", lambda d=debt: settle_debt(session, debt=d, changed_by="check"))
+    _db2_stock(session, ids)
+    terms = [DebtTermSpec(currency="money", amount=20), DebtTermSpec(currency="item", item_id=ids["fur"], amount=2),
+             DebtTermSpec(currency="fact", fact_id=ids["secret"]), DebtTermSpec(currency="fact", fact_id=ids["map"]),
+             DebtTermSpec(currency="skill", skill_key=ids["herb"]), DebtTermSpec(currency="skill", skill_key=ids["forge"])]
+    debt = _new_debt(session, ids, terms=terms)
+    pc = session.get(Character, ids["pc"])
+    regard = _regard(session, ids)
+    balance, furs = get_balance(session, ids["pc"]), held_quantity(session, ids["pc"], ids["fur"])
+    settle_debt(session, debt=debt, changed_by="check")
+    session.commit()
+    if get_balance(session, ids["pc"]) != balance - 20 or held_quantity(session, ids["pc"], ids["fur"]) != furs - 2:
+        fail("DB2: the coins or the furs did not leave the debtor")
+    if get_balance(session, ids["npc"]) < 20 or held_quantity(session, ids["npc"], ids["fur"]) != 2:
+        fail("DB2: the creditor did not receive the coins or the furs")
+    if _knowledge(session, ids["npc"], ids["secret"]) is None or skill_row(session, ids["npc"], ids["herb"]) is None:
+        fail("DB2: the fact was not learned or the skill not taught")
+    if _regard(session, ids) != regard - 7 - 11:
+        fail(f"DB2: the regard went {regard} -> {_regard(session, ids)}, expected -7 -11")
+    fact = session.get(Fact, debt.fact_id)
+    if debt.status != "settled" or debt.closed_at is None or "a réglé" not in fact.content_raw:
+        fail(f"DB2: the debt is {debt.status}, fact « {fact.content_raw} »")
+    if not fact.change_history or fact.change_history[-1].get("kind") != "changement":
+        fail("DB2: the fact was not rewritten as a changement")
+    row = _knowledge(session, ids["pc"], fact.id)
+    if row is None or len(row.change_history or []) < 1:
+        fail("DB2: the debtor's knowledge of the debt was not refreshed")
+    for left in session.exec(select(Debt).where(Debt.creditor_entity_id == ids["npc"], Debt.status == "open")).all():
+        forgive_debt(session, debt=left, note=None, changed_by="check")
+    session.commit()
+    if evaluate_specs((RequirementSpec(type="has_debt_to", target_entity_id=ids["npc"]),), pc, session)[0].met:
+        fail("DB2: a settled debt is still owed")
+    _refused(session, "DB2 (a second repayment)", lambda: settle_debt(session, debt=debt, changed_by="check"))
+    other = _new_debt(session, ids)
+    forgive_debt(session, debt=other, note="en souvenir", changed_by="check")
+    session.commit()
+    text = session.get(Fact, other.fact_id).content_raw
+    if other.status != "forgiven" or other.closed_note != "en souvenir" or "a fait grâce" not in text:
+        fail(f"DB2: the forgiven debt is {other.status} « {text} »")
+    _refused(session, "DB2 (forgiving a closed debt)", lambda: forgive_debt(session, debt=other, note=None,
+                                                                             changed_by="check"))
+
+
+def check_db3(session, ids) -> None:
+    from sqlmodel import select
+
+    from world_engine.models import Character, Ledger
+    from world_engine.writes import DebtTermSpec, TermSpec, request_service
+
+    pc = session.get(Character, ids["pc"])
+    owed = [DebtTermSpec(currency="money", amount=15)]
+    reward = [TermSpec(direction="reward", currency="money", amount=15),
+              TermSpec(direction="cost", currency="relation", amount=4)]
+
+    def ask(**over):
+        fields = dict(character=pc, provider_id=ids["npc"], on_behalf_of_id=None, terms=reward, owed=owed,
+                      reason="un prêt", is_secret=False)
+        fields.update(over)
+        return lambda: request_service(session, **fields)
+
+    _refused(session, "DB3 (himself as provider)", ask(provider_id=ids["pc"]))
+    _refused(session, "DB3 (for a faction he is not in)", ask(on_behalf_of_id=ids["guild"]))
+    _refused(session, "DB3 (an unpayable cost)", ask(terms=[TermSpec(direction="cost", currency="money", amount=9999)]))
+    _refused(session, "DB3 (nothing owed, no reason)", ask(owed=[], reason=None))
+    regard = _regard(session, ids)
+    debt = ask()()
+    session.commit()
+    lines = session.exec(select(Ledger).where(Ledger.entity_id == ids["pc"], Ledger.source_type == "service")).all()
+    if [line.amount for line in lines] != [15]:
+        fail(f"DB3: the service's ledger lines are {[line.amount for line in lines]}")
+    if _regard(session, ids) != regard - 4:
+        fail("DB3: the service's cost did not lower the provider's regard")
+    if (debt.origin, debt.creditor_entity_id, debt.contact_entity_id) != ("service", ids["npc"], None):
+        fail(f"DB3: the service's debt is {(debt.origin, debt.creditor_entity_id, debt.contact_entity_id)}")
+    debt = ask(provider_id=ids["agent"], on_behalf_of_id=ids["guild"], terms=[])()
+    session.commit()
+    if (debt.creditor_entity_id, debt.contact_entity_id) != (ids["guild"], ids["agent"]):
+        fail("DB3: a service for a faction is not owed to it, its provider the contact")
+
+
+def _db4_quest(session, ids, giver, terms, title, contact=None):
+    from world_engine.day_plan import PlanStep
+    from world_engine.models import Character
+    from world_engine.writes import accept_quest, write_quest_offer
+
+    offer = write_quest_offer(session, world_id=ids["world"], offer=None, giver_entity_id=ids[giver], title=title,
+                              summary=None, repeatable=True, status="open", eligibility=[],
+                              steps=[PlanStep(objective="Chasser", cost=1, domain=None)], terms=terms,
+                              contact_entity_id=ids[contact] if contact else None)
+    session.flush()
+    quest = accept_quest(session, offer=offer, character=session.get(Character, ids["pc"]))
+    session.commit()
+    return quest
+
+
+def check_db4(session, ids) -> None:
+    from sqlmodel import select
+
+    from world_engine.holdings import held_quantity
+    from world_engine.ledger import get_balance
+    from world_engine.models import Debt, DebtTerm
+    from world_engine.writes import (
+        TermSpec, credit_plan, settle_quest, settle_quest_on_credit, write_holding, write_ledger_entry,
+    )
+
+    w = ids["world"]
+    write_ledger_entry(session, world_id=w, entity_id=ids["pc"], amount=10 - get_balance(session, ids["pc"]),
+                       source_type="creator")
+    write_holding(session, world_id=w, item_id=ids["fur"], holder_entity_id=ids["pc"], quantity=1, changed_by="check")
+    session.commit()
+    terms = [TermSpec(direction="cost", currency="money", amount=30),
+             TermSpec(direction="cost", currency="item", item_id=ids["fur"], amount=3),
+             TermSpec(direction="reward", currency="relation", amount=5, counterparty_entity_id=ids["agent"])]
+    quest = _db4_quest(session, ids, "guild", terms, "La meute", contact="agent")
+    _refused(session, "DB4 (settle_quest with coins lacking)", lambda: settle_quest(session, quest=quest))
+    plan = credit_plan(session, quest)
+    owed = {k: [(t.currency, t.amount) for t in v] for k, v in plan.owed.items()}
+    if plan.refusals or sorted(plan.paid.values()) != [1, 10] or owed != {ids["guild"]: [("money", 20), ("item", 2)]}:
+        fail(f"DB4: the plan is {plan.refusals} {plan.paid} {owed}")
+    settle_quest_on_credit(session, quest=quest, contacts={}, is_secret=False)
+    session.commit()
+    debt = session.exec(select(Debt).where(Debt.origin_quest_id == quest.id)).first()
+    if quest.settled_at is None or get_balance(session, ids["pc"]) != 0 or held_quantity(session, ids["pc"], ids["fur"]):
+        fail("DB4: the quest was not settled with what the player had")
+    if debt is None or (debt.creditor_entity_id, debt.contact_entity_id, debt.origin) != (ids["guild"], ids["agent"], "quest"):
+        fail("DB4: no debt toward the giver faction, linked to the offer's contact")
+    else:
+        rows = session.exec(select(DebtTerm).where(DebtTerm.debt_id == debt.id).order_by(DebtTerm.term_order)).all()
+        if [(t.currency, t.amount) for t in rows] != [("money", 20), ("item", 2)]:
+            fail(f"DB4: the debt owes {[(t.currency, t.amount) for t in rows]}")
+    fact_quest = _db4_quest(session, ids, "npc", [TermSpec(direction="cost", currency="fact", fact_id=ids["rumor"],
+                                                           counterparty_entity_id=ids["outsider"]),
+                                                  TermSpec(direction="cost", currency="money", amount=99)], "Le col")
+    paid_quest = _db4_quest(session, ids, "npc", [TermSpec(direction="reward", currency="money", amount=1)], "Rien")
+    for label, q in (("a fact cost", fact_quest), ("nothing lacking", paid_quest)):
+        _refused(session, f"DB4 (credit with {label})",
+                 lambda q=q: settle_quest_on_credit(session, quest=q, contacts={}, is_secret=False))
+    other = _db4_quest(session, ids, "npc", [TermSpec(direction="cost", currency="money", amount=5,
+                                                      counterparty_entity_id=ids["other_guild"])], "L'ordre")
+    _refused(session, "DB4 (a faction creditor with no contact)",
+             lambda: settle_quest_on_credit(session, quest=other, contacts={}, is_secret=False))
+    _refused(session, "DB4 (a contact who is not a member)",
+             lambda: settle_quest_on_credit(session, quest=other, contacts={ids["other_guild"]: ids["agent"]},
+                                            is_secret=False))
+    settle_quest_on_credit(session, quest=other, contacts={ids["other_guild"]: ids["npc"]}, is_secret=True)
+    session.commit()
+
+
+DEBT_DICT_KEYS = {
+    "id", "debtor_id", "debtor_name", "creditor_id", "creditor_name", "contact_id", "contact_name", "origin",
+    "origin_label", "reason", "is_secret", "status", "status_label", "created_at", "closed_at", "closed_note",
+    "terms", "value",
+}
+
+
+def _keys_deep(value) -> set:
+    if isinstance(value, dict):
+        return set(value) | {k for v in value.values() for k in _keys_deep(v)}
+    if isinstance(value, list):
+        return {k for v in value for k in _keys_deep(v)}
+    return set()
+
+
+def _http(label: str, status: int, call) -> None:
+    from fastapi import HTTPException
+
+    try:
+        call()
+    except HTTPException as exc:
+        if exc.status_code != status:
+            fail(f"{label}: answered {exc.status_code}, expected {status}")
+        return
+    fail(f"{label}: answered 2xx, expected {status}")
+
+
+def _db5_routes(session, ids) -> None:
+    from world_engine.cockpit.routes import debts as routes
+    from world_engine.cockpit.routes import quests as quest_routes
+
+    created = routes.write_debt_by_hand(routes.DebtBody(
+        debtor_entity_id=ids["pc"], creditor_entity_id=ids["npc"], reason="un service",
+        terms=[routes.DebtTermBody(currency="money", amount=500)]), db=session)
+    if set(created) != DEBT_DICT_KEYS or created["value"] != 500 or created["status_label"] != "due":
+        fail(f"DB5: debt_dict is {sorted(created)} value {created.get('value')}")
+    _http("DB5 (a debt by hand toward a place)", 422, lambda: routes.write_debt_by_hand(routes.DebtBody(
+        debtor_entity_id=ids["pc"], creditor_entity_id=ids["place"], reason="r"), db=session))
+    _http("DB5 (an unpayable repayment)", 409, lambda: routes.repay(created["id"], db=session))
+    routes.forgive(created["id"], routes.ForgiveBody(note="n"), db=session)
+    _http("DB5 (forgiving twice)", 409, lambda: routes.forgive(created["id"], routes.ForgiveBody(), db=session))
+    payload = routes.journee_debts(db=session)
+    owes_ids = {d["id"] for d in payload["owes"]}
+    if created["id"] not in owes_ids or "owed" not in payload or any(d["debtor_id"] != ids["pc"]
+                                                                    for d in payload["owes"]):
+        fail("DB5: player_debts does not list what the player owes")
+    if not all("refusals" in d and "repayable" in d for d in payload["owes"] + payload["owed"]):
+        fail("DB5: player_debts lacks the refusals")
+    served = routes.ask_service(routes.ServiceBody(provider_entity_id=ids["npc"], reason="un abri"), db=session)
+    _http("DB5 (a service from a place)", 422, lambda: routes.ask_service(
+        routes.ServiceBody(provider_entity_id=ids["place"], reason="r"), db=session))
+    every = [created, routes.list_debts(db=session), payload, served]
+    if _keys_deep(every) & {"agenda_id", "step_id"}:
+        fail("DB5: a debt payload names an agenda or a step")
+    _http("DB5 (an offer contact on a character giver)", 422, lambda: quest_routes.create_offer(
+        quest_routes.OfferBody(giver_entity_id=ids["npc"], contact_entity_id=ids["agent"], title="t",
+                               steps=[quest_routes.OfferStepBody(objective="o", cost=1)]), db=session))
+    _http("DB5 (an offer contact not a member)", 422, lambda: quest_routes.create_offer(
+        quest_routes.OfferBody(giver_entity_id=ids["guild"], contact_entity_id=ids["outsider"], title="t",
+                               steps=[quest_routes.OfferStepBody(objective="o", cost=1)]), db=session))
+    offer = quest_routes.create_offer(quest_routes.OfferBody(
+        giver_entity_id=ids["guild"], contact_entity_id=ids["agent"], title="t",
+        steps=[quest_routes.OfferStepBody(objective="o", cost=1)]), db=session)
+    if (offer["contact_entity_id"], offer["contact_name"]) != (ids["agent"], "Ivo"):
+        fail(f"DB5: offer_dict shows the contact {offer.get('contact_entity_id')}")
+    members = quest_routes.offer_choices(db=session)["members"]
+    if [m["id"] for m in members.get(ids["guild"], [])] != [ids["agent"]]:
+        fail(f"DB5: editor_choices lists the guild's members as {members.get(ids['guild'])}")
+
+
+def _db5_credit_context(session, ids) -> None:
+    from world_engine.ledger import get_balance
+    from world_engine.quest_settlement_view import settlement_context
+    from world_engine.writes import TermSpec, write_ledger_entry
+
+    balance = get_balance(session, ids["pc"])
+    if balance > 0:
+        write_ledger_entry(session, world_id=ids["world"], entity_id=ids["pc"], amount=-balance, source_type="creator")
+    quest = _db4_quest(session, ids, "guild", [TermSpec(direction="cost", currency="money", amount=8)], "Dîme",
+                       contact="agent")
+    credit = settlement_context(session, quest)["credit"]
+    debts = credit["debts"]
+    if not credit["possible"] or len(debts) != 1 or debts[0]["creditor_id"] != ids["guild"] \
+            or debts[0]["lines"] != ["8 pièce(s)"] or debts[0]["contact_id"] != ids["agent"] \
+            or [m["id"] for m in debts[0]["members"]] != [ids["agent"]]:
+        fail(f"DB5: the settlement's credit is {credit}")
+
+
+def check_db(engine) -> None:
+    from sqlmodel import Session
+
+    with Session(engine) as session:
+        ids = _db_world(session)
+        check_db1(session, ids)
+        check_db2(session, ids)
+        check_db3(session, ids)
+        check_db4(session, ids)
+    with Session(engine) as session:
+        from world_engine.models import World
+
+        for world in session.exec(__import__("sqlmodel").select(World)).all():
+            world.is_active = False
+            session.add(world)
+        session.commit()
+        ids = _db_world(session, active=True)
+        _db5_routes(session, ids)
+        _db5_credit_context(session, ids)
+
+
 def main() -> int:
     db_path = _fresh_db()
     check_da1a()
@@ -455,6 +935,7 @@ def main() -> int:
     create_db_and_tables()
     check_da1c(engine)
     check_da3(engine)
+    check_db(engine)
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -462,7 +943,11 @@ def main() -> int:
     print("PASS: debts -- v2.19 lays the debt tables, an offer's contact and the economy's two debt "
           "settings, migrates from v2.18 only, widens the requirement vocabulary with has_debt_to and "
           "no_debt_to for the creator alone, judges an open debt toward a character or a faction, and "
-          "retires the relation type debt")
+          "retires the relation type debt; a debt is validated whole, written with its fact known by "
+          "both parties (secret as it is, a faction's members when it is not), repaid at once or "
+          "forgiven and never deleted, its fact changed; a service applies its terms and owes the rest; "
+          "« régler à crédit » pays what the player has and owes the rest per creditor; the surfaces "
+          "read every debt without an agenda or step id")
     return 0
 
 
