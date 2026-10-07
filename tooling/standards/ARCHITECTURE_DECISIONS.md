@@ -18110,6 +18110,28 @@ abandoned plan); otherwise the agenda becomes `abandoned`, nothing deleted.
 **Rejected.** Accepting through a mutation in the review queue: Nia is the
 one accepting; the queue would ask her to approve her own click.
 
+
+## QUESTS ON TWO SURFACES (TICKET-0108) -- CRÉATION AUTHORS THE OFFERS, JOURNÉE TAKES THEM AND PINS A DAY (BRIEF-0108-c, no schema change)
+
+**E1.** « Quêtes » is a Création tab, an island created as such (origin
+`new`): the offers listed, one offer edited whole -- giver, title, summary,
+« répétable », open or closed, the conditions that decide who it is
+offered to, the steps (objective, cost, roll) with their own
+requirements. The editor's eight forms mirror `day_plan`'s vocabulary and
+its three shape groups across the network boundary (`questRequirements.js`,
+kept equal by `quests.py` QC1).
+
+**I1, N1, O1.** Journée shows a « Quêtes » panel: the offers the player is
+eligible for, with « Accepter », and his quests -- state, steps, what the
+active step still needs, « Abandonner » (asked twice). Above « Émettre le
+plan », « Cette journée avance » pins the day to an open quest, or lets the
+day choose. The panel names quests and offers only; the plan behind a
+quest stays invisible, as in the rest of Journée.
+
+**Rejected.** Offers authored in Journée: Journée is the player's surface;
+the creator's tools live in Création. The pin as a separate button per
+quest: one choice per day, made where the day is planned.
+
 ---
 
 *Co-built with Claude, June 2026.*

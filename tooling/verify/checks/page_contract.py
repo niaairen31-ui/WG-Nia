@@ -45,7 +45,8 @@ REGISTRE_SVELTE = CREATION_SRC / "Registre.svelte"
 
 TAB_KEYS = [
     "npc", "pj", "lieux", "factions", "objets",
-    "competences", "region", "constructeur", "artefacts", "registre", "intrigues", "evenements", "subjects", "queue", "prompts",
+    "competences", "region", "constructeur", "artefacts", "registre", "intrigues", "evenements", "quetes", "subjects",
+    "queue", "prompts",
 ]
 
 

@@ -249,6 +249,8 @@
 
   <!-- ── Sujets sub-tab -- Svelte island created as one (origin 'new'):
        empty by construction ── -->
+  <!-- ── Quêtes sub-tab -- Svelte island (TICKET-0108): empty by construction ── -->
+  <div id="creation-quetes" style:display={containerVisible('creation-quetes') ? '' : 'none'}></div>
   <div id="creation-subjects" style:display={containerVisible('creation-subjects') ? '' : 'none'}></div>
 
   <!-- ── Review Queue sub-tab -- Svelte island: empty by construction ── -->

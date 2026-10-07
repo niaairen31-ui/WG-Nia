@@ -67,6 +67,21 @@ QB4 -- what the player sees (fixture and static). `journee_payload` and the
    `quest_reads.pinned_plan(` in the branch that does not call
    `select_plan(`.
 
+QC1 -- the editor's mirror (BRIEF-0108-C, static). `frontend/src/creation/
+   questRequirements.js`'s `REQUIREMENT_FORMS` has exactly the keys of
+   `day_plan.REQUIREMENT_TYPES`; its forms with `column: 'entity'` are
+   `ENTITY_TARGET_TYPES`, with `column: 'key'` `KEY_TARGET_TYPES`, with
+   `threshold: true` `THRESHOLD_TYPES`.
+QC2 -- the « Quêtes » tab (static). `tabs.js`'s `quetes` entry mounts the
+   `questOffers` island in `creation-quetes` and routes « + Nouvelle quête »
+   through `triggerPrimaryAction('questOffers')`; `QuestOffers.svelte`
+   exports `primaryAction`; `questOffers.svelte.js` creates with `POST
+   /api/quest-offers` and saves with `PUT /api/quest-offers/`.
+QC3 -- Journée (static). `QuestPanel.svelte` and `quests.svelte.js` contain
+   neither `agenda_id` nor `step_id`; `Journee.svelte` renders
+   `<QuestPanel` and plans with `planDay(id, questState.pin)`;
+   `journee.svelte.js` sends `quest_id` in the plan request's body.
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that collects nothing fails.
 """
@@ -757,6 +772,70 @@ def check_qb(engine) -> None:
         check_qb4(session, ids)
 
 
+# --- QC --------------------------------------------------------------------------
+
+FRONTEND = ROOT / "frontend" / "src"
+
+
+def _read(rel: str) -> str:
+    path = FRONTEND / rel
+    if not path.is_file():
+        fail(f"QC: {rel} not found")
+        return ""
+    return path.read_text(encoding="utf-8")
+
+
+def check_qc1() -> None:
+    from world_engine import day_plan
+
+    text = _read("creation/questRequirements.js")
+    forms = dict(re.findall(r"^\s+(\w+): \{ label: '[^']*', list: '\w+', (column: '\w+', threshold: \w+) \},$",
+                            text, re.M))
+    if not forms:
+        fail("QC1: REQUIREMENT_FORMS holds zero forms")
+        return
+    if list(forms) != list(day_plan.REQUIREMENT_TYPES):
+        fail(f"QC1: REQUIREMENT_FORMS keys {list(forms)} != REQUIREMENT_TYPES")
+    groups = {
+        "column: 'entity'": tuple(day_plan.ENTITY_TARGET_TYPES), "column: 'key'": tuple(day_plan.KEY_TARGET_TYPES),
+        "threshold: true": tuple(day_plan.THRESHOLD_TYPES),
+    }
+    for marker, expected in groups.items():
+        found = tuple(form for form, spec in forms.items() if marker in spec)
+        if found != expected:
+            fail(f"QC1: the forms with {marker} are {found}, expected {expected}")
+
+
+def check_qc2() -> None:
+    tabs = _read("creation/tabs.js")
+    entry = re.search(r"\n  quetes: \{(.*?)\n  \},", tabs, re.S)
+    body = entry.group(1) if entry else ""
+    for needle in ("{ key: 'questOffers', containerId: 'creation-quetes' }",
+                   "triggerPrimaryAction('questOffers')"):
+        if needle not in body:
+            fail(f"QC2: tabs.js's quetes entry lacks {needle}")
+    if "export function primaryAction" not in _read("creation/QuestOffers.svelte"):
+        fail("QC2: QuestOffers.svelte exports no primaryAction")
+    state = _read("creation/questOffers.svelte.js")
+    for needle in ("'/api/quest-offers/' + draft.id", "draft.id ? 'PUT' : 'POST'"):
+        if needle not in state:
+            fail(f"QC2: questOffers.svelte.js lacks {needle}")
+
+
+def check_qc3() -> None:
+    for rel in ("journee/QuestPanel.svelte", "journee/quests.svelte.js"):
+        text = _read(rel)
+        for token in ("agenda_id", "step_id"):
+            if token in text:
+                fail(f"QC3: {rel} names {token}")
+    journee = _read("journee/Journee.svelte")
+    for needle in ("<QuestPanel", "planDay(id, questState.pin)"):
+        if needle not in journee:
+            fail(f"QC3: Journee.svelte lacks {needle}")
+    if "JSON.stringify({ quest_id: questId })" not in _read("journee/journee.svelte.js"):
+        fail("QC3: journee.svelte.js does not send quest_id in the plan body")
+
+
 def main() -> int:
     db_path = _fresh_db()
     check_qa1()
@@ -765,6 +844,9 @@ def main() -> int:
     create_db_and_tables()
     check_qa3(engine)
     check_qb(engine)
+    check_qc1()
+    check_qc2()
+    check_qc3()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -774,7 +856,8 @@ def main() -> int:
           "and judges what the target feels, encounters, memberships, ranks and completed quests; "
           "an offer is validated whole and saved whole, accepted only when eligible as a paused "
           "plan with its steps, once unless repeatable, abandoned unless a step awaits review, "
-          "pinned to a day, and shown to the player without an agenda or step id")
+          "pinned to a day, and shown to the player without an agenda or step id; the editor "
+          "mirrors the vocabulary, the « Quêtes » tab and Journée's panel are wired")
     return 0
 
 

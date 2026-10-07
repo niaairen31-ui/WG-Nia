@@ -49,7 +49,7 @@
    sheet.
 
    `_creationRunWorldSwitchResets` does NOT port: every `onWorldSwitch` in
-   CREATION_TABS (15 static entries + the runtime-tab factory's own
+   CREATION_TABS (16 static entries + the runtime-tab factory's own
    template) is `null` (measured, not assumed — grep `onWorldSwitch:` over
    this file), so its `Object.values(...).forEach` loop is vacuous; its one
    real remaining effect (`creationReturnTo = null`) folds directly into
@@ -339,6 +339,15 @@ export const CREATION_TABS = {
     islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
     createPanel: null,
     primaryAction: { label: '+ Nouvel événement', handler: () => triggerPrimaryAction('entitySheet') },
+  },
+  quetes: {
+    label: 'Quêtes',
+    archetype: 'bespoke',
+    containers: ['creation-quetes'],
+    loader: null,
+    state: { onTabEnter: null, onWorldSwitch: null },
+    islands: [{ key: 'questOffers', containerId: 'creation-quetes' }],
+    primaryAction: { label: '+ Nouvelle quête', handler: () => triggerPrimaryAction('questOffers') },
   },
   subjects: {
     label: 'Sujets',

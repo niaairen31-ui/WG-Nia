@@ -1,0 +1,76 @@
+<script>
+  /* TICKET-0108 (BRIEF-0108-C). Journée's quests: the offers the player may
+     accept (I1, only those he is eligible for) and his quests -- giver,
+     state, steps, what the active step still needs, « Abandonner » (N1).
+     A quest is shown by its title and objectives; the plan behind it is
+     never named here. */
+  import { questState, loadQuests, acceptOffer, abandonQuest } from './quests.svelte.js';
+
+  let confirming = $state(null);
+
+  function abandon(questId) {
+    if (confirming !== questId) { confirming = questId; return; }
+    confirming = null;
+    abandonQuest(questId);
+  }
+</script>
+
+<div class="queue-panel" id="journee-quest-panel">
+  <div class="panel-head">
+    <h2>Quêtes</h2>
+    <button class="btn-icon" onclick={() => loadQuests()} title="Rafraîchir">↻</button>
+  </div>
+  <div class="queue-body">
+    {#if questState.loadError}<div class="r-err">{questState.loadError}</div>{/if}
+    {#if questState.actionError}<div class="r-err">{questState.actionError}</div>{/if}
+
+    <h4>Proposées</h4>
+    {#if questState.offers.length === 0}
+      <p class="muted">Aucune quête ne vous est proposée pour l'instant.</p>
+    {/if}
+    {#each questState.offers as offer (offer.offer_id)}
+      <div class="row-card">
+        <strong>{offer.title}</strong> <span class="muted">— {offer.giver_name || '—'}</span>
+        {#if offer.summary}<div>{offer.summary}</div>{/if}
+        <ol class="steps">{#each offer.steps as objective}<li>{objective}</li>{/each}</ol>
+        <button disabled={questState.busy !== null} onclick={() => acceptOffer(offer.offer_id)}>
+          {questState.busy === offer.offer_id ? 'Acceptation…' : 'Accepter'}
+        </button>
+      </div>
+    {/each}
+
+    <h4>Mes quêtes</h4>
+    {#if questState.quests.length === 0}<p class="muted">Aucune.</p>{/if}
+    {#each questState.quests as quest (quest.quest_id)}
+      <div class="row-card" class:over={!quest.open}>
+        <strong>{quest.title}</strong>
+        <span class="badge b-other">{quest.state}</span>
+        <span class="muted">— {quest.giver_name || '—'}</span>
+        <ol class="steps">
+          {#each quest.steps as step (step.order)}
+            <li class={'step-' + step.status}>
+              {step.objective}
+              {#if step.status === 'completed'} ✓{/if}
+              {#each step.blocked as reason}<div class="muted">Il manque : {reason}</div>{/each}
+            </li>
+          {/each}
+        </ol>
+        {#if quest.open}
+          <button disabled={questState.busy !== null} onclick={() => abandon(quest.quest_id)}>
+            {confirming === quest.quest_id ? 'Confirmer l’abandon' : 'Abandonner'}
+          </button>
+        {/if}
+      </div>
+    {/each}
+  </div>
+</div>
+
+<style>
+  .r-err { color: var(--red); }
+  .muted { color: var(--muted); font-size: 12px; }
+  h4 { margin: 10px 0 4px; font-size: 13px; color: var(--muted); }
+  .steps { margin: 4px 0 6px 18px; padding: 0; }
+  .step-active { font-weight: 600; }
+  .step-completed, .step-failed { color: var(--muted); }
+  .over { opacity: 0.7; }
+</style>
