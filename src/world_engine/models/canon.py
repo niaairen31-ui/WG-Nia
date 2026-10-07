@@ -540,27 +540,50 @@ class Artifact(SQLModel, table=True):
 
 
 # -----------------------------------------------------------------------------
-# item  (mundane tracked objects — static possession, schema v1.18)
+# item  (a KIND of object -- "Fourrure de loup", schema v1.18; a kind since
+# v2.18, TICKET-0109, BRIEF-0109-A, E1/A1). Who holds how many of it is
+# `item_holding`; the kind carries its condition and its indicative value
+# (`value`, units of the quest economy, C1). `owner_id`, `location_id` and
+# `equipped` were dropped at v2.18: possession and place are holdings.
 # -----------------------------------------------------------------------------
 class Item(SQLModel, table=True):
     __tablename__ = "item"
-    __table_args__ = (
-        CheckConstraint(
-            "NOT equipped OR owner_id IS NOT NULL", name="ck_item_equipped_owner"
-        ),
-        Index("idx_item_owner", "owner_id"),
-        Index("idx_item_location", "location_id"),
-    )
+    __table_args__ = (CheckConstraint("value >= 0", name="ck_item_value"),)
 
     id: str = Field(primary_key=True, foreign_key="entity.id")
-    owner_id: Optional[str] = Field(default=None, foreign_key="entity.id")
-    location_id: Optional[str] = Field(default=None, foreign_key="entity.id")
-    equipped: bool = Field(
-        default=False, sa_column_kwargs={"server_default": text("0")}
-    )
     condition: str = Field(
         default="intact",
         sa_column_kwargs={"server_default": text("'intact'")},
+    )
+    value: int = Field(default=1, sa_column_kwargs={"server_default": text("1")})
+
+
+# -----------------------------------------------------------------------------
+# item_holding  (who holds how many of an item -- schema v2.18, TICKET-0109,
+# BRIEF-0109-A, A1). The holder is any entity of the world: a character, a
+# faction, or a location (an object lying somewhere is held by that place,
+# never a zone -- `require_visitable`). One row per (item, holder); a row at
+# 0 is kept, never deleted (absence and 0 read the same). Written only by
+# `writes.write_holding`, which appends the previous quantity to
+# `change_history`.
+# -----------------------------------------------------------------------------
+class ItemHolding(SQLModel, table=True):
+    __tablename__ = "item_holding"
+    __table_args__ = (
+        CheckConstraint("quantity >= 0", name="ck_item_holding_quantity"),
+        Index("idx_item_holding_pair", "item_id", "holder_entity_id", unique=True),
+        Index("idx_item_holding_holder", "holder_entity_id"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    item_id: str = Field(foreign_key="item.id", nullable=False)
+    holder_entity_id: str = Field(foreign_key="entity.id", nullable=False)
+    quantity: int = Field(default=0, sa_column_kwargs={"server_default": text("0")})
+    updated_at: datetime = _created_ts()
+    change_history: list = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False, server_default=text("'[]'")),
     )
 
 

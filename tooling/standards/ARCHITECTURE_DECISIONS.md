@@ -18132,6 +18132,109 @@ quest stays invisible, as in the rest of Journée.
 the creator's tools live in Création. The pin as a separate button per
 quest: one choice per day, made where the day is planned.
 
+
+## AN ITEM IS A KIND HELD IN QUANTITY (TICKET-0109) -- ANY ENTITY HOLDS IT, A PLACE INCLUDED; EQUIPPED IS GONE (BRIEF-0109-a, schema v2.18)
+
+**A1.** `item` is a kind (« Fourrure de loup »); `item_holding` says who
+holds how many -- a character, a faction, or a location (an object lying
+somewhere is held by that place). Ten furs are one item and one holding of
+10, never ten entities. `write_holding` is the one writer: it sets or moves
+a quantity, keeps a row at 0, appends the previous quantity to the row's
+history, and refuses a zone as a place that RECEIVES (taking items out of a
+place that just became a zone is how a promotion moves them to its first
+child). The MJ's inventory line reads « Fourrure de loup ×10 »; the list the
+interpretation model answers from names items without quantities, so the
+possession check still matches a name exactly, and passes when at least one
+is held.
+
+**Equipped is gone** (Nia: « cela ne sert à rien »): the column, its CHECK,
+the registry field and `item_update`, the equip toggle no producer had
+emitted since BRIEF-08.
+
+**Schema for the next briefs.** `quest_offer_term`, `quest_term`,
+`quest_economy`, `quest.settled_at` and `item.value` are added here, read
+from BRIEF-0109-b on.
+
+**Rejected.** A2, keeping `item.location_id`: a kind held in ten places
+cannot lie in one. A quantity on `item` with one owner (E2 of the series):
+two holders of furs would be two « Fourrure » entities.
+
+
+## A QUEST HAS COSTS AND REWARDS IN FIVE CURRENCIES (TICKET-0109) -- COPIED AT ACCEPTANCE, WEIGHED IN AN INDICATIVE UNIT (BRIEF-0109-b, no schema change)
+
+**B1.** An offer's terms -- each a cost or a reward in money, items,
+relation, a fact or a skill -- are written with the offer and replaced
+whole with its steps; accepting the offer copies them into the quest
+(`quest_term`), so an offer edited later never changes a bargain already
+struck. A term's counterparty is its own entity, else the giver; a
+relation, a fact or a skill needs a character there (a faction feels,
+knows and learns nothing). A skill cost is teaching it (C-teach1), so it
+names a skill definition: every character holds the base domains.
+
+**C1/E1.** The indicative unit weighs a term: a coin 1, a relation point 1,
+a fact 5, a skill 20, an item its own `value` a piece -- each rate set per
+world in `quest_economy`, a missing one at the code's default. The editor
+reads the two totals and whether the reward lies in the world's band
+(default 100-150 % of the cost): « maigre », « équilibrée », « généreuse »,
+or « sans coût ». The unit is never converted, never spent.
+
+**Rejected.** Reading the offer's terms at settlement (B2): an edited offer
+would reprice a bargain. Fixed rates in code (E2): each world has its own
+economy.
+
+
+## « DÉCLARER ACCOMPLIE » SETTLES A QUEST AT ONCE (TICKET-0109) -- MEASURED CONTEXT FIRST, AN UNPAYABLE COST REFUSES (BRIEF-0109-c, no schema change)
+
+**D1.** Settling is a direct write Nia makes from Journée, on any quest not
+yet settled and not failed or abandoned -- still open, or completed by its
+steps. One transaction: every cost, then every reward, of the quest's own
+terms; the agenda `completed` when it is not; `quest.settled_at` set, once.
+The steps left are untouched: they are the quest's history. A cost the
+character cannot pay -- coins, items (summed per item across terms), a fact
+he does not know, a skill he is not Maître in, or one the counterparty
+already holds -- refuses the whole settlement with its reasons, and nothing
+is written (D2, a « forcer », rejected: the creator adjusts the sheet).
+
+**C-src1.** A reward is always given: money moves even below the
+counterparty's 0; items come from what he holds, the rest is new.
+**C-skill1.** A skill reward gives 10 % of the points the skill's rank needs
+to rise, at least 1; a rise resets the points to 0 (the surplus is not
+carried, `write_skill_progress`'s rule); at Maître, nothing; a skill not
+held is learned at Inexpérimenté, taught by the counterparty when he is at
+Maître. **C-teach1.** Teaching needs the character at Maître; the
+counterparty learns at Inexpérimenté, `taught_by` him.
+
+**G1.** Before the click: the steps and their outcomes, the terms and what
+each will do, their value, the days that advanced the quest (declared
+action, the text the day read, each step's band), the step changes still
+awaiting review, and the refusals. No model is asked.
+
+**Rejected.** A « déclarer échouée » button (D-fail1): « Abandonner »
+exists. A mutation in the review queue (D2 of the series): Nia would
+approve her own click.
+
+
+## QUEST TERMS ON BOTH SURFACES (TICKET-0109) -- THE EDITOR WEIGHS THEM LIVE, JOURNÉE SETTLES FROM THE RECAP (BRIEF-0109-d, no schema change)
+
+**Création › Quêtes.** The offer editor gains « Coûts » and « Récompenses »:
+one row per term (currency, target, amount, a fact reward's level,
+counterparty -- « le donneur » by default, a character for a relation, a
+fact or a skill). Its total in the indicative unit is recomputed by the
+server at every change (`POST /api/quest-offers/value`) and shown with the
+band's verdict; the list marks each offer « maigre », « équilibrée » or
+« généreuse ». ⚖ opens the world's rates, each empty field at the code's
+default. The five currencies mirror the server's across the network
+boundary (`questTerms.js`, kept equal by `quest_rewards.py` RD1).
+
+**Journée › Quêtes.** Offers and quests list their terms. A quest not yet
+settled, open or completed by its steps, offers « Déclarer accomplie »: it
+opens the measured recap and its « Confirmer » button, disabled while a
+cost cannot be paid. A completed quest still to settle reads « accomplie —
+à régler »; a settled one, « réglée ». No agenda or step id is named.
+
+**Rejected.** Computing the value in the browser: a second implementation
+of the rates to keep in step; the server already has them.
+
 ---
 
 *Co-built with Claude, June 2026.*

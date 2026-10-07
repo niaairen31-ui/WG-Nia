@@ -13,6 +13,10 @@ export const questState = $state({
   busy: null, // the offer_id or quest_id being acted on
   actionError: '',
   pin: '', // O1: the quest_id the next planned day advances, '' = the day chooses
+  // TICKET-0109 (D1, G1): the recap shown before « déclarer accomplie ».
+  settling: null, // quest_id whose recap is open
+  settlement: null, // GET /api/quests/{id}/settlement
+  settlementError: '',
 });
 
 export function openQuests() {
@@ -61,4 +65,23 @@ export function acceptOffer(offerId) {
 
 export function abandonQuest(questId) {
   return act(questId, '/api/quests/' + questId + '/abandon', null);
+}
+
+/** G1: open (or close) the measured recap of one quest. */
+export async function openSettlement(questId) {
+  if (questState.settling === questId) { questState.settling = null; return; }
+  questState.settling = questId;
+  questState.settlement = null;
+  questState.settlementError = '';
+  try {
+    questState.settlement = await api('/api/quests/' + questId + '/settlement');
+  } catch (e) {
+    questState.settlementError = e.message;
+  }
+}
+
+/** D1: apply the quest's terms at once; the server refuses an unpayable cost. */
+export async function settleQuest(questId) {
+  await act(questId, '/api/quests/' + questId + '/settle', null);
+  if (!questState.actionError) questState.settling = null;
 }

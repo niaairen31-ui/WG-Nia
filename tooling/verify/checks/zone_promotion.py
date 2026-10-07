@@ -100,7 +100,8 @@ def _character(db, world_id: str, name: str, ctype: str, at: str, user_id=None) 
 
 def _seed(db) -> dict[str, str]:
     from world_engine.models import (
-        DiscoverableDetail, Entity, Gathering, GatheringMember, Item, NpcSchedule, Session, User, World,
+        DiscoverableDetail, Entity, Gathering, GatheringMember, Item, ItemHolding, NpcSchedule, Session, User,
+        World,
     )
     from world_engine.writes.relations import write_relation
 
@@ -127,7 +128,8 @@ def _seed(db) -> dict[str, str]:
     item = Entity(world_id=w, type="item", name="Lanterne")
     db.add(item)
     db.flush()
-    db.add(Item(id=item.id, location_id=ids["F"]))
+    db.add(Item(id=item.id))
+    db.add(ItemHolding(world_id=w, item_id=item.id, holder_entity_id=ids["F"], quantity=2, change_history=[]))
     detail = DiscoverableDetail(world_id=w, location_id=ids["F"], subject="trace", content="Une trace.")
     db.add(detail)
     sess = Session(world_id=w, number=1)
@@ -198,7 +200,8 @@ def check_a_refused(client, engine, ids) -> None:
 def check_b_confirmed(client, engine, ids) -> None:
     from sqlmodel import Session, select
 
-    from world_engine.models import DiscoverableDetail, Gathering, Item, NpcSchedule
+    from world_engine.holdings import held_quantity
+    from world_engine.models import DiscoverableDetail, Gathering, NpcSchedule
 
     with Session(engine) as db:
         rel = _rel(db, ids["F"], ids["V"])
@@ -218,7 +221,8 @@ def check_b_confirmed(client, engine, ids) -> None:
             n += _expect(_where(db, ids[being]) == child, f"(b) {being} not moved to the first child")
         rows = {r.phase: r.location_id for r in db.exec(select(NpcSchedule).where(NpcSchedule.npc_id == ids["N"])).all()}
         n += _expect(rows == {"matin": child, "soir": ids["V"]}, f"(b) schedule after promotion: {rows}")
-        n += _expect(db.get(Item, ids["item"]).location_id == child, "(b) item not moved")
+        n += _expect(held_quantity(db, child, ids["item"]) == 2 and held_quantity(db, ids["F"], ids["item"]) == 0,
+                     "(b) the place's two items not moved to the first child")
         n += _expect(db.get(DiscoverableDetail, ids["detail"]).location_id == child, "(b) detail not moved")
         n += _expect(db.get(Gathering, ids["gathering"]).status == "dissolved", "(b) gathering left open")
     COUNTS["b"] = n

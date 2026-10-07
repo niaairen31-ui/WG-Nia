@@ -75,6 +75,7 @@ _DIRECT_WORLD_SCOPED_DELETES: tuple[str, ...] = (
     "npc_schedule", "observation_run", "obstacle", "passage", "rencontre",
     "skill_rank", "skill_resolution", "skill_system", "unresolved_mention", "visit",
     "world_law", "quest", "quest_offer", "quest_offer_requirement", "quest_offer_step",
+    "item_holding", "quest_offer_term", "quest_term", "quest_economy",
 )
 
 # Refusing tables (root_table, label_column, guarded_children, message) —

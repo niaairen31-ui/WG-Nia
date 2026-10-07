@@ -91,6 +91,15 @@ def held_rank(db: Session, character_id: str, skill_key: Optional[str]) -> Optio
     return row.rank if row is not None else None
 
 
+def skill_label(db: Session, skill_key: Optional[str]) -> str:
+    """A base domain as is, a skill definition id as its name (TICKET-0108,
+    moved here from `day_plan` at TICKET-0109 for a second reader)."""
+    if skill_key in BASE_SKILL_DOMAINS:
+        return str(skill_key)
+    definition = db.get(SkillDefinition, skill_key) if skill_key else None
+    return definition.name if definition is not None else str(skill_key)
+
+
 def locked_verdict(skill_name: str) -> Verdict:
     """The verdict of a locked skill (B1): no dice were rolled. `domain`
     carries the skill's name, for the verdict event and the MJ rubric."""

@@ -3392,10 +3392,18 @@ Ne renvoie que le resume, sans preambule ni conclusion.\
         session,
         m.Item,
         "item-dague",
-        owner_id="char-player",
-        location_id=None,
-        equipped=True,
         condition="intact",
+    )
+    # TICKET-0109 (A1): an item is a kind; the player holds one dagger.
+    get_or_create(
+        session,
+        m.ItemHolding,
+        "hold-dague-player",
+        world_id=WORLD_ID,
+        item_id="item-dague",
+        holder_entity_id="char-player",
+        quantity=1,
+        change_history=[],
     )
 
     # ----- skill sheet test player character (entity + character + skill) ----

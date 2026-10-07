@@ -13,6 +13,14 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.18** — TICKET-0109, BRIEF-0109-A: objects held in quantity, quest
+  terms, the quest economy. `item` becomes a kind: `owner_id`,
+  `location_id`, `equipped` and `ck_item_equipped_owner` dropped, `value`
+  added (default 1). `item_holding` (who holds how many; a character, a
+  faction or a place), `quest_offer_term`, `quest_term`, `quest_economy` are
+  added, and `quest.settled_at`. `migrate_v2_18_quest_terms.py` gives each
+  item one holding for its owner, else its place, rebuilds `item` from the
+  model, creates the four tables, and refuses a database older than v2.17.
 - **v2.17** — TICKET-0108, BRIEF-0108-A: quest offers and quests.
   `quest_offer`, `quest_offer_step`, `quest_offer_requirement` and `quest`
   are added. `agenda_step_requirement`'s two CHECKs gain four forms

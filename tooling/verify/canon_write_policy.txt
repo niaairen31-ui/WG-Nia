@@ -6,6 +6,7 @@ npc_price world_law obstacle obstacle_vertex door
 location_type_catalog entity_type entity_type_history conversation_window_config
 npc_schedule agenda_step_requirement fact fact_participant fact_default
 skill_rank quest_offer quest_offer_step quest_offer_requirement quest
+item_holding quest_offer_term quest_term quest_economy
 
 [ALLOWED_SITES]
 # path::function                                              tables
@@ -45,13 +46,21 @@ src/world_engine/writes/config.py::write_npc_schedule          npc_schedule
 # TICKET-0106, BRIEF-0106-C: upsert_skill_rank is the one writer of skill_rank -- a world's rank names and default points, curated-config family (upsert_conversation_window_config precedent), never a DELETE.
 src/world_engine/writes/config.py::upsert_skill_rank           skill_rank
 # TICKET-0101, BRIEF-0101-C: apply_promotion moves the items and discoverable details lying in a location that becomes a zone to its first child (creator CRUD only, behind the S1 confirmation); its characters, schedules and links go through write_character_location, write_npc_schedule and write_relation, allow-listed above.
-src/world_engine/writes/zone_promotion.py::apply_promotion     item discoverable_detail
+src/world_engine/writes/zone_promotion.py::apply_promotion     discoverable_detail
+# TICKET-0109, BRIEF-0109-A: write_holding is the one writer of item_holding -- set or move how many of an item an entity holds; apply_promotion now moves a place's items through it.
+src/world_engine/writes/items.py::write_holding                item_holding
 # TICKET-0075, BRIEF-0075-b: write_day_plan is the 30th site — its OWN body writes agenda_step_requirement only (it calls write_agenda/write_agenda_step, whose own db.add sites are already allow-listed above; single_canon_write.py is function-scoped, not interprocedural).
 src/world_engine/writes/goals_agendas.py::write_day_plan       agenda_step_requirement
 # TICKET-0108, BRIEF-0108-B: write_quest_offer creates or saves one quest offer -- its steps and requirements replaced whole (the write_npc_prices full-replace shape), the offer row snapshotted; creator CRUD only.
 src/world_engine/writes/quests.py::write_quest_offer           quest_offer quest_offer_step quest_offer_requirement
 # TICKET-0108, BRIEF-0108-B: accept_quest writes the quest row and copies the offer's step requirements; its agenda and steps go through write_agenda/write_agenda_step, allow-listed above (the write_day_plan precedent).
 src/world_engine/writes/quests.py::accept_quest                agenda_step_requirement quest
+# TICKET-0109, BRIEF-0109-B: write_offer_terms replaces an offer's costs and rewards whole (write_quest_offer's full-replace shape); copy_terms_to_quest gives an accepted quest its own copy; upsert_quest_economy sets a world's rates (curated config, upsert-one).
+src/world_engine/writes/quest_terms.py::write_offer_terms      quest_offer_term
+src/world_engine/writes/quest_terms.py::copy_terms_to_quest    quest_term
+src/world_engine/writes/quest_terms.py::upsert_quest_economy   quest_economy
+# TICKET-0109, BRIEF-0109-C: settle_quest sets quest.settled_at once, at « déclarer accomplie »; every term it applies goes through write_ledger_entry, write_holding, write_relation, write_knowledge, write_skill_row, write_skill_progress and write_agenda_status, allow-listed above.
+src/world_engine/writes/quest_settlement.py::settle_quest       quest
 # TICKET-0044, BRIEF-0044-c: create_entity_type is the 26th site — the governed
 # structural-write authority (D2), a NEW sanctioned site distinct from the two
 # canon-write paths (AI-proposal pipeline, creator CRUD). Its `CREATE TABLE
@@ -82,9 +91,10 @@ src/world_engine/cockpit/app.py::_purge_closed_batches          *
 # app.py now only dispatches; its direct (non-writes.py) canon writes moved
 # to per-type appliers in mutations.py. Three sites replace the one former
 # _apply_mutation entry — same relocated path, still the same count of
-# sanctioned canon-write paths, not a broadening.
+# sanctioned canon-write paths, not a broadening. TICKET-0109, BRIEF-0109-A:
+# the third, _mutation_apply_item_update (the equip toggle), is retired with
+# item.equipped.
 src/world_engine/cockpit/mutations.py::_mutation_apply_status_change    entity
-src/world_engine/cockpit/mutations.py::_mutation_apply_item_update      item
 src/world_engine/cockpit/mutations.py::_mutation_apply_new_knowledge    discoverable_detail
 # Router + crud split (TICKET-0027, BRIEF-0027-d): every site below re-keyed
 # to its new file — same relocation-not-broadening rule as the stage-c

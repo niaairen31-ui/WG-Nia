@@ -24,7 +24,7 @@ Resolution table (K), one line per row family:
   through `write_character_location`.
 - `npc_schedule` rows at the parent -> the first child, through a
   full-replace `write_npc_schedule` of each affected NPC's whole schedule.
-- items lying at the parent (`item.location_id`) and discoverable details
+- items the parent holds (lying there; `item_holding`, TICKET-0109) and discoverable details
   (`discoverable_detail.location_id`) -> the first child.
 - open gatherings at the parent -> listed; the caller closes them.
 - bounds, obstacles, doors, events, facts, knowledge, `controls`,
@@ -38,10 +38,12 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
-from ..models import Character, DiscoverableDetail, Entity, Gathering, Item, NpcSchedule, Relation
+from ..holdings import items_held
+from ..models import Character, DiscoverableDetail, Entity, Gathering, NpcSchedule, Relation
 from ..zone_rules import active_child_ids, is_zone
 from .characters import write_character_location
 from .config import write_npc_schedule
+from .items import write_holding
 from .relations import write_relation
 
 
@@ -84,11 +86,8 @@ def _schedules(db: Session, parent_id: str) -> list[dict]:
 
 
 def _items(db: Session, parent_id: str) -> list[dict]:
-    rows = db.exec(
-        select(Item, Entity).join(Entity, Entity.id == Item.id)
-        .where(Item.location_id == parent_id).order_by(Entity.name)
-    ).all()
-    return [{"id": i.id, "name": e.name} for i, e in rows]
+    """The items the parent holds (lying there, TICKET-0109 A1)."""
+    return [{"id": item.id, "name": e.name, "quantity": h.quantity} for h, item, e in items_held(db, parent_id)]
 
 
 def _details(db: Session, parent_id: str) -> list[dict]:
@@ -168,9 +167,10 @@ def apply_promotion(db: Session, *, parent_id: str, child_id: str, changed_by: s
     _retarget_schedules(db, world_id, preview, parent_id, child_id, changed_by)
     now = datetime.now(UTC)
     for item in preview["items"]:
-        row = db.get(Item, item["id"])
-        row.location_id = child_id
-        db.add(row)
+        write_holding(db, world_id=world_id, item_id=item["id"], holder_entity_id=parent_id,
+                      delta=-item["quantity"], changed_by=changed_by)
+        write_holding(db, world_id=world_id, item_id=item["id"], holder_entity_id=child_id,
+                      delta=item["quantity"], changed_by=changed_by)
     for detail in preview["details"]:
         row = db.get(DiscoverableDetail, detail["id"])
         row.location_id = child_id

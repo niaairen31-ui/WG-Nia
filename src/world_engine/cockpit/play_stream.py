@@ -26,6 +26,7 @@ from ..models import (
     Gathering,
     GatheringMember,
     Item,
+    ItemHolding,
     ProposedMutation,
     PromptTemplate,
 )
@@ -217,13 +218,14 @@ def _find_player_item(db: Session, player_id: str, item_name: str) -> Optional[t
     """Resolve a canonical item name (`_interpret_mode`'s `used_object`) to
     the player's owned `item` + `entity` rows, or `None` if not owned.
 
-    Possession is binary since BRIEF-08/D2a.1 — `item.equipped` is no longer
-    read by the check (dormant, cockpit-only).
+    Possession is binary since BRIEF-08/D2a.1: the player holds at least one
+    (`item_holding.quantity > 0`, TICKET-0109).
     """
     return db.exec(
         select(Item, Entity)
         .join(Entity, Entity.id == Item.id)
-        .where(Item.owner_id == player_id, Entity.name == item_name)
+        .join(ItemHolding, ItemHolding.item_id == Item.id)
+        .where(ItemHolding.holder_entity_id == player_id, ItemHolding.quantity > 0, Entity.name == item_name)
     ).first()
 
 

@@ -15,7 +15,8 @@ Three assertions:
        npc_move          `mutations._mutation_apply_npc_move` -> message
        PC creation       `routes/creator._validate_pc_creation` -> 409
        fiche, character  `crud/entities._build_extension_kwargs` -> 409
-       fiche, item       `crud/entities._build_extension_kwargs` -> 409
+       holding, item     `writes/items.write_holding` -> `ValueError` (an item
+                         is placed by a holding since TICKET-0109)
        schedule          `writes/config.write_npc_schedule` -> `ValueError`
        detail            `crud/locations.create_discoverable_detail` -> 409
      A fiche save whose `current_location_id` is UNCHANGED and already Z is
@@ -78,7 +79,7 @@ def _fresh_engine():
 
 
 def _seed(session) -> dict[str, str]:
-    from world_engine.models import Character, Entity, Location, User, World
+    from world_engine.models import Character, Entity, Item, Location, User, World
 
     world = World(name="Zone Placement", is_active=True)
     session.add(world)
@@ -104,6 +105,12 @@ def _seed(session) -> dict[str, str]:
         ))
         session.commit()
         ids[label] = entity.id
+    item = Entity(world_id=world.id, type="item", name="Lanterne")
+    session.add(item)
+    session.flush()
+    session.add(Item(id=item.id))
+    session.commit()
+    ids["I"] = item.id
     return ids
 
 
@@ -144,6 +151,7 @@ def check_a_paths(session, ids) -> None:
     from world_engine.cockpit.routes.creator import PlayerCharacterCreateBody, _validate_pc_creation
     from world_engine.models import Character
     from world_engine.writes.config import write_npc_schedule
+    from world_engine.writes.items import write_holding
 
     n = 0
     result = _perform_travel(ids["P"], ids["Z"], session)
@@ -177,10 +185,18 @@ def check_a_paths(session, ids) -> None:
         session, "character", {"current_location_id": ids["Z"]}, present_only=True, current=npc_row))
     n += _accepts("fiche, character", lambda: _build_extension_kwargs(
         session, "character", {"current_location_id": ids["V"]}, present_only=True, current=npc_row))
-    n += _expect_http("fiche, item", lambda: _build_extension_kwargs(
-        session, "item", {"name": "x", "location_id": ids["Z"]}))
-    n += _accepts("fiche, item", lambda: _build_extension_kwargs(
-        session, "item", {"name": "x", "location_id": ids["C"]}))
+    try:
+        write_holding(session, world_id=ids["world"], item_id=ids["I"], holder_entity_id=ids["Z"],
+                      quantity=1, changed_by="check")
+    except ValueError:
+        n += 1
+    else:
+        fail("(a) holding, item: a zone was accepted")
+    session.rollback()
+    n += _accepts("holding, item", lambda: write_holding(
+        session, world_id=ids["world"], item_id=ids["I"], holder_entity_id=ids["C"], quantity=1,
+        changed_by="check"))
+    session.rollback()
     already = SimpleNamespace(current_location_id=ids["Z"])
     n += _accepts("fiche save with an unchanged zone", lambda: _build_extension_kwargs(
         session, "character", {"current_location_id": ids["Z"]}, present_only=True, current=already))

@@ -38,6 +38,14 @@ Layout, by canon domain:
     prompts.py          — `prompt_version`/`prompt_variable` (non-canon;
                           moved for module hygiene, not policy).
     pipeline.py         — `batch`/`pass_play` (TICKET-0075, BRIEF-0075-a).
+    items.py            — `item_holding`: `write_holding` (TICKET-0109,
+                          BRIEF-0109-A).
+    quest_settlement.py — « déclarer accomplie »: `settle_quest`,
+                          `settlement_refusals` (TICKET-0109, BRIEF-0109-C).
+    quest_terms.py      — `quest_offer_term`/`quest_term`/`quest_economy`:
+                          `clean_terms`, `write_offer_terms`,
+                          `copy_terms_to_quest`, `upsert_quest_economy`
+                          (TICKET-0109, BRIEF-0109-B).
     quests.py           — `quest_offer`/`quest_offer_step`/
                           `quest_offer_requirement`/`quest`:
                           `write_quest_offer`, `accept_quest`,
@@ -116,7 +124,18 @@ from .knowledge import (
     upsert_knowledge_row,
     write_knowledge,
 )
+from .items import write_holding
 from .mentions import bind_mention, dismiss_mention, record_unresolved, resolve_mention
+from .quest_settlement import settle_quest, settlement_refusals
+from .quest_terms import (
+    FACT_REWARD_LEVELS,
+    PERSONAL_CURRENCIES,
+    TermSpec,
+    clean_terms,
+    offer_terms,
+    quest_terms,
+    upsert_quest_economy,
+)
 from .quests import (
     OPEN_QUEST_STATUSES,
     QUEST_GIVER_TYPES,

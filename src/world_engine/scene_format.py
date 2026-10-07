@@ -11,7 +11,8 @@ from __future__ import annotations
 
 from sqlmodel import Session, select
 
-from .models import DiscoverableDetail, Entity, Item, Knowledge
+from .holdings import held_label, items_held
+from .models import DiscoverableDetail, Knowledge
 
 
 def active_signposts(db: Session, location_id: str, player_character_id: str) -> list[str]:
@@ -81,30 +82,26 @@ def active_signposts(db: Session, location_id: str, player_character_id: str) ->
 
 
 def format_inventory_line(db: Session, player_character_id: str) -> str:
-    """Render the player's static inventory as one compact French line
-    (BRIEF-08, D2a.1): a single comma-separated list of canonical item names —
-    the equipped/stowed split went dormant in this step (`item.equipped`
-    stays in the schema, cockpit-only; see ARCHITECTURE_DECISIONS.md).
+    """Render the player's inventory as one compact French line (BRIEF-08,
+    D2a.1; quantities since TICKET-0109, A1): what he holds
+    (`holdings.items_held`), « Fourrure de loup ×10 » for more than one.
 
-    Read fresh from `item` at every turn (no caching).
+    Read fresh at every turn (no caching).
     """
-    rows = db.exec(
-        select(Item, Entity)
-        .join(Entity, Entity.id == Item.id)
-        .where(Item.owner_id == player_character_id)
-    ).all()
-
+    rows = items_held(db, player_character_id)
     if not rows:
         return "Objets du joueur : aucun."
-
-    items = ", ".join(entity.name for item, entity in rows)
+    items = ", ".join(held_label(entity.name, holding.quantity) for holding, _item, entity in rows)
     return f"Objets du joueur : {items}."
 
 
 def format_item_list_for_interpretation(db: Session, player_character_id: str) -> str:
-    """Render the player's tracked items for the interpretation prompt
-    (BRIEF-08, D2a.1): same single list as `format_inventory_line` — the
-    equip-state annotation is dropped now that the possession check is
-    binary (owned/not owned).
+    """Render the player's items for the interpretation prompt (BRIEF-08,
+    D2a.1): the canonical NAMES only, never a quantity (TICKET-0109) -- the
+    model answers `used_object` with one of them, and the possession check
+    matches that name exactly (`play_stream._find_player_item`).
     """
-    return format_inventory_line(db, player_character_id)
+    rows = items_held(db, player_character_id)
+    if not rows:
+        return "Objets du joueur : aucun."
+    return "Objets du joueur : " + ", ".join(entity.name for _holding, _item, entity in rows) + "."

@@ -18,9 +18,10 @@ reach helpers that live there because they are used elsewhere too
 Sanctioned canon-write site (relocated from the single `_apply_mutation`
 entry in `canon_write_policy.txt`, TICKET-0027 stage c — see that file's
 comment at the relocated entries): the direct (non-`writes.py`) writes
-formerly inside `_apply_mutation` — `entity` (status_change), `item`
-(item_update), `discoverable_detail` (new_knowledge's discovery flip) — now
-live in their own named functions below.
+formerly inside `_apply_mutation` — `entity` (status_change),
+`discoverable_detail` (new_knowledge's discovery flip) — now live in their
+own named functions below. (`item_update`, the equip toggle, was retired with
+`item.equipped` at v2.18, TICKET-0109.)
 """
 
 from __future__ import annotations
@@ -45,7 +46,6 @@ from ..models import (
     FactionMembership,
     FactionRole,
     GoalPrerequisite,
-    Item,
     Location,
     NpcGoal,
     ProposedMutation,
@@ -472,30 +472,6 @@ def _zone_promotion_refusal(entity: Entity, new_status: str, db: Session) -> Opt
         f"status_change: réactiver « {entity.name} » fait de « {preview['location_name']} » une zone "
         "et déplace son contenu -- à faire depuis la fiche"
     )
-
-
-# ── item_update (BRIEF-07, schema v1.19 — equip toggle) ────────────────────
-# Dormant since BRIEF-08/D2a.1: no live code path produces this mutation type
-# anymore; the apply branch and cockpit toggle remain functional for
-# reactivation (see "Auto-applied mutations" in ARCHITECTURE_DECISIONS.md).
-
-def _mutation_apply_item_update(mut: ProposedMutation, payload: dict, db: Session) -> Optional[str]:
-    """Set item.equipped."""
-    item_id = payload.get("item_id") or mut.target_id
-    if not item_id:
-        return "item_update: payload must contain item_id (or set target_id)"
-    if "equipped" not in payload:
-        return "item_update: payload must contain 'equipped'"
-
-    item = db.get(Item, str(item_id))
-    if item is None:
-        return f"item_update: item {item_id!r} not found"
-    if item.owner_id is None:
-        return f"item_update: item {item_id!r} has no owner — cannot equip (schema CHECK)"
-
-    item.equipped = bool(payload.get("equipped"))
-    db.add(item)
-    return None
 
 
 def _payload_fact(mut: ProposedMutation, payload: dict, entity_id: str, db: Session):

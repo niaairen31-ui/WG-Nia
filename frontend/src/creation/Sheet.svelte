@@ -815,10 +815,13 @@
         </div>
       {/if}
 
-      {#if !isNew && type === 'character'}
-        <div class="field-section"><div class="field-section-title">Items</div>
-          <div id="author-items"><ItemsPanel entityId={detail.id} /></div>
+      {#if !isNew && ['character', 'faction', 'location', 'item'].includes(type)}
+        <div class="field-section"><div class="field-section-title">{type === 'item' ? 'Détenu par' : 'Objets'}</div>
+          <div id="author-items"><ItemsPanel entityId={detail.id} entityType={type} /></div>
         </div>
+      {/if}
+
+      {#if !isNew && type === 'character'}
         <div class="field-section"><div class="field-section-title">Appartenances</div>
           <MembershipsPanel entityId={detail.id} {legacyDoc} />
         </div>

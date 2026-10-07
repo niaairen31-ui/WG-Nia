@@ -56,6 +56,8 @@ JSON_COLUMN_ALLOWLIST = {
     # TICKET-0108 (BRIEF-0108-A): an offer's audit trail, the same posture
     # as the change_history columns above -- never rendered as a UI field.
     "QuestOffer.change_history",
+    # TICKET-0109 (BRIEF-0109-A): a holding's previous quantities, same posture.
+    "ItemHolding.change_history",
     # Internal engine snapshots — never rendered in any UI surface.
     "PassPlay.injected_context",
     "PassPlay.history",
