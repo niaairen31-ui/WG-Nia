@@ -2,7 +2,7 @@
 id: TICKET-0109
 title: Quest costs and rewards in five currencies, objects held in quantity, the indicative unit, « déclarer accomplie »
 type: feature
-status: exec
+status: live-gate
 created: 2026-10-07
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: [migration, db_write]
