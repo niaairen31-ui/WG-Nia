@@ -2,14 +2,14 @@
 id: TICKET-0110
 title: Debts and services -- a debt is a row with its fact, a service owes the rest, a quest settles on credit
 type: feature
-status: brief
+status: exec
 created: 2026-10-07
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: [migration, db_write]
 blast_radius: medium
 lot_id: LOT-0110-debts-services.md
 brief_ids: [A, B, C, D]
-current_brief:
+current_brief: C
 schema_version_touched: v2.19
 retry_count: 0
 slug: debts-services

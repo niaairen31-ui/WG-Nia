@@ -559,4 +559,12 @@ export const CREATION_ISLANDS = Object.freeze({
     origin: 'new',
     createdBy: 'TICKET-0108',
   }),
+  // TICKET-0110 (BRIEF-0110-C, J2): every debt of the world, and a debt
+  // written by hand -- created directly as an island, no legacy predecessor.
+  debts: Object.freeze({
+    containerId: 'creation-dettes',
+    component: 'Debts.svelte',
+    origin: 'new',
+    createdBy: 'TICKET-0110',
+  }),
 });

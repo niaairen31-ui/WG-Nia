@@ -18309,6 +18309,27 @@ relation at borrowing and repayment (E): it waits for a calendar, in its own
 ticket.
 
 
+## THE WORLD'S DEBTS IN CRÉATION (TICKET-0110) -- « DETTES » LISTS AND WRITES THEM, A FACTION OFFER NAMES ITS CONTACT (BRIEF-0110-c, no schema change)
+
+**Création › Dettes.** A new island lists every debt of the world: who owes
+whom (a faction's contact named), its origin and motive, what is owed line
+by line, its value in the world's unit, its state, secrecy and a
+remission's note. An open debt has « Rembourser » (all at once, its
+refusals shown) and « Remettre » with an optional note. « + Nouvelle dette »
+writes one by hand: any character as debtor, a character or a faction as
+creditor -- a faction asks for its contact among its members -- a motive,
+« transaction secrète », and the owed terms: money, items, a fact to
+transmit, a skill to teach (`debtTerms.js`, kept equal to
+`DEBT_CURRENCIES` by `debts.py` DC1). A debt is never edited nor deleted
+from here.
+
+**Création › Quêtes.** An offer given by a faction shows « Contact de la
+faction », its members to pick from; changing the giver clears it (X1).
+
+**Rejected.** Editing a debt's terms after the fact: a bargain is
+remitted and written anew, never rewritten (J2).
+
+
 ---
 
 *Co-built with Claude, June 2026.*

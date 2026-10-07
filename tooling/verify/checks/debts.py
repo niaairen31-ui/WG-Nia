@@ -87,6 +87,21 @@ DB5 -- what the surfaces read (fixture and route functions). `debt_dict`
    settlement context's `credit` names the creditor, the lines owed and the
    preselected contact.
 
+DC1 -- the owed currencies' mirror (BRIEF-0110-C, static).
+   `frontend/src/creation/debtTerms.js`'s `DEBT_CURRENCY_FORMS` has exactly
+   the keys of `models.DEBT_CURRENCIES`, in order; money and items count,
+   facts and skills do not; its skill picker leaves out the base domains.
+DC2 -- the « Dettes » tab (static). `tabs.js`'s `dettes` entry mounts the
+   `debts` island in `creation-dettes` and routes « + Nouvelle dette »
+   through `triggerPrimaryAction('debts')`; `Debts.svelte` exports
+   `primaryAction` and renders `<DebtTermRow`; `debts.svelte.js` reads
+   `GET /api/debts`, writes with `POST /api/debts`, and calls `/repay` and
+   `/forgive`; it never sends a `PUT` or a `DELETE` (a debt is never edited
+   nor deleted).
+DC3 -- the offer's contact (static). `questOffers.svelte.js` loads and sends
+   `contact_entity_id`; `QuestOffers.svelte` offers the giver's
+   `choices.members` and clears the contact when the giver changes.
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that collects nothing fails.
 """
@@ -926,6 +941,53 @@ def check_db(engine) -> None:
         _db5_credit_context(session, ids)
 
 
+# --- DC --------------------------------------------------------------------------
+
+def check_dc1() -> None:
+    from world_engine.models import DEBT_CURRENCIES
+
+    text = _read("creation/debtTerms.js")
+    forms = dict(re.findall(r"^\s+(\w+): \{ label: '[^']+', list: [^,]+, counted: (true|false) \},$", text, re.M))
+    if not forms:
+        fail("DC1: DEBT_CURRENCY_FORMS holds zero currencies")
+        return
+    if tuple(forms) != tuple(DEBT_CURRENCIES):
+        fail(f"DC1: DEBT_CURRENCY_FORMS keys {list(forms)} != DEBT_CURRENCIES {list(DEBT_CURRENCIES)}")
+    if {k for k, v in forms.items() if v == "true"} != {"money", "item"}:
+        fail(f"DC1: the counted currencies are {forms}")
+    if "!STEP_DOMAINS.includes(s.key)" not in text:
+        fail("DC1: the skill picker offers the base domains")
+
+
+def check_dc2() -> None:
+    tabs = _read("creation/tabs.js")
+    entry = re.search(r"\n  dettes: \{(.*?)\n  \},", tabs, re.S)
+    body = entry.group(1) if entry else ""
+    for needle in ("{ key: 'debts', containerId: 'creation-dettes' }", "triggerPrimaryAction('debts')"):
+        if needle not in body:
+            fail(f"DC2: tabs.js's dettes entry lacks {needle}")
+    island = _read("creation/Debts.svelte")
+    for needle in ("export function primaryAction()", "<DebtTermRow"):
+        if needle not in island:
+            fail(f"DC2: Debts.svelte lacks {needle}")
+    state = _read("creation/debts.svelte.js")
+    for needle in ("api('/api/debts')", "api('/api/debts', {", "'/repay'", "'/forgive'"):
+        if needle not in state:
+            fail(f"DC2: debts.svelte.js lacks {needle}")
+    if re.search(r"method: '(PUT|DELETE)'", state):
+        fail("DC2: debts.svelte.js edits or deletes a debt")
+
+
+def check_dc3() -> None:
+    state = _read("creation/questOffers.svelte.js")
+    if state.count("contact_entity_id") < 3 or "contact_entity_id: draft.contact_entity_id || null" not in state:
+        fail("DC3: questOffers.svelte.js does not load and send the offer's contact")
+    editor = _read("creation/QuestOffers.svelte")
+    for needle in ("choices?.members?.[draft.giver_entity_id]", "draft.contact_entity_id = ''"):
+        if needle not in editor:
+            fail(f"DC3: QuestOffers.svelte lacks {needle}")
+
+
 def main() -> int:
     db_path = _fresh_db()
     check_da1a()
@@ -936,6 +998,9 @@ def main() -> int:
     check_da1c(engine)
     check_da3(engine)
     check_db(engine)
+    check_dc1()
+    check_dc2()
+    check_dc3()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -947,7 +1012,8 @@ def main() -> int:
           "both parties (secret as it is, a faction's members when it is not), repaid at once or "
           "forgiven and never deleted, its fact changed; a service applies its terms and owes the rest; "
           "« régler à crédit » pays what the player has and owes the rest per creditor; the surfaces "
-          "read every debt without an agenda or step id")
+          "read every debt without an agenda or step id; Création mirrors the owed currencies, lists "
+          "every debt in « Dettes », writes one by hand, and names a faction offer's contact")
     return 0
 
 
