@@ -59,6 +59,34 @@ RB3 -- the indicative unit (fixture, C1/E1). With no economy row the rates
    vous monte de 5 ». The routes `preview_value`, `get_economy`,
    `set_economy` answer the same numbers and 422 on a refusal.
 
+RC1 -- refusals (BRIEF-0109-C, fixture, D1). `settle_quest` refuses, with
+   no row written anywhere: 12 coins owed with 10; 3 furs owed across two
+   terms with 2; a fact to transmit the character does not know; a skill to
+   teach he is not Maître in; a skill the counterparty already holds; an
+   abandoned quest; a quest already settled.
+RC2 -- what settlement writes (fixture). One quest with every currency:
+   costs 10 coins, 2 furs, 5 relation points, a fact, teaching a skill;
+   rewards 20 coins (the giver, paid 10, ends at -10: C-src1), 3
+   ropes (the giver holds 1: he ends at 0, the character gains 3), 8
+   relation points, a fact at `partial`, a skill held at rank 3 (+4 points,
+   10 % of 40), a skill held at rank 1 with 9 points (+1: rank 2, 0
+   points), a skill held at Maître (nothing), a skill not held (its row at
+   Inexpérimenté, taught by the giver, a Maître). Afterwards: the ledger,
+   the holdings, the relation of the giver toward the character (50 - 5 + 8
+   = 53), both knowledge rows, the giver's taught row (rank 0, taught by the
+   character), the four skill rows; the agenda `completed`; `settled_at`
+   set. A quest with no cost, settled once, is refused the second time. The ledger lines carry `source_type`
+   `quest`.
+RC3 -- what Nia sees (fixture and static). `settlement_context` gives the
+   steps, the terms with their lines and the skill notes (« +4 point(s) »,
+   « apprend »), the value, one day advanced by the quest (its declared
+   action, the rewritten text, the step's band), the count of step changes
+   awaiting review, the refusals and `can_settle`; no key `agenda_id` or
+   `step_id` at any depth, no model call (`quest_settlement_view.py` imports
+   no `ollama_client`). The routes `settlement` and `settle` answer it and
+   409 on a refusal; `journee_payload` marks the quest `settled`, not
+   `settleable`, with its term lines.
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that collects nothing fails.
 """
@@ -625,6 +653,282 @@ def check_rb(engine) -> None:
         _rb3_wording_and_routes(session, ids)
 
 
+# --- RC --------------------------------------------------------------------------
+
+def _rc_world(session) -> dict:
+    from world_engine.models import Character, Entity, Fact, Faction, Item, SkillDefinition, World
+
+    world = World(name="Quest rewards RC", is_active=False)
+    session.add(world)
+    session.flush()
+    ids = {"world": world.id}
+    for key, kind, name in (("pc", "character", "Millys"), ("npc", "character", "Garde"),
+                            ("fur", "item", "Fourrure de loup"), ("rope", "item", "Corde")):
+        row = Entity(world_id=world.id, type=kind, name=name)
+        session.add(row)
+        session.flush()
+        ids[key] = row.id
+    session.add_all([Character(id=ids["pc"], world_id=world.id, character_type="player"),
+                     Character(id=ids["npc"], world_id=world.id, character_type="npc"),
+                     Item(id=ids["fur"], value=3), Item(id=ids["rope"], value=1)])
+    for key, name in (("herb", "Herboristerie"), ("forge", "Forge"), ("chant", "Chant")):
+        definition = SkillDefinition(world_id=world.id, name=name, base_domain="perception")
+        session.add(definition)
+        session.flush()
+        ids[key] = definition.id
+    for key, text in (("secret", "Le passage secret"), ("map", "La carte du col")):
+        fact = Fact(world_id=world.id, content_raw=text, created_by="check")
+        session.add(fact)
+        session.flush()
+        ids[key] = fact.id
+    session.commit()
+    return ids
+
+
+def _rc_holdings(session, ids) -> None:
+    from world_engine.models import Knowledge, Skill
+    from world_engine.writes import write_holding, write_ledger_entry
+
+    w = ids["world"]
+    write_ledger_entry(session, world_id=w, entity_id=ids["pc"], amount=10, source_type="creator")
+    write_holding(session, world_id=w, item_id=ids["fur"], holder_entity_id=ids["pc"], quantity=2, changed_by="check")
+    write_holding(session, world_id=w, item_id=ids["rope"], holder_entity_id=ids["npc"], quantity=1, changed_by="check")
+    session.add(Knowledge(entity_id=ids["pc"], fact_id=ids["secret"], level="knows"))
+    session.add_all([
+        Skill(character_id=ids["pc"], domain="perception", skill_definition_id=ids["herb"], rank=5, change_history=[]),
+        Skill(character_id=ids["pc"], domain="agility", rank=3, xp=0, change_history=[]),
+        Skill(character_id=ids["pc"], domain="composure", rank=1, xp=9, change_history=[]),
+        Skill(character_id=ids["pc"], domain="physical", rank=5, xp=0, change_history=[]),
+        Skill(character_id=ids["npc"], domain="perception", skill_definition_id=ids["chant"], rank=5, change_history=[]),
+    ])
+    session.commit()
+
+
+def _rc_quest(session, ids, terms, title: str):
+    from world_engine.day_plan import PlanStep
+    from world_engine.models import Character
+    from world_engine.writes import accept_quest, write_quest_offer
+
+    offer = write_quest_offer(session, world_id=ids["world"], offer=None, giver_entity_id=ids["npc"], title=title,
+                              summary=None, repeatable=True, status="open", eligibility=[],
+                              steps=[PlanStep(objective="Chasser", cost=1, domain=None)], terms=terms)
+    session.flush()
+    quest = accept_quest(session, offer=offer, character=session.get(Character, ids["pc"]))
+    session.commit()
+    return quest
+
+
+def _snapshot(session) -> tuple:
+    from sqlmodel import func, select
+
+    from world_engine.models import ItemHolding, Knowledge, Ledger, Relation, Skill
+
+    return tuple(session.exec(select(func.count()).select_from(m)).one()
+                 for m in (Ledger, ItemHolding, Knowledge, Relation, Skill)) + tuple(
+        (h.item_id, h.holder_entity_id, h.quantity) for h in session.exec(select(ItemHolding)).all())
+
+
+def _settle_refused(session, quest, label: str) -> None:
+    from world_engine.writes import settle_quest
+
+    before = _snapshot(session)
+    try:
+        settle_quest(session, quest=quest)
+    except ValueError:
+        session.rollback()
+        if _snapshot(session) != before or quest.settled_at is not None and label != "already settled":
+            fail(f"RC1: a refused settlement ({label}) wrote rows")
+        return
+    session.rollback()
+    fail(f"RC1: settle_quest accepts {label}")
+
+
+def check_rc1(session, ids) -> None:
+    from world_engine.models import Agenda
+    from world_engine.writes import TermSpec
+
+    cases = {
+        "12 coins owed with 10": [TermSpec(direction="cost", currency="money", amount=12)],
+        "3 furs owed across two terms with 2": [TermSpec(direction="cost", currency="item", item_id=ids["fur"], amount=2),
+                                                TermSpec(direction="cost", currency="item", item_id=ids["fur"], amount=1)],
+        "a fact he does not know": [TermSpec(direction="cost", currency="fact", fact_id=ids["map"])],
+        "a skill he is not Maître in": [TermSpec(direction="cost", currency="skill", skill_key=ids["forge"])],
+        "a skill the counterparty holds": [TermSpec(direction="cost", currency="skill", skill_key=ids["chant"])],
+    }
+    for label, terms in cases.items():
+        _settle_refused(session, _rc_quest(session, ids, terms, label), label)
+    abandoned = _rc_quest(session, ids, [], "abandonnée")
+    agenda = session.get(Agenda, abandoned.agenda_id)
+    agenda.status = "abandoned"
+    session.add(agenda)
+    session.commit()
+    _settle_refused(session, abandoned, "an abandoned quest")
+
+
+def _rc2_terms(ids) -> list:
+    from world_engine.writes import TermSpec
+
+    return [
+        TermSpec(direction="cost", currency="money", amount=10),
+        TermSpec(direction="cost", currency="item", item_id=ids["fur"], amount=2),
+        TermSpec(direction="cost", currency="relation", amount=5),
+        TermSpec(direction="cost", currency="fact", fact_id=ids["secret"]),
+        TermSpec(direction="cost", currency="skill", skill_key=ids["herb"]),
+        TermSpec(direction="reward", currency="money", amount=20),
+        TermSpec(direction="reward", currency="item", item_id=ids["rope"], amount=3),
+        TermSpec(direction="reward", currency="relation", amount=8),
+        TermSpec(direction="reward", currency="fact", fact_id=ids["map"], level="partial"),
+        TermSpec(direction="reward", currency="skill", skill_key="agility"),
+        TermSpec(direction="reward", currency="skill", skill_key="composure"),
+        TermSpec(direction="reward", currency="skill", skill_key="physical"),
+        TermSpec(direction="reward", currency="skill", skill_key=ids["chant"]),
+    ]
+
+
+def _rc2_expect(session, ids) -> None:
+    from sqlmodel import select
+
+    from world_engine.holdings import held_quantity
+    from world_engine.ledger import get_balance
+    from world_engine.models import Knowledge, Ledger, Relation, Skill
+
+    pc, npc = ids["pc"], ids["npc"]
+    got = {
+        "balances": (get_balance(session, pc), get_balance(session, npc)),
+        "holdings": (held_quantity(session, pc, ids["fur"]), held_quantity(session, npc, ids["fur"]),
+                     held_quantity(session, pc, ids["rope"]), held_quantity(session, npc, ids["rope"])),
+        "relation": [r.intensity for r in session.exec(select(Relation).where(
+            Relation.entity_a_id == npc, Relation.entity_b_id == pc)).all()],
+        "knowledge": sorted((k.entity_id == npc, k.fact_id == ids["map"], k.level) for k in session.exec(
+            select(Knowledge).where(Knowledge.entity_id.in_([pc, npc]))).all()),
+    }
+    expected = {
+        "balances": (20, -10), "holdings": (0, 2, 3, 0), "relation": [53],
+        "knowledge": sorted([(False, False, "knows"), (False, True, "partial"), (True, False, "knows")]),
+    }
+    for key, value in expected.items():
+        if got[key] != value:
+            fail(f"RC2: {key} is {got[key]}, expected {value}")
+    rows = {(s.character_id, s.domain, s.skill_definition_id): (s.rank, s.xp, s.taught_by_id)
+            for s in session.exec(select(Skill)).all() if s.character_id in (pc, npc)}
+    skills = {
+        "taught": rows.get((npc, "perception", ids["herb"])), "agility": rows.get((pc, "agility", None)),
+        "composure": rows.get((pc, "composure", None)), "physical": rows.get((pc, "physical", None)),
+        "learned": rows.get((pc, "perception", ids["chant"])),
+    }
+    want = {"taught": (0, 0, pc), "agility": (3, 4, None), "composure": (2, 0, None),
+            "physical": (5, 0, None), "learned": (0, 0, npc)}
+    if skills != want:
+        fail(f"RC2: the skill rows are {skills}, expected {want}")
+    sources = {e.source_type for e in session.exec(select(Ledger).where(Ledger.reason.like("Quête%"))).all()}
+    if sources != {"quest"}:
+        fail(f"RC2: the settlement's ledger lines carry {sources}")
+
+
+def check_rc2(session, ids) -> None:
+    from world_engine.models import Agenda
+    from world_engine.writes import TermSpec, settle_quest
+
+    quest = _rc_quest(session, ids, _rc2_terms(ids), "Tout")
+    ids["quest"] = quest.id
+    settle_quest(session, quest=quest)
+    session.commit()
+    _rc2_expect(session, ids)
+    if session.get(Agenda, quest.agenda_id).status != "completed" or quest.settled_at is None:
+        fail("RC2: the settled quest's agenda is not completed, or settled_at is not set")
+    # A quest with no cost: only the settled guard can refuse it the second time.
+    free = _rc_quest(session, ids, [TermSpec(direction="reward", currency="money", amount=1)], "Sans coût")
+    settle_quest(session, quest=free)
+    session.commit()
+    _settle_refused(session, free, "already settled")
+
+
+def _rc3_day(session, ids, quest) -> None:
+    from world_engine.models import Batch, DayRewrite, PassPlay, Session as GameSession
+
+    game = GameSession(world_id=ids["world"], number=1)
+    session.add(game)
+    session.flush()
+    batch = Batch(session_id=game.id, day_number=4)
+    session.add(batch)
+    session.flush()
+    pass_play = PassPlay(batch_id=batch.id, session_id=game.id, character_id=ids["pc"], agenda_id=quest.agenda_id,
+                         declared_action="Je traque le loup.", status="resolved",
+                         history=[{"fact_sheet": {"steps": [{"objective": "Chasser", "band": "success"}]}}])
+    session.add(pass_play)
+    session.flush()
+    session.add(DayRewrite(world_id=ids["world"], pass_play_id=pass_play.id, generation=1,
+                           rendered_text="Millys traque le loup."))
+    session.commit()
+
+
+def check_rc3(session, ids) -> None:
+    from sqlmodel import select
+
+    from fastapi import HTTPException
+
+    from world_engine.cockpit.routes import quests as routes
+    from world_engine.models import Quest, World
+    from world_engine.quest_reads import journee_payload
+    from world_engine.quest_settlement_view import settlement_context
+    from world_engine.writes import TermSpec
+
+    pending = _rc_quest(session, ids, [TermSpec(direction="reward", currency="skill", skill_key="agility"),
+                                       TermSpec(direction="cost", currency="money", amount=99)], "À régler")
+    _rc3_day(session, ids, pending)
+    context = settlement_context(session, pending)
+    day = (context["days"] or [{}])[0]
+    if (day.get("day_number"), day.get("declared_action"), day.get("rewritten"), day.get("steps")) != (
+            4, "Je traque le loup.", "Millys traque le loup.", [{"objective": "Chasser", "band": "success"}]):
+        fail(f"RC3: the days are {context['days']}")
+    notes = [t["note"] for t in context["terms"] if t["note"]]
+    if notes != ["+4 point(s) en « agility »"] or context["can_settle"] or not context["refusals"]:
+        fail(f"RC3: notes {notes}, refusals {context['refusals']}")
+    if {"agenda_id", "step_id"} & _keys(context):
+        fail("RC3: the settlement context names an agenda or a step id")
+    if "ollama_client" in (SRC / "quest_settlement_view.py").read_text(encoding="utf-8"):
+        fail("RC3: the settlement view imports the model client")
+    for world in session.exec(select(World).where(World.is_active == True)).all():  # noqa: E712
+        world.is_active = False
+        session.add(world)
+    session.flush()
+    session.get(World, ids["world"]).is_active = True
+    session.commit()
+    if routes.settlement(pending.id, db=session)["quest_id"] != pending.id:
+        fail("RC3: GET settlement disagrees")
+    try:
+        routes.settle(pending.id, db=session)
+        fail("RC3: POST settle accepts an unpayable quest")
+    except HTTPException as exc:
+        if exc.status_code != 409:
+            fail(f"RC3: POST settle refusal answers {exc.status_code}")
+    settled = session.get(Quest, ids["quest"])
+    row = next((q for q in journee_payload(session.get(__import__("world_engine.models", fromlist=["Character"]).Character,
+                                                       ids["pc"]), session)["quests"]
+                if q["quest_id"] == settled.id), None)
+    if row is None or not row["settled"] or row["settleable"] or len(row["terms"]) != 13:
+        fail(f"RC3: the settled quest in the Journée payload is {row and {k: row[k] for k in ('settled', 'settleable')}}")
+
+
+def check_rc(engine) -> None:
+    from sqlmodel import Session
+
+    with Session(engine) as session:
+        ids = _rc_world(session)
+        _rc_holdings(session, ids)
+        check_rc1(session, ids)
+        check_rc2(session, ids)
+        check_rc3(session, ids)
+
+
+def _keys(value) -> set:
+    if isinstance(value, dict):
+        return set(value) | {k for v in value.values() for k in _keys(v)}
+    if isinstance(value, list):
+        return {k for v in value for k in _keys(v)}
+    return set()
+
+
 def main() -> int:
     db_path = _fresh_db()
     check_ra1()
@@ -633,6 +937,7 @@ def main() -> int:
     create_db_and_tables()
     check_ra3(engine)
     check_rb(engine)
+    check_rc(engine)
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -641,7 +946,8 @@ def main() -> int:
           "migrates owners and places to holdings from v2.17 only, drops equipped, and one writer "
           "keeps every holding, its history, and zones empty; an offer's terms are validated whole, "
           "copied to the quest that accepts it, and valued in the world's indicative unit against "
-          "its band")
+          "its band; « déclarer accomplie » shows the measured context, refuses an unpayable cost "
+          "with no write, and applies every cost then every reward at once")
     return 0
 
 

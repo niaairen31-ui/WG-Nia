@@ -13,6 +13,8 @@ The player's quests (Journée):
     GET  /api/quests                     the offers he may accept, his quests
     POST /api/quests/accept              accept one offer (B1, A1)
     POST /api/quests/{quest_id}/abandon  abandon one quest (N1)
+    GET  /api/quests/{quest_id}/settlement  what « déclarer accomplie » shows (G1)
+    POST /api/quests/{quest_id}/settle      « déclarer accomplie » (D1, TICKET-0109)
 
 Every rule lives in `writes/quests.py` (what may be written) and
 `quest_reads.py` (what is shown); this module parses, maps a refusal to its
@@ -32,7 +34,8 @@ from ...day_plan import PlanStep, RequirementSpec
 from ...db import get_session
 from ...models import Quest, QuestEconomy, QuestOffer
 from ...quest_value import DEFAULT_RATES, offer_value, value_dict, world_rates
-from ...writes import TermSpec, abandon_quest, accept_quest, upsert_quest_economy, write_quest_offer
+from ...quest_settlement_view import settlement_context
+from ...writes import TermSpec, abandon_quest, accept_quest, settle_quest, upsert_quest_economy, write_quest_offer
 from ...writes.quest_terms import ECONOMY_COLUMNS
 from .. import crud as _crud
 from .day import _resolve_player_character
@@ -203,6 +206,32 @@ def abandon(quest_id: str, db: Session = Depends(get_session)) -> dict:
         raise HTTPException(status_code=404, detail=f"quest {quest_id!r} not found")
     try:
         abandon_quest(db, quest=quest)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    db.commit()
+    return quest_reads.journee_payload(character, db)
+
+
+def _players_quest(quest_id: str, db: Session) -> tuple[Quest, object]:
+    character = _resolve_player_character(_crud._world_id(db), db)
+    quest = db.get(Quest, quest_id)
+    if quest is None or quest.character_id != character.id:
+        raise HTTPException(status_code=404, detail=f"quest {quest_id!r} not found")
+    return quest, character
+
+
+@router.get("/api/quests/{quest_id}/settlement")
+def settlement(quest_id: str, db: Session = Depends(get_session)) -> dict:
+    quest, _character = _players_quest(quest_id, db)
+    return settlement_context(db, quest)
+
+
+@router.post("/api/quests/{quest_id}/settle")
+def settle(quest_id: str, db: Session = Depends(get_session)) -> dict:
+    quest, character = _players_quest(quest_id, db)
+    try:
+        settle_quest(db, quest=quest)
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc

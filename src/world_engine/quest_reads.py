@@ -35,7 +35,7 @@ from .models import (
 from .prose_render import fact_texts
 from .quest_value import offer_value, value_dict, world_rates
 from .quest_wording import term_dict, term_line
-from .writes.quest_terms import FACT_REWARD_LEVELS, offer_terms
+from .writes.quest_terms import FACT_REWARD_LEVELS, offer_terms, quest_terms
 from .writes.quests import QUEST_GIVER_TYPES, acceptance_refusal, offer_requirements
 
 # M1: the agenda's status, as the player reads it.
@@ -134,7 +134,7 @@ def _steps_view(agenda: Agenda, character: Character, db: Session) -> list[dict]
             evaluated = evaluate_agenda_step(step, character, db)
             blocked = [requirement_detail_fr(v) for v in evaluated.verdicts if not v.met]
         view.append({"order": step.step_order, "objective": step.objective, "status": step.status,
-                     "blocked": blocked})
+                     "outcome": step.outcome, "blocked": blocked})
     return view
 
 
@@ -154,6 +154,10 @@ def player_quests(character: Character, db: Session) -> list[dict]:
             "summary": offer.summary if offer is not None else None,
             "state": QUEST_STATE_LABELS[agenda.status], "open": agenda.status in ("active", "paused"),
             "steps": _steps_view(agenda, character, db),
+            # TICKET-0109 (D1): its terms, and whether « déclarer accomplie » applies.
+            "terms": [term_line(db, t, offer.giver_entity_id) for t in quest_terms(db, quest.id)] if offer else [],
+            "settled": quest.settled_at is not None,
+            "settleable": quest.settled_at is None and agenda.status in ("active", "paused", "completed"),
         })
     return view
 

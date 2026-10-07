@@ -18182,6 +18182,37 @@ or « sans coût ». The unit is never converted, never spent.
 would reprice a bargain. Fixed rates in code (E2): each world has its own
 economy.
 
+
+## « DÉCLARER ACCOMPLIE » SETTLES A QUEST AT ONCE (TICKET-0109) -- MEASURED CONTEXT FIRST, AN UNPAYABLE COST REFUSES (BRIEF-0109-c, no schema change)
+
+**D1.** Settling is a direct write Nia makes from Journée, on any quest not
+yet settled and not failed or abandoned -- still open, or completed by its
+steps. One transaction: every cost, then every reward, of the quest's own
+terms; the agenda `completed` when it is not; `quest.settled_at` set, once.
+The steps left are untouched: they are the quest's history. A cost the
+character cannot pay -- coins, items (summed per item across terms), a fact
+he does not know, a skill he is not Maître in, or one the counterparty
+already holds -- refuses the whole settlement with its reasons, and nothing
+is written (D2, a « forcer », rejected: the creator adjusts the sheet).
+
+**C-src1.** A reward is always given: money moves even below the
+counterparty's 0; items come from what he holds, the rest is new.
+**C-skill1.** A skill reward gives 10 % of the points the skill's rank needs
+to rise, at least 1; a rise resets the points to 0 (the surplus is not
+carried, `write_skill_progress`'s rule); at Maître, nothing; a skill not
+held is learned at Inexpérimenté, taught by the counterparty when he is at
+Maître. **C-teach1.** Teaching needs the character at Maître; the
+counterparty learns at Inexpérimenté, `taught_by` him.
+
+**G1.** Before the click: the steps and their outcomes, the terms and what
+each will do, their value, the days that advanced the quest (declared
+action, the text the day read, each step's band), the step changes still
+awaiting review, and the refusals. No model is asked.
+
+**Rejected.** A « déclarer échouée » button (D-fail1): « Abandonner »
+exists. A mutation in the review queue (D2 of the series): Nia would
+approve her own click.
+
 ---
 
 *Co-built with Claude, June 2026.*

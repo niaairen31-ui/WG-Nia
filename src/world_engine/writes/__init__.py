@@ -40,6 +40,8 @@ Layout, by canon domain:
     pipeline.py         — `batch`/`pass_play` (TICKET-0075, BRIEF-0075-a).
     items.py            — `item_holding`: `write_holding` (TICKET-0109,
                           BRIEF-0109-A).
+    quest_settlement.py — « déclarer accomplie »: `settle_quest`,
+                          `settlement_refusals` (TICKET-0109, BRIEF-0109-C).
     quest_terms.py      — `quest_offer_term`/`quest_term`/`quest_economy`:
                           `clean_terms`, `write_offer_terms`,
                           `copy_terms_to_quest`, `upsert_quest_economy`
@@ -124,6 +126,7 @@ from .knowledge import (
 )
 from .items import write_holding
 from .mentions import bind_mention, dismiss_mention, record_unresolved, resolve_mention
+from .quest_settlement import settle_quest, settlement_refusals
 from .quest_terms import (
     FACT_REWARD_LEVELS,
     PERSONAL_CURRENCIES,

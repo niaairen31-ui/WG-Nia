@@ -860,7 +860,7 @@ CREATE TABLE ledger (
   amount          INTEGER NOT NULL,        -- signed: + credit, − debit; world base unit
   counterparty_id TEXT REFERENCES entity(id),           -- the other party (filled, not double-written)
   reason          TEXT,                    -- "pécule de départ", "correction prix"
-  source_type     TEXT,                    -- creator | correction | conversation | pass_play | tick
+  source_type     TEXT,                    -- creator | correction | conversation | pass_play | tick | quest (v2.18 settlement)
                                             -- ('conversation' written by
                                             -- _apply_mutation's resource_change
                                             -- branch, BRIEF-19/v1.32; 'pass_play'
