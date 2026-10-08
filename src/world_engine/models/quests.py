@@ -10,7 +10,7 @@ quest's state is its agenda's status, never a second column (M1).
 
 The requirement vocabulary is `agenda_step_requirement`'s, not a second
 language (B1): `quest_offer_requirement` carries the same two CHECK texts,
-byte for byte, and `day_plan.evaluate_specs` judges both.
+byte for byte, and `condition_forms.evaluate_specs` judges both.
 
 Offers are curated content: their steps and requirements are replaced
 whole when the creator saves an offer (the `npc_price` full-replace

@@ -69,7 +69,7 @@ QB4 -- what the player sees (fixture and static). `journee_payload` and the
 
 QC1 -- the editor's mirror (BRIEF-0108-C, static). `frontend/src/creation/
    questRequirements.js`'s `REQUIREMENT_FORMS` has exactly the keys of
-   `day_plan.REQUIREMENT_TYPES`; its forms with `column: 'entity'` are
+   `condition_forms.REQUIREMENT_TYPES`; its forms with `column: 'entity'` are
    `ENTITY_TARGET_TYPES`, with `column: 'key'` `KEY_TARGET_TYPES`, with
    `threshold: true` `THRESHOLD_TYPES`.
 QC2 -- the « Quêtes » tab (static). `tabs.js`'s `quetes` entry mounts the
@@ -148,16 +148,16 @@ def _shape_groups(shape: str) -> list[tuple[str, ...]]:
 
 
 def check_qa1() -> None:
-    from world_engine import day_plan, llm_parse
+    from world_engine import condition_forms, day_plan, llm_parse
     from world_engine.models import AgendaStepRequirement, QuestOfferRequirement
 
-    types = day_plan.REQUIREMENT_TYPES
+    types = condition_forms.REQUIREMENT_TYPES
     if tuple(types) != MODEL_FORMS + CREATOR_FORMS + DEBT_FORMS:
         fail(f"QA1: REQUIREMENT_TYPES is {types}")
-    if tuple(day_plan.MODEL_REQUIREMENT_TYPES) != MODEL_FORMS or not set(MODEL_FORMS) <= set(types):
-        fail(f"QA1: MODEL_REQUIREMENT_TYPES is {day_plan.MODEL_REQUIREMENT_TYPES}")
-    entity, key, threshold = (set(day_plan.ENTITY_TARGET_TYPES), set(day_plan.KEY_TARGET_TYPES),
-                              set(day_plan.THRESHOLD_TYPES))
+    if tuple(condition_forms.MODEL_REQUIREMENT_TYPES) != MODEL_FORMS or not set(MODEL_FORMS) <= set(types):
+        fail(f"QA1: MODEL_REQUIREMENT_TYPES is {condition_forms.MODEL_REQUIREMENT_TYPES}")
+    entity, key, threshold = (set(condition_forms.ENTITY_TARGET_TYPES), set(condition_forms.KEY_TARGET_TYPES),
+                              set(condition_forms.THRESHOLD_TYPES))
     if entity & key or entity | key != set(types) or not threshold or not threshold <= set(types):
         fail(f"QA1: the shape groups do not partition the vocabulary: {entity}, {key}, {threshold}")
 
@@ -165,7 +165,7 @@ def check_qa1() -> None:
     offer = _check_texts(QuestOfferRequirement.__table__)
     shape = agenda.get("ck_agenda_step_requirement_shape", "")
     groups = _shape_groups(shape)
-    expected = [tuple(day_plan.ENTITY_TARGET_TYPES), tuple(day_plan.KEY_TARGET_TYPES), tuple(day_plan.THRESHOLD_TYPES)]
+    expected = [tuple(condition_forms.ENTITY_TARGET_TYPES), tuple(condition_forms.KEY_TARGET_TYPES), tuple(condition_forms.THRESHOLD_TYPES)]
     if groups != expected:
         fail(f"QA1: the shape CHECK groups are {groups}, expected {expected}")
     pairs = (("ck_agenda_step_requirement_type", "ck_quest_offer_requirement_type"),
@@ -326,7 +326,7 @@ def _qa3_world(session) -> dict:
 
 
 def _verdict(session, character, form: str, **target):
-    from world_engine.day_plan import RequirementSpec, evaluate_specs
+    from world_engine.condition_forms import RequirementSpec, evaluate_specs
 
     return evaluate_specs((RequirementSpec(type=form, **target),), character, session)[0]
 
@@ -408,7 +408,7 @@ def _qa3_quest(session, ids, pc) -> None:
 
 
 def _qa3_wording_and_cleaning(session, ids, pc) -> None:
-    from world_engine.day_plan import RequirementSpec
+    from world_engine.condition_forms import RequirementSpec
     from world_engine.day_resolve import requirement_detail_fr
     from world_engine.writes.goals_agendas import _clean_requirement
 
@@ -487,7 +487,8 @@ def _qb_world(session) -> dict:
 
 
 def _offer_kwargs(ids: dict, **over) -> dict:
-    from world_engine.day_plan import PlanStep, RequirementSpec
+    from world_engine.condition_forms import RequirementSpec
+    from world_engine.day_plan import PlanStep
 
     steps = [
         PlanStep(objective="Traquer le loup", cost=2, domain="perception",
@@ -511,7 +512,8 @@ def _counts(session) -> tuple:
 
 
 def _qb1_refusals(session, ids) -> None:
-    from world_engine.day_plan import PlanStep, RequirementSpec
+    from world_engine.condition_forms import RequirementSpec
+    from world_engine.day_plan import PlanStep
     from world_engine.writes import write_quest_offer
 
     bad = (
@@ -536,7 +538,8 @@ def _qb1_refusals(session, ids) -> None:
 def check_qb1(session, ids) -> None:
     from sqlmodel import select
 
-    from world_engine.day_plan import PlanStep, RequirementSpec
+    from world_engine.condition_forms import RequirementSpec
+    from world_engine.day_plan import PlanStep
     from world_engine.models import QuestOfferRequirement, QuestOfferStep
     from world_engine.writes import write_quest_offer
 
@@ -788,7 +791,7 @@ def _read(rel: str) -> str:
 
 
 def check_qc1() -> None:
-    from world_engine import day_plan
+    from world_engine import condition_forms
 
     text = _read("creation/questRequirements.js")
     forms = dict(re.findall(r"^\s+(\w+): \{ label: '[^']*', list: '\w+', (column: '\w+', threshold: \w+) \},$",
@@ -796,11 +799,11 @@ def check_qc1() -> None:
     if not forms:
         fail("QC1: REQUIREMENT_FORMS holds zero forms")
         return
-    if list(forms) != list(day_plan.REQUIREMENT_TYPES):
+    if list(forms) != list(condition_forms.REQUIREMENT_TYPES):
         fail(f"QC1: REQUIREMENT_FORMS keys {list(forms)} != REQUIREMENT_TYPES")
     groups = {
-        "column: 'entity'": tuple(day_plan.ENTITY_TARGET_TYPES), "column: 'key'": tuple(day_plan.KEY_TARGET_TYPES),
-        "threshold: true": tuple(day_plan.THRESHOLD_TYPES),
+        "column: 'entity'": tuple(condition_forms.ENTITY_TARGET_TYPES), "column: 'key'": tuple(condition_forms.KEY_TARGET_TYPES),
+        "threshold: true": tuple(condition_forms.THRESHOLD_TYPES),
     }
     for marker, expected in groups.items():
         found = tuple(form for form, spec in forms.items() if marker in spec)

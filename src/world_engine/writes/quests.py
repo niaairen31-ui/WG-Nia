@@ -27,7 +27,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
-from ..day_plan import MAX_PLAN_STEPS, PlanStep, RequirementSpec, evaluate_specs
+from ..condition_forms import RequirementSpec, evaluate_specs
+from ..day_plan import MAX_PLAN_STEPS, PlanStep
 from ..models import (
     BASE_SKILL_DOMAINS,
     QUEST_OFFER_STATUSES,

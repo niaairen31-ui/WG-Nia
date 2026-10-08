@@ -18357,6 +18357,28 @@ whom, a faction's member to pick (its contact preselected), secrecy, and
 stored rows only and would show less than the player knows.
 
 
+## THE REQUIREMENT FORMS GET THEIR OWN MODULE (TICKET-0111) -- `condition_forms.py`, A PURE MOVE OUT OF `day_plan.py` (BRIEF-0111-a, no schema change)
+
+**Why.** TICKET-0111 turns the flat list of requirements into a language of
+conditions (A1 of the series, I1: one language for every agenda). Its
+leaves are the ten requirement forms; their evaluators are what the tree
+evaluates. `day_plan.py` will need the tree for its steps and the tree will
+need the forms: kept in `day_plan.py`, the forms would make the two modules
+import each other.
+
+**What moved, unchanged.** `REQUIREMENT_TYPES`, `MODEL_REQUIREMENT_TYPES`,
+the three shape groups, `RequirementSpec`, `Verdict`, the ten `_eval_*`
+evaluators and `_EVALUATORS`, `_entity_name`, `_open_debt`,
+`_day_reachable_ids` (with its D1 history) and `evaluate_specs`.
+`day_plan.py` keeps the plan: `PlanStep`, `EvaluatedStep`, the budget cut,
+the anchoring and the emission. Every importer names the new home; no name
+is re-exported from `day_plan.py`, so each lives in one place
+(`conditions.py` CA1).
+
+**Checks retargeted, not changed.** `day_plan.py` R1, R10 and R25 read
+`condition_forms.py`; `known_reachability.py` documents it in place of
+`day_plan.py` as a `connects_to` reader (row 12 of the census, unchanged).
+
 ---
 
 *Co-built with Claude, June 2026.*

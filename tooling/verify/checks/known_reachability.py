@@ -324,7 +324,9 @@ DOCUMENTED_MODULES = frozenset({
     "world_engine/cockpit/crud/locations.py",
     "world_engine/cockpit/play.py",
     "world_engine/cockpit/routes/regions.py",
-    "world_engine/day_plan.py",
+    # TICKET-0111, BRIEF-0111-A: row 12's `_day_reachable_ids` moved, unchanged,
+    # from day_plan.py, which no longer spells the literal.
+    "world_engine/condition_forms.py",
     "world_engine/spatial_author.py",
     "world_engine/context.py",
     "world_engine/cockpit/crud/_shared.py",

@@ -66,12 +66,12 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
+from .condition_forms import Verdict as RequirementVerdict
 from .day_concordance import ConcordanceResult
 from .day_plan import (
     DAY_BUDGET_SLOTS,
     BudgetResult,
     EvaluatedStep,
-    Verdict as RequirementVerdict,
     budget_cut,
     evaluate_agenda_step,
 )

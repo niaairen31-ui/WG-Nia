@@ -3,74 +3,43 @@ plan-emission-and-budget step; decisions F1, M1, P2, S1, H1).
 
 One model call (`emit_plan`) turns a player's day declaration into a full,
 ordered step list — the model PROPOSES. Everything downstream is Python: the
-named requirement evaluators judge each step's preconditions, and
-`budget_cut` (pure, sequential, not a knapsack) decides how much of the plan
-happens today against `DAY_BUDGET_SLOTS`. This module authors no prose and
-emits no `proposed_mutation` — persistence is `writes.write_day_plan`.
+named requirement evaluators (`condition_forms.py` since TICKET-0111,
+BRIEF-0111-A) judge each step's preconditions, and `budget_cut` (pure,
+sequential, not a knapsack) decides how much of the plan happens today
+against `DAY_BUDGET_SLOTS`. This module authors no prose and emits no
+`proposed_mutation` — persistence is `writes.write_day_plan`.
 
 THE POSITIONAL WALL (BRIEF-0074-a-amendment-1) holds here too: no function in
 this module reads the world's stored day-cycle phase (P2 — every day gets
 the full budget), and `location_reachable`'s target is a precondition on the
 PLAYER, never a position of an NPC.
-
-`_day_reachable_ids` is a NEW, day-local `connects_to` BFS reader, not a
-reuse of an existing one. The original brief instructed "reuse the existing
-traversal; do not write a second one" — that instruction was wrong: it
-contradicted decision D1 (BRIEF-19), standing project doctrine that each new
-`connects_to` consumer gets its OWN reader (a real dedup opportunity is
-REPORTED, never acted on). Claude Code escalated under the brief's own STOP
-condition rather than guess; Nia's correction is
-`tooling/briefs/BRIEF-0075-b-amendment-1-location-reachable-reader.md`. Per
-that amendment's count, this is roughly the SEVENTH independent
-`connects_to` reader in the tree — `_location_neighbours`
-(`cockpit/play.py:854`, direct neighbours only) and `_reachable_locations`
-(`tick_context.py:405`, interval-hop-bounded, origin EXCLUDED) are the two
-closest siblings, and `_day_reachable_ids` is deliberately NOT shared with
-either: unbounded (a day has no meaningful hop radius) and origin-INCLUSIVE
-(the player is already there, which satisfies reachability) — a concrete
-shape difference, not only a doctrinal one.
-
-`_day_reachable_ids` proves a path exists in the `connects_to` graph; it does
-NOT prove the Play surface's door/travel gate would let the player walk it
-today. Harmless now (the day chain resolves travel abstractly — Play is
-sealed, TICKET-0061), and worth a fresh look only if a future ticket ever
-routes a day step through Play.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field, replace
-from typing import Callable, Optional
+from typing import Optional
 
-from sqlmodel import Session, func, select
+from sqlmodel import Session, select
 
 from . import llm_parse, ollama_client
+from .condition_forms import MODEL_REQUIREMENT_TYPES, RequirementSpec, Verdict, evaluate_specs
 from .fact_refs import CodedFacts, code_facts
 from .models import (
     BASE_SKILL_DOMAINS,
     SCHEDULE_PHASES,
-    Agenda,
     AgendaStep,
     AgendaStepRequirement,
     Character,
-    Debt,
     Entity,
     Fact,
-    FactionMembership,
     Knowledge,
-    Ledger,
     PromptTemplate,
-    Quest,
-    QuestOffer,
-    Relation,
-    Rencontre,
 )
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
-from .prose_render import fact_text, fact_texts
-from .relation_orientation import is_social
-from .skill_access import held_rank, skill_label
+from .prose_render import fact_texts
 
 _log = logging.getLogger(__name__)
 
@@ -79,29 +48,6 @@ _log = logging.getLogger(__name__)
 # as a literal.
 DAY_BUDGET_SLOTS: int = len(SCHEDULE_PHASES)
 
-# S1: the closed requirement vocabulary, each form with a named evaluator.
-# Eight forms since v2.17 (TICKET-0108, BRIEF-0108-A, C-01): the four the
-# day-plan model may emit, then four only the creator authors (quest offers).
-# Ten since v2.19 (TICKET-0110, BRIEF-0110-A, G1): `has_debt_to` and
-# `no_debt_to`, creator only as well.
-REQUIREMENT_TYPES: tuple[str, ...] = (
-    "knowledge", "relation_gte", "resource", "location_reachable",
-    "has_met", "faction_member", "skill_rank_gte", "quest_completed",
-    "has_debt_to", "no_debt_to",
-)
-
-# What `emit_plan`'s parser accepts from the model (TICKET-0108): the four
-# forms it always could. A creator-only form in a model's plan is a parse
-# failure, never a row.
-MODEL_REQUIREMENT_TYPES: tuple[str, ...] = ("knowledge", "relation_gte", "resource", "location_reachable")
-
-# The shape of each form, the three groups of the `*_requirement_shape`
-# CHECK (C-01): which column names its target, and which need a threshold.
-ENTITY_TARGET_TYPES: tuple[str, ...] = (
-    "relation_gte", "location_reachable", "has_met", "faction_member", "has_debt_to", "no_debt_to",
-)
-KEY_TARGET_TYPES: tuple[str, ...] = ("knowledge", "resource", "skill_rank_gte", "quest_completed")
-THRESHOLD_TYPES: tuple[str, ...] = ("relation_gte", "resource", "skill_rank_gte")
 
 # Emission bound (Scope IN item 4). Anything beyond is truncated with a
 # reported count (logged), not silently dropped.
@@ -117,34 +63,11 @@ DAY_PLAN_OPTIONS: dict = {"repeat_penalty": 1.1, "repeat_last_n": 128}
 
 
 @dataclass(frozen=True)
-class RequirementSpec:
-    type: str
-    target_entity_id: Optional[str] = None
-    target_key: Optional[str] = None
-    threshold: Optional[int] = None
-
-
-@dataclass(frozen=True)
 class PlanStep:
     objective: str
     cost: Optional[int]
     domain: Optional[str]
     requirements: tuple[RequirementSpec, ...] = field(default_factory=tuple)
-
-
-@dataclass(frozen=True)
-class Verdict:
-    # `type` FIRST (BRIEF-0078-a, Scope IN item 3): a positional
-    # `Verdict(...)` construction anywhere in the tree now fails loudly
-    # (wrong type in the wrong slot) rather than silently shifting fields.
-    type: str
-    met: bool
-    current: object
-    required: object
-    reason: str
-    # TICKET-0097: the player-facing text of `required` when it is an id
-    # (a `knowledge` gate's fact); None when `required` is already readable.
-    required_label: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -163,281 +86,6 @@ class BudgetResult:
     slots_consumed: int
     slots_budget: int
     first_excluded_index: Optional[int]
-
-
-# ── requirement evaluators (S1) ──────────────────────────────────────────────
-# Uniform 4-arg signature (`_SOURCE_LOOKUPS` precedent, schedule_reads.py):
-# every evaluator accepts `reachable_ids`, even the three that ignore it —
-# keeps `_EVALUATORS` directly callable without a special case.
-
-def _eval_knowledge(req: RequirementSpec, character: Character, db: Session, reachable_ids) -> Verdict:
-    """`target_key` is a fact id (TICKET-0097, D1'a): met iff the character
-    holds a row on that fact."""
-    del reachable_ids
-    row = db.exec(
-        select(Knowledge).where(
-            Knowledge.entity_id == character.id, Knowledge.fact_id == req.target_key,
-        )
-    ).first()
-    met = row is not None
-    fact = db.get(Fact, req.target_key) if req.target_key else None
-    label = fact_text(db, fact) if fact is not None else req.target_key
-    reason = (
-        f"knowledge {label!r} already held" if met
-        else f"prerequisite not met — knowledge {label!r} not held"
-    )
-    return Verdict(
-        type=req.type, met=met, current=("held" if met else "unheld"), required=req.target_key, reason=reason,
-        required_label=label,
-    )
-
-
-def _eval_relation_gte(req: RequirementSpec, character: Character, db: Session, reachable_ids) -> Verdict:
-    """What the TARGET feels toward the character (TICKET-0108, B-dir): the
-    social row `entity_a = target`, `entity_b = character`, `is_social`;
-    0 when there is none. A deliberate duplicate of
-    `writes.relations._find_perceived_relation`'s query (perceiver = the
-    target), not an import: writes/goals_agendas.py imports FROM this module,
-    so importing FROM writes/ here would cycle the package. The reverse row
-    (the character's own feeling) and the structural types are never read."""
-    del reachable_ids
-    rows = db.exec(
-        select(Relation).where(
-            Relation.entity_a_id == req.target_entity_id, Relation.entity_b_id == character.id,
-        )
-    ).all()
-    rel = next((row for row in rows if is_social(row.type)), None)
-    current = rel.intensity if rel else 0
-    threshold = req.threshold or 0
-    met = current >= threshold
-    target = db.get(Entity, req.target_entity_id)
-    target_name = target.name if target else req.target_entity_id
-    reason = (
-        f"relation of {target_name} toward the character is {current}, meets requires >= {threshold}" if met
-        else f"prerequisite not met — relation of {target_name} toward the character is {current}, "
-        f"requires >= {threshold}"
-    )
-    return Verdict(
-        type=req.type, met=met, current=current, required=threshold, reason=reason,
-        required_label=target_name,
-    )
-
-
-def _eval_resource(req: RequirementSpec, character: Character, db: Session, reachable_ids) -> Verdict:
-    """Money: the character's ledger balance. A world has one currency (the
-    `ledger` has no currency column), so `target_key` is a label and is not
-    read; an object is never a `resource` (TICKET-0108, E1: objects held in
-    quantity come with `item_holding`)."""
-    del reachable_ids
-    total = db.exec(select(func.sum(Ledger.amount)).where(Ledger.entity_id == character.id)).first() or 0
-    threshold = req.threshold or 0
-    met = total >= threshold
-    reason = (
-        f"resource {req.target_key!r} balance is {total}, meets requires >= {threshold}" if met
-        else f"prerequisite not met — resource {req.target_key!r} balance is {total}, requires >= {threshold}"
-    )
-    return Verdict(type=req.type, met=met, current=total, required=threshold, reason=reason)
-
-
-def _eval_location_reachable(req: RequirementSpec, character: Character, db: Session, reachable_ids) -> Verdict:
-    ids = reachable_ids or frozenset()
-    met = req.target_entity_id in ids
-    target = db.get(Entity, req.target_entity_id)
-    target_name = target.name if target else req.target_entity_id
-    reason = (
-        f"{target_name} is reachable" if met
-        else f"prerequisite not met — {target_name} is not reachable from the current location"
-    )
-    return Verdict(
-        type=req.type, met=met, current=character.current_location_id,
-        required=req.target_entity_id, reason=reason,
-    )
-
-
-def _entity_name(db: Session, entity_id: Optional[str]) -> str:
-    entity = db.get(Entity, entity_id) if entity_id else None
-    return entity.name if entity is not None else str(entity_id)
-
-
-def _eval_has_met(req: RequirementSpec, character: Character, db: Session, reachable_ids) -> Verdict:
-    """The character and the target have an encounter row (`rencontre`, one
-    row per unordered pair, `entity_lo_id < entity_hi_id`)."""
-    del reachable_ids
-    low, high = sorted((character.id, req.target_entity_id))
-    row = db.exec(
-        select(Rencontre).where(Rencontre.entity_lo_id == low, Rencontre.entity_hi_id == high)
-    ).first()
-    met = row is not None
-    name = _entity_name(db, req.target_entity_id)
-    reason = f"has met {name}" if met else f"prerequisite not met — has not met {name}"
-    return Verdict(
-        type=req.type, met=met, current=("met" if met else "not met"), required=req.target_entity_id,
-        reason=reason, required_label=name,
-    )
-
-
-def _eval_faction_member(req: RequirementSpec, character: Character, db: Session, reachable_ids) -> Verdict:
-    """The character holds an ACTIVE membership (`left_at IS NULL`) of the
-    target faction. A secret membership counts: it is the character's own
-    (the `tick_context` self-briefing precedent); secrecy hides it from
-    others, not from the gate."""
-    del reachable_ids
-    row = db.exec(
-        select(FactionMembership).where(
-            FactionMembership.entity_id == character.id,
-            FactionMembership.faction_id == req.target_entity_id,
-            FactionMembership.left_at.is_(None),
-        )
-    ).first()
-    met = row is not None
-    name = _entity_name(db, req.target_entity_id)
-    reason = f"member of {name}" if met else f"prerequisite not met — not a member of {name}"
-    return Verdict(
-        type=req.type, met=met, current=("member" if met else "not a member"), required=req.target_entity_id,
-        reason=reason, required_label=name,
-    )
-
-
-def _eval_skill_rank_gte(req: RequirementSpec, character: Character, db: Session, reachable_ids) -> Verdict:
-    """`target_key` is a base domain or a skill definition id; the rank held
-    is `skill_access.held_rank` (a missing base row is Initié, a missing
-    definition row is not held)."""
-    del reachable_ids
-    rank = held_rank(db, character.id, req.target_key)
-    threshold = req.threshold or 0
-    met = rank is not None and rank >= threshold
-    label = skill_label(db, req.target_key)
-    current = rank if rank is not None else "not held"
-    reason = (
-        f"skill {label!r} at rank {rank}, meets requires >= {threshold}" if met
-        else f"prerequisite not met — skill {label!r} is {current}, requires rank >= {threshold}"
-    )
-    return Verdict(
-        type=req.type, met=met, current=current, required=threshold, reason=reason, required_label=label,
-    )
-
-
-def _eval_quest_completed(req: RequirementSpec, character: Character, db: Session, reachable_ids) -> Verdict:
-    """`target_key` is a quest offer id: met iff a quest the character took
-    from that offer has its agenda `completed` (M1: a quest's state is its
-    agenda's)."""
-    del reachable_ids
-    row = db.exec(
-        select(Quest.id)
-        .join(Agenda, Agenda.id == Quest.agenda_id)
-        .where(
-            Quest.character_id == character.id, Quest.offer_id == req.target_key,
-            Agenda.status == "completed",
-        )
-    ).first()
-    met = row is not None
-    offer = db.get(QuestOffer, req.target_key) if req.target_key else None
-    label = offer.title if offer is not None else str(req.target_key)
-    reason = f"quest {label!r} completed" if met else f"prerequisite not met — quest {label!r} not completed"
-    return Verdict(
-        type=req.type, met=met, current=("completed" if met else "not completed"), required=req.target_key,
-        reason=reason, required_label=label,
-    )
-
-
-def _open_debt(db: Session, debtor_id: str, creditor_id: Optional[str]) -> bool:
-    return db.exec(select(Debt.id).where(
-        Debt.debtor_entity_id == debtor_id, Debt.creditor_entity_id == creditor_id, Debt.status == "open",
-    )).first() is not None
-
-
-def _eval_has_debt_to(req: RequirementSpec, character: Character, db: Session, reachable_ids) -> Verdict:
-    """TICKET-0110 (G1): the character owes the target (a character or a
-    faction) at least one OPEN debt -- one he is the debtor of; existence
-    only, no amount. A settled or forgiven debt is not owed."""
-    del reachable_ids
-    met = _open_debt(db, character.id, req.target_entity_id)
-    name = _entity_name(db, req.target_entity_id)
-    reason = f"owes {name}" if met else f"prerequisite not met — owes {name} nothing"
-    return Verdict(
-        type=req.type, met=met, current=("owes" if met else "owes nothing"), required=req.target_entity_id,
-        reason=reason, required_label=name,
-    )
-
-
-def _eval_no_debt_to(req: RequirementSpec, character: Character, db: Session, reachable_ids) -> Verdict:
-    """TICKET-0110 (G1): the exact negation of `has_debt_to`."""
-    del reachable_ids
-    owes = _open_debt(db, character.id, req.target_entity_id)
-    name = _entity_name(db, req.target_entity_id)
-    reason = f"prerequisite not met — still owes {name}" if owes else f"owes {name} nothing"
-    return Verdict(
-        type=req.type, met=not owes, current=("owes" if owes else "owes nothing"), required=req.target_entity_id,
-        reason=reason, required_label=name,
-    )
-
-
-_EVALUATORS: dict[str, Callable[[RequirementSpec, Character, Session, object], Verdict]] = {
-    "knowledge": _eval_knowledge,
-    "relation_gte": _eval_relation_gte,
-    "resource": _eval_resource,
-    "location_reachable": _eval_location_reachable,
-    "has_met": _eval_has_met,
-    "faction_member": _eval_faction_member,
-    "skill_rank_gte": _eval_skill_rank_gte,
-    "quest_completed": _eval_quest_completed,
-    "has_debt_to": _eval_has_debt_to,
-    "no_debt_to": _eval_no_debt_to,
-}
-
-
-def _day_reachable_ids(origin_location_id: str, db: Session) -> frozenset[str]:
-    """A NEW, day-local `connects_to` BFS reader (decision D1, BRIEF-19) —
-    see the module docstring for the escalation this corrects. Unbounded
-    (the origin's whole connected component of ACTIVE locations), origin
-    INCLUDED, both `connects_to` column orders. Returns bare ids —
-    `evaluate_requirements` needs membership only, nothing else."""
-    visited: set[str] = {origin_location_id}
-    frontier = [origin_location_id]
-    while frontier:
-        next_frontier: list[str] = []
-        for loc_id in frontier:
-            rows = db.exec(
-                select(Relation).where(
-                    Relation.type == "connects_to",
-                    (Relation.entity_a_id == loc_id) | (Relation.entity_b_id == loc_id),
-                )
-            ).all()
-            for rel in rows:
-                other_id = rel.entity_b_id if rel.entity_a_id == loc_id else rel.entity_a_id
-                if other_id in visited:
-                    continue
-                other = db.get(Entity, other_id)
-                if other is None or other.type != "location" or other.status != "active":
-                    continue
-                visited.add(other_id)
-                next_frontier.append(other_id)
-        frontier = next_frontier
-    return frozenset(visited)
-
-
-def evaluate_specs(
-    requirements: tuple[RequirementSpec, ...], character: Character, db: Session,
-) -> list[Verdict]:
-    """Judge each requirement against `character`'s current state (C-02).
-    Dispatches through `_EVALUATORS`; an unknown `type` raises fail-closed —
-    it cannot happen through the DB (the CHECK forbids it), the branch exists
-    so that widening `REQUIREMENT_TYPES` without adding an evaluator fails
-    loudly. Shared by a step (`evaluate_requirements`) and a quest offer's
-    eligibility (`quest_reads`), so both are one judgment.
-
-    `_day_reachable_ids` is computed AT MOST ONCE per call, only if a
-    `location_reachable` requirement is present — never per requirement."""
-    needs_reachable = any(r.type == "location_reachable" for r in requirements)
-    reachable_ids = _day_reachable_ids(character.current_location_id, db) if needs_reachable else None
-
-    verdicts: list[Verdict] = []
-    for req in requirements:
-        evaluator = _EVALUATORS.get(req.type)
-        if evaluator is None:
-            raise ValueError(f"unknown requirement type {req.type!r}")
-        verdicts.append(evaluator(req, character, db, reachable_ids))
-    return verdicts
 
 
 def evaluate_requirements(step: PlanStep, character: Character, db: Session) -> list[Verdict]:

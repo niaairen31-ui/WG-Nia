@@ -112,12 +112,12 @@ class AgendaStep(SQLModel, table=True):
 # id) rather than an entity. Eight forms since v2.17 (TICKET-0108,
 # BRIEF-0108-A): the four the day-plan model may emit, plus `has_met`,
 # `faction_member`, `skill_rank_gte` and `quest_completed`, authored by the
-# creator only (`day_plan.MODEL_REQUIREMENT_TYPES`). Ten since v2.19
+# creator only (`condition_forms.MODEL_REQUIREMENT_TYPES`). Ten since v2.19
 # (TICKET-0110, BRIEF-0110-A, G1): `has_debt_to` and `no_debt_to`, an open
 # debt toward the target entity or none, creator only too.
 #
 # The per-type shape CHECK is the structural guarantee that an ill-formed row
-# cannot exist; its three groups are `day_plan.ENTITY_TARGET_TYPES`,
+# cannot exist; its three groups are `condition_forms.ENTITY_TARGET_TYPES`,
 # `KEY_TARGET_TYPES` and `THRESHOLD_TYPES`. `quest_offer_requirement`
 # (models/quests.py) carries the same two CHECK texts, byte for byte
 # (`quests.py` check, QA1). Curated plan metadata, same family as

@@ -659,7 +659,7 @@ def _k6_verdicts(session, day) -> None:
     from types import SimpleNamespace
 
     from world_engine.day_mutations import _emit_new_knowledge
-    from world_engine.day_plan import RequirementSpec, _eval_knowledge
+    from world_engine.condition_forms import RequirementSpec, _eval_knowledge
     from world_engine.day_resolve import BLOCKED_BAND, requirement_detail_fr
     from world_engine.models import Character
 

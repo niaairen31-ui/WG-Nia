@@ -11,7 +11,7 @@ DA1 -- schema and vocabulary (BRIEF-0110-A, import and static).
       `contact_entity_id` and `quest_economy` `debt_fact_relation` and
       `debt_skill_relation`; `DEFAULT_RATES` gives them 10 and 20 and
       `ECONOMY_COLUMNS` lists them; the code's schema version is v2.19.
-   b. `day_plan.REQUIREMENT_TYPES` ends with `has_debt_to`, `no_debt_to`;
+   b. `condition_forms.REQUIREMENT_TYPES` ends with `has_debt_to`, `no_debt_to`;
       both are in `ENTITY_TARGET_TYPES`, neither in `THRESHOLD_TYPES` nor
       `MODEL_REQUIREMENT_TYPES`; each has an evaluator and a French blocked
       detail; `questRequirements.js` offers both on the `givers` list.
@@ -260,16 +260,16 @@ def check_da1a() -> None:
 
 
 def check_da1b() -> None:
-    from world_engine import day_plan, day_resolve
+    from world_engine import condition_forms, day_resolve
 
-    if tuple(day_plan.REQUIREMENT_TYPES[-2:]) != DEBT_FORMS:
-        fail(f"DA1b: REQUIREMENT_TYPES ends with {day_plan.REQUIREMENT_TYPES[-2:]}")
+    if tuple(condition_forms.REQUIREMENT_TYPES[-2:]) != DEBT_FORMS:
+        fail(f"DA1b: REQUIREMENT_TYPES ends with {condition_forms.REQUIREMENT_TYPES[-2:]}")
     for form in DEBT_FORMS:
-        if form not in day_plan.ENTITY_TARGET_TYPES:
+        if form not in condition_forms.ENTITY_TARGET_TYPES:
             fail(f"DA1b: {form} is not an entity-target form")
-        if form in day_plan.THRESHOLD_TYPES or form in day_plan.MODEL_REQUIREMENT_TYPES:
+        if form in condition_forms.THRESHOLD_TYPES or form in condition_forms.MODEL_REQUIREMENT_TYPES:
             fail(f"DA1b: {form} takes a threshold or is offered to the model")
-        if form not in day_plan._EVALUATORS or form not in day_resolve._BLOCKED_DETAIL_FR:
+        if form not in condition_forms._EVALUATORS or form not in day_resolve._BLOCKED_DETAIL_FR:
             fail(f"DA1b: {form} has no evaluator or no French detail")
     text = _read("creation/questRequirements.js")
     for form in DEBT_FORMS:
@@ -478,7 +478,7 @@ def _debt(session, ids: dict, debtor: str, creditor: str, status: str = "open") 
 
 
 def _verdicts(session, pc, target: str) -> tuple[bool, bool]:
-    from world_engine.day_plan import RequirementSpec, evaluate_specs
+    from world_engine.condition_forms import RequirementSpec, evaluate_specs
 
     has, none = evaluate_specs((RequirementSpec(type="has_debt_to", target_entity_id=target),
                                 RequirementSpec(type="no_debt_to", target_entity_id=target)), pc, session)
@@ -488,7 +488,7 @@ def _verdicts(session, pc, target: str) -> tuple[bool, bool]:
 def check_da3(engine) -> None:
     from sqlmodel import Session
 
-    from world_engine.day_plan import RequirementSpec, evaluate_specs
+    from world_engine.condition_forms import RequirementSpec, evaluate_specs
     from world_engine.day_resolve import requirement_detail_fr
     from world_engine.models import Character
     from world_engine.writes.goals_agendas import _clean_requirement
@@ -684,7 +684,7 @@ def _regard(session, ids, who="npc") -> int:
 
 
 def check_db2(session, ids) -> None:
-    from world_engine.day_plan import RequirementSpec, evaluate_specs
+    from world_engine.condition_forms import RequirementSpec, evaluate_specs
     from world_engine.ledger import get_balance
     from world_engine.holdings import held_quantity
     from sqlmodel import select

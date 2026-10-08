@@ -649,7 +649,7 @@ def check_judge_rejects_empty_fact_sheet() -> None:
 
 def check_blocked_detail_fr_bijection() -> None:
     """R15 (BRIEF-0078-b item 3): _BLOCKED_DETAIL_FR's key set equals
-    day_plan.REQUIREMENT_TYPES in both directions, and
+    condition_forms.REQUIREMENT_TYPES in both directions, and
     requirement_detail_fr raises on an unknown type."""
     tree = _parse(DAY_RESOLVE_FILE)
     if tree is None:
@@ -673,7 +673,7 @@ def check_blocked_detail_fr_bijection() -> None:
         return
 
     sys.path.insert(0, str(ROOT / "src"))
-    from world_engine.day_plan import REQUIREMENT_TYPES  # noqa: E402
+    from world_engine.condition_forms import REQUIREMENT_TYPES  # noqa: E402
 
     if keys != set(REQUIREMENT_TYPES):
         fail(

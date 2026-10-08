@@ -31,7 +31,8 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ... import quest_reads
-from ...day_plan import PlanStep, RequirementSpec
+from ...condition_forms import RequirementSpec
+from ...day_plan import PlanStep
 from ...db import get_session
 from ...models import Quest, QuestEconomy, QuestOffer
 from ...quest_value import DEFAULT_RATES, offer_value, value_dict, world_rates

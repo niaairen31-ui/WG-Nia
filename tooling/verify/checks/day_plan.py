@@ -171,6 +171,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = ROOT / "src" / "world_engine"
 
 DAY_PLAN_FILE = SRC / "day_plan.py"
+# TICKET-0111 (BRIEF-0111-A): the forms, their evaluators and the BFS moved
+# here, unchanged; R1 and R10 look where they now live.
+CONDITION_FORMS_FILE = SRC / "condition_forms.py"
 DAY_RECONCILE_FILE = SRC / "day_reconcile.py"
 DAY_PLAN_SELECT_FILE = SRC / "day_plan_select.py"
 CANON_FILE = SRC / "models" / "canon.py"
@@ -293,25 +296,25 @@ def _check_constraint_texts(tree: ast.AST) -> dict[str, str]:
 
 
 def check_evaluator_bijection() -> None:
-    tree = _parse(DAY_PLAN_FILE)
+    tree = _parse(CONDITION_FORMS_FILE)
     if tree is None:
         return
     req_tuple = _tuple_assign(tree, "REQUIREMENT_TYPES")
     if req_tuple is None:
-        fail(f"{_rel(DAY_PLAN_FILE)}: REQUIREMENT_TYPES tuple not found")
+        fail(f"{_rel(CONDITION_FORMS_FILE)}: REQUIREMENT_TYPES tuple not found")
         return
     req_types = {e.value for e in req_tuple.elts if isinstance(e, ast.Constant)}
     if not req_types:
-        fail(f"{_rel(DAY_PLAN_FILE)}: REQUIREMENT_TYPES located but holds zero values")
+        fail(f"{_rel(CONDITION_FORMS_FILE)}: REQUIREMENT_TYPES located but holds zero values")
         return
 
     evaluators = _named_dict(tree, "_EVALUATORS")
     if evaluators is None:
-        fail(f"{_rel(DAY_PLAN_FILE)}: _EVALUATORS dict literal not found")
+        fail(f"{_rel(CONDITION_FORMS_FILE)}: _EVALUATORS dict literal not found")
         return
     evaluator_keys = {k.value for k in evaluators.keys if isinstance(k, ast.Constant)}
     if not evaluator_keys:
-        fail(f"{_rel(DAY_PLAN_FILE)}: _EVALUATORS located but holds zero keys")
+        fail(f"{_rel(CONDITION_FORMS_FILE)}: _EVALUATORS located but holds zero keys")
         return
 
     missing = req_types - evaluator_keys
@@ -531,12 +534,13 @@ def check_bounds_constants() -> None:
 
 
 def check_no_traversal_reuse() -> None:
-    """R10 (BRIEF-0075-b-amendment-1): `day_plan.py` declares its OWN
+    """R10 (BRIEF-0075-b-amendment-1): `condition_forms.py` (since TICKET-0111;
+    `day_plan.py` before) declares its OWN
     `connects_to` BFS rather than importing a sibling reader — decision D1
     (BRIEF-19) made structural for this consumer. Do NOT turn this into a
     check that day_plan.py REUSES an existing traversal — that was the
     superseded instruction the amendment corrected."""
-    tree = _parse(DAY_PLAN_FILE)
+    tree = _parse(CONDITION_FORMS_FILE)
     if tree is None:
         return
 
@@ -546,26 +550,26 @@ def check_no_traversal_reuse() -> None:
             for alias in node.names:
                 if alias.name in forbidden:
                     fail(
-                        f"{_rel(DAY_PLAN_FILE)}: imports {alias.name!r} — decision D1 forbids "
+                        f"{_rel(CONDITION_FORMS_FILE)}: imports {alias.name!r} — decision D1 forbids "
                         "reusing a sibling connects_to reader"
                     )
         if isinstance(node, ast.Name) and node.id in forbidden:
-            fail(f"{_rel(DAY_PLAN_FILE)}: references {node.id!r} — decision D1 forbids reusing a sibling reader")
+            fail(f"{_rel(CONDITION_FORMS_FILE)}: references {node.id!r} — decision D1 forbids reusing a sibling reader")
 
     func = _find_function(tree, "_day_reachable_ids")
     if func is None:
-        fail(f"{_rel(DAY_PLAN_FILE)}: _day_reachable_ids not found — day_plan.py must declare its own BFS (D1)")
+        fail(f"{_rel(CONDITION_FORMS_FILE)}: _day_reachable_ids not found — condition_forms.py must declare its own BFS (D1)")
         return
 
     has_loop = any(isinstance(n, (ast.While, ast.For)) for n in ast.walk(func))
     if not has_loop:
-        fail(f"{_rel(DAY_PLAN_FILE)}: _day_reachable_ids contains no loop — not a real traversal")
+        fail(f"{_rel(CONDITION_FORMS_FILE)}: _day_reachable_ids contains no loop — not a real traversal")
 
     references_connects_to = any(
         isinstance(n, ast.Constant) and n.value == "connects_to" for n in ast.walk(func)
     )
     if not references_connects_to:
-        fail(f"{_rel(DAY_PLAN_FILE)}: _day_reachable_ids does not reference 'connects_to'")
+        fail(f"{_rel(CONDITION_FORMS_FILE)}: _day_reachable_ids does not reference 'connects_to'")
 
 
 # --- BRIEF-0075-f (reconciliation and closure), as corrected by AMENDMENT 1 ---
@@ -971,21 +975,21 @@ def check_select_reads_only() -> None:
 
 def check_verdict_type_field() -> None:
     """R25 (BRIEF-0078-a item 3): Verdict's field list starts with `type`,
-    and all four `Verdict(` constructions in day_plan.py pass a `type=`
+    and all four `Verdict(` constructions in condition_forms.py (day_plan.py before TICKET-0111) pass a `type=`
     keyword. Zero constructions collected is a FAILURE."""
-    tree = _parse(DAY_PLAN_FILE)
+    tree = _parse(CONDITION_FORMS_FILE)
     if tree is None:
         return
     cls = _find_class(tree, "Verdict")
     if cls is None:
-        fail(f"day_plan R25: {_rel(DAY_PLAN_FILE)}: Verdict class not found")
+        fail(f"day_plan R25: {_rel(CONDITION_FORMS_FILE)}: Verdict class not found")
         return
     field_names = [
         node.target.id for node in cls.body
         if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
     ]
     if not field_names:
-        fail(f"day_plan R25: {_rel(DAY_PLAN_FILE)}: Verdict declares zero annotated fields")
+        fail(f"day_plan R25: {_rel(CONDITION_FORMS_FILE)}: Verdict declares zero annotated fields")
         return
     if field_names[0] != "type":
         fail(f"day_plan R25: Verdict's first field is {field_names[0]!r}, expected 'type'")
@@ -996,9 +1000,9 @@ def check_verdict_type_field() -> None:
             constructions += 1
             kw_names = {kw.arg for kw in node.keywords}
             if "type" not in kw_names:
-                fail(f"day_plan R25: {_rel(DAY_PLAN_FILE)}:{node.lineno} — Verdict(...) missing type= keyword")
+                fail(f"day_plan R25: {_rel(CONDITION_FORMS_FILE)}:{node.lineno} — Verdict(...) missing type= keyword")
     if constructions == 0:
-        fail(f"day_plan R25: zero Verdict(...) constructions located in {_rel(DAY_PLAN_FILE)} — vacuous")
+        fail(f"day_plan R25: zero Verdict(...) constructions located in {_rel(CONDITION_FORMS_FILE)} — vacuous")
 
 
 def check_anchoring_readers() -> None:

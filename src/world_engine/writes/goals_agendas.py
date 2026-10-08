@@ -43,14 +43,14 @@ from sqlalchemy import text
 from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
-from ..day_plan import (
+from ..condition_forms import (
     ENTITY_TARGET_TYPES,
     KEY_TARGET_TYPES,
     REQUIREMENT_TYPES,
     THRESHOLD_TYPES,
-    PlanStep,
     RequirementSpec,
 )
+from ..day_plan import PlanStep
 from ..models import (
     BASE_SKILL_DOMAINS,
     Agenda,
