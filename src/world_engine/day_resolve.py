@@ -4,7 +4,7 @@ corrected by BRIEF-0075-d-amendment-1, decision V1).
 
 Scope IN item 1 (step resolution): `resolve_steps` re-evaluates the
 character's active `Agenda` (the "plan" — every REMAINING `agenda_step`
-row plus its `agenda_step_requirement` rows) EVERY call, through the SAME
+row plus its prerequisite, a `condition` tree since TICKET-0111) EVERY call, through the SAME
 `evaluate_requirements`/`budget_cut` pair `day_plan.py` uses at emission
 time. This is deliberate: a REPLAY (Scope IN item 5) re-derives
 requirement verdicts against current world state and may re-roll a step
@@ -48,7 +48,7 @@ contains no `randint` call of its own (R1). The truncation logic itself
 or `randint` in its body (R2) — everything it needs (the band, already
 decided by `resolve_physical`) is precomputed by its impure caller.
 
-There is no "opposed NPC" concept on an `agenda_step`/`agenda_step_requirement`
+There is no "opposed NPC" concept on an `agenda_step` or its condition
 (unlike the live Play physical branch, `play_physical.py`) — a day-plan step
 names no opposing character. D2 (NPC opposition tier) therefore resolves to
 a constant: `npc_tier` is always 0 for a day step. This is not an
@@ -67,6 +67,8 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from .condition_forms import Verdict as RequirementVerdict
+from .condition_text import leaf_text
+from .conditions import VerdictNode, leaves
 from .day_concordance import ConcordanceResult
 from .day_plan import (
     DAY_BUDGET_SLOTS,
@@ -217,7 +219,7 @@ def _roll_included_steps(
     rolled: list[_RolledStep] = []
     for agenda_step, evaluated in zip(ordered_steps, included):
         canon_ids = tuple(sorted({
-            r.target_entity_id for r in evaluated.step.requirements if r.target_entity_id
+            r.target_entity_id for r in leaves(evaluated.step.prerequisite) if r.target_entity_id
         }))
         if evaluated.step.domain is None:
             verdict = None
@@ -262,14 +264,19 @@ _BLOCKED_DETAIL_FR: dict[str, str] = {
     "resource": "il ne dispose pas des moyens nécessaires",
     "relation_gte": "ses appuis ne sont pas encore assez solides pour cela",
     "location_reachable": "l'endroit n'est pas accessible depuis là où il se trouve",
-    # TICKET-0108 (BRIEF-0108-A): the four creator-only forms.
+    # TICKET-0108 (BRIEF-0108-A): three of its four creator-only forms (the
+    # fourth, `quest_completed`, became `quest_state`, TICKET-0111).
     "has_met": "il n'a encore jamais rencontré {required}",
     "faction_member": "il n'appartient pas à {required}",
     "skill_rank_gte": "sa maîtrise de « {required} » ne suffit pas encore",
-    "quest_completed": "il doit d'abord mener à bien « {required} »",
     # TICKET-0110 (BRIEF-0110-A): the two debt forms.
     "has_debt_to": "il ne doit rien à {required}",
     "no_debt_to": "il a encore une dette envers {required}",
+    # TICKET-0111 (BRIEF-0111-C, S1): `quest_state` replaces `quest_completed`;
+    # the label names the quest and the state it must be in.
+    "quest_state": "la quête « {required} » n'en est pas là",
+    "item_held": "il n'a pas assez de « {required} »",
+    "vital_status": "{required} n'est pas dans l'état voulu",
 }
 
 
@@ -281,6 +288,35 @@ def requirement_detail_fr(verdict: RequirementVerdict) -> str:
     if template is None:
         raise ValueError(f"day_resolve: unknown requirement type {verdict.type!r}")
     return template.format(required=getattr(verdict, "required_label", None) or verdict.required)
+
+
+def blocked_details_fr(verdict: Optional[VerdictNode], db: Session) -> list[str]:
+    """What a judged condition still lacks, in player-facing French
+    (TICKET-0111): an unmet leaf's `requirement_detail_fr`, an unknown
+    leaf's reason, and -- under a `not` -- a leaf that holds when it must
+    not. [] when the condition is met or absent."""
+    if verdict is None or verdict.met:
+        return []
+    details: list[str] = []
+    _blocked(verdict, db, False, details)
+    return details
+
+
+def _blocked(node: VerdictNode, db: Session, negated: bool, details: list[str]) -> None:
+    if node.op == "not":
+        _blocked(node.children[0], db, not negated, details)
+        return
+    if node.op != "leaf":
+        for child in node.children:
+            _blocked(child, db, negated, details)
+        return
+    if node.state == "unknown":
+        details.append(node.reason or "une condition ne peut pas être vérifiée")
+    elif node.state == "unmet" and not negated:
+        details.append(requirement_detail_fr(node.verdict))
+    elif node.state == "met" and negated:
+        text = leaf_text(db, node.spec)
+        details.append(f"il ne faut pas que : {text[0].lower()}{text[1:]}")
 
 
 def _append_blocked_step(
@@ -312,7 +348,7 @@ def _append_blocked_step(
     agenda_step = ordered_steps[first_excluded]
     evaluated = evaluated_steps[first_excluded]
     canon_ids = tuple(sorted({
-        r.target_entity_id for r in evaluated.step.requirements if r.target_entity_id
+        r.target_entity_id for r in leaves(evaluated.step.prerequisite) if r.target_entity_id
     }))
     outcomes.append(StepOutcome(
         agenda_step_id=agenda_step.id,

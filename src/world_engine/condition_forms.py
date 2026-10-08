@@ -45,6 +45,7 @@ from .models import (
     Entity,
     Fact,
     FactionMembership,
+    ItemHolding,
     Knowledge,
     Ledger,
     Quest,
@@ -60,11 +61,14 @@ from .skill_access import held_rank, skill_label
 # Eight forms since v2.17 (TICKET-0108, BRIEF-0108-A, C-01): the four the
 # day-plan model may emit, then four only the creator authors (quest offers).
 # Ten since v2.19 (TICKET-0110, BRIEF-0110-A, G1): `has_debt_to` and
-# `no_debt_to`, creator only as well.
+# `no_debt_to`, creator only as well. Twelve since v2.20 (TICKET-0111,
+# BRIEF-0111-C, S1): `quest_state` replaces `quest_completed` (a quest in
+# any of its four states, `completed` among them), `item_held` and
+# `vital_status` read data the canon already keeps.
 REQUIREMENT_TYPES: tuple[str, ...] = (
     "knowledge", "relation_gte", "resource", "location_reachable",
-    "has_met", "faction_member", "skill_rank_gte", "quest_completed",
-    "has_debt_to", "no_debt_to",
+    "has_met", "faction_member", "skill_rank_gte", "quest_state",
+    "has_debt_to", "no_debt_to", "item_held", "vital_status",
 )
 
 # What `emit_plan`'s parser accepts from the model (TICKET-0108): the four
@@ -75,10 +79,24 @@ MODEL_REQUIREMENT_TYPES: tuple[str, ...] = ("knowledge", "relation_gte", "resour
 # The shape of each form, the three groups of the `*_requirement_shape`
 # CHECK (C-01): which column names its target, and which need a threshold.
 ENTITY_TARGET_TYPES: tuple[str, ...] = (
-    "relation_gte", "location_reachable", "has_met", "faction_member", "has_debt_to", "no_debt_to",
+    "relation_gte", "location_reachable", "has_met", "faction_member", "has_debt_to", "no_debt_to", "item_held",
 )
-KEY_TARGET_TYPES: tuple[str, ...] = ("knowledge", "resource", "skill_rank_gte", "quest_completed")
-THRESHOLD_TYPES: tuple[str, ...] = ("relation_gte", "resource", "skill_rank_gte")
+KEY_TARGET_TYPES: tuple[str, ...] = ("knowledge", "resource", "skill_rank_gte", "quest_state")
+THRESHOLD_TYPES: tuple[str, ...] = ("relation_gte", "resource", "skill_rank_gte", "item_held")
+# v2.20: a form with no target judges its subject alone; a form with a
+# value compares to one of its own closed set.
+NO_TARGET_TYPES: tuple[str, ...] = ("vital_status",)
+# `character.vital_status` has no CHECK: its values are the creator form's
+# (`cockpit/crud/entities.py`, the character fields' `vital_status` select).
+VITAL_STATUSES: tuple[str, ...] = ("alive", "dead", "missing", "unknown")
+# A quest's state is its agenda's (M1 of TICKET-0108); `open` is `active` or
+# `paused`, the player's « en cours ».
+QUEST_STATES: tuple[str, ...] = ("open", "completed", "failed", "abandoned")
+QUEST_STATE_AGENDA_STATUSES: dict[str, tuple[str, ...]] = {
+    "open": ("active", "paused"), "completed": ("completed",), "failed": ("failed",),
+    "abandoned": ("abandoned",),
+}
+FORM_VALUES: dict[str, tuple[str, ...]] = {"vital_status": VITAL_STATUSES, "quest_state": QUEST_STATES}
 
 
 @dataclass(frozen=True)
@@ -266,27 +284,57 @@ def _eval_skill_rank_gte(req: RequirementSpec, character: Character, db: Session
     )
 
 
-def _eval_quest_completed(req: RequirementSpec, character: Character, db: Session, reachable_ids) -> Verdict:
-    """`target_key` is a quest offer id: met iff a quest the character took
-    from that offer has its agenda `completed` (M1: a quest's state is its
-    agenda's)."""
+def _eval_quest_state(req: RequirementSpec, character: Character, db: Session, reachable_ids) -> Verdict:
+    """`target_key` is a quest offer id, `value` one of `QUEST_STATES`: met
+    iff a quest the character took from that offer is in that state (M1: a
+    quest's state is its agenda's). A repeatable offer may have several:
+    one is enough."""
     del reachable_ids
+    statuses = QUEST_STATE_AGENDA_STATUSES.get(req.value or "", ())
     row = db.exec(
         select(Quest.id)
         .join(Agenda, Agenda.id == Quest.agenda_id)
         .where(
             Quest.character_id == character.id, Quest.offer_id == req.target_key,
-            Agenda.status == "completed",
+            Agenda.status.in_(statuses),
         )
     ).first()
     met = row is not None
     offer = db.get(QuestOffer, req.target_key) if req.target_key else None
     label = offer.title if offer is not None else str(req.target_key)
-    reason = f"quest {label!r} completed" if met else f"prerequisite not met — quest {label!r} not completed"
+    reason = (f"quest {label!r} is {req.value}" if met
+              else f"prerequisite not met — quest {label!r} is not {req.value}")
     return Verdict(
-        type=req.type, met=met, current=("completed" if met else "not completed"), required=req.target_key,
+        type=req.type, met=met, current=(req.value if met else f"not {req.value}"), required=req.target_key,
         reason=reason, required_label=label,
     )
+
+
+def _eval_item_held(req: RequirementSpec, character: Character, db: Session, reachable_ids) -> Verdict:
+    """`target_entity_id` is an item: met iff the character holds at least
+    `threshold` of it (`item_holding`, one row per item and holder; no row
+    reads 0)."""
+    del reachable_ids
+    held = db.exec(select(ItemHolding.quantity).where(
+        ItemHolding.item_id == req.target_entity_id, ItemHolding.holder_entity_id == character.id,
+    )).first() or 0
+    threshold = req.threshold or 0
+    met = held >= threshold
+    name = _entity_name(db, req.target_entity_id)
+    reason = (f"holds {held} {name}, meets requires >= {threshold}" if met
+              else f"prerequisite not met — holds {held} {name}, requires >= {threshold}")
+    return Verdict(type=req.type, met=met, current=held, required=threshold, reason=reason, required_label=name)
+
+
+def _eval_vital_status(req: RequirementSpec, character: Character, db: Session, reachable_ids) -> Verdict:
+    """No target: the subject's own `vital_status` equals `value`."""
+    del reachable_ids
+    met = character.vital_status == req.value
+    name = _entity_name(db, character.id)
+    reason = (f"{name} is {req.value}" if met
+              else f"prerequisite not met — {name} is {character.vital_status}, not {req.value}")
+    return Verdict(type=req.type, met=met, current=character.vital_status, required=req.value, reason=reason,
+                   required_label=name)
 
 
 def _open_debt(db: Session, debtor_id: str, creditor_id: Optional[str]) -> bool:
@@ -329,9 +377,11 @@ _EVALUATORS: dict[str, Callable[[RequirementSpec, Character, Session, object], V
     "has_met": _eval_has_met,
     "faction_member": _eval_faction_member,
     "skill_rank_gte": _eval_skill_rank_gte,
-    "quest_completed": _eval_quest_completed,
+    "quest_state": _eval_quest_state,
     "has_debt_to": _eval_has_debt_to,
     "no_debt_to": _eval_no_debt_to,
+    "item_held": _eval_item_held,
+    "vital_status": _eval_vital_status,
 }
 
 

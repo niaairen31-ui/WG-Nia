@@ -18,24 +18,35 @@ PLAYER, never a position of an NPC.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from typing import Optional
 
 from sqlmodel import Session, select
 
 from . import llm_parse, ollama_client
-from .condition_forms import MODEL_REQUIREMENT_TYPES, RequirementSpec, Verdict, evaluate_specs
+from .condition_forms import MODEL_REQUIREMENT_TYPES, RequirementSpec, Verdict
+from .conditions import (
+    Bindings,
+    ConditionTree,
+    VerdictNode,
+    all_of,
+    drop_leaves,
+    evaluate,
+    map_leaves,
+    read_condition,
+)
 from .fact_refs import CodedFacts, code_facts
 from .models import (
     BASE_SKILL_DOMAINS,
     SCHEDULE_PHASES,
     AgendaStep,
-    AgendaStepRequirement,
     Character,
     Entity,
     Fact,
     Knowledge,
     PromptTemplate,
+    Quest,
+    QuestOffer,
 )
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
@@ -64,20 +75,30 @@ DAY_PLAN_OPTIONS: dict = {"repeat_penalty": 1.1, "repeat_last_n": 128}
 
 @dataclass(frozen=True)
 class PlanStep:
+    """One step of a plan. Its `prerequisite` is a condition tree
+    (TICKET-0111, I1) -- `all` of the model's leaves for a day plan, any
+    tree for a quest step; None when nothing gates it."""
     objective: str
     cost: Optional[int]
     domain: Optional[str]
-    requirements: tuple[RequirementSpec, ...] = field(default_factory=tuple)
+    prerequisite: Optional[ConditionTree] = None
 
 
 @dataclass(frozen=True)
 class EvaluatedStep:
+    """A step and its judged prerequisite (None: nothing gates it). It is
+    `met` only when the verdict is (R1: `unknown` does not pass);
+    `verdicts` are the judged leaves, in order, for the day's narration."""
     step: PlanStep
-    verdicts: tuple[Verdict, ...]
+    verdict: Optional[VerdictNode] = None
 
     @property
     def met(self) -> bool:
-        return all(v.met for v in self.verdicts)
+        return self.verdict is None or self.verdict.met
+
+    @property
+    def verdicts(self) -> tuple[Verdict, ...]:
+        return () if self.verdict is None else self.verdict.leaf_verdicts()
 
 
 @dataclass(frozen=True)
@@ -88,10 +109,20 @@ class BudgetResult:
     first_excluded_index: Optional[int]
 
 
-def evaluate_requirements(step: PlanStep, character: Character, db: Session) -> list[Verdict]:
-    """Judge every requirement on `step` (`evaluate_specs` on its
-    requirements)."""
-    return evaluate_specs(step.requirements, character, db)
+def evaluate_requirements(step: PlanStep, bindings: Bindings, db: Session) -> Optional[VerdictNode]:
+    """Judge `step`'s prerequisite (`conditions.evaluate`); None when the
+    step has none."""
+    return evaluate(step.prerequisite, bindings, db)
+
+
+def plan_bindings(agenda_id: Optional[str], character: Character, db: Session) -> Bindings:
+    """What a step's roles name (P1): the character acts; when the agenda is
+    a quest's, its offer's giver and contact."""
+    quest = db.exec(select(Quest).where(Quest.agenda_id == agenda_id)).first() if agenda_id else None
+    offer = db.get(QuestOffer, quest.offer_id) if quest is not None else None
+    if offer is None:
+        return Bindings(doer=character)
+    return Bindings(doer=character, giver_id=offer.giver_entity_id, contact_id=offer.contact_entity_id)
 
 
 def evaluate_agenda_step(agenda_step: AgendaStep, character: Character, db: Session) -> EvaluatedStep:
@@ -99,24 +130,17 @@ def evaluate_agenda_step(agenda_step: AgendaStep, character: Character, db: Sess
     `character`'s current state (TICKET-0080, BRIEF-0080-b). Carved out of
     `day_resolve._load_evaluated_steps` unchanged so that the day chain's
     resolve walk and `_finalize_continue`'s refusal path share ONE
-    evaluation, rather than growing a second copy that can drift."""
-    requirement_rows = db.exec(
-        select(AgendaStepRequirement).where(AgendaStepRequirement.step_id == agenda_step.id)
-    ).all()
+    evaluation, rather than growing a second copy that can drift. Since
+    TICKET-0111 the prerequisite is the step's stored condition, its roles
+    bound by `plan_bindings`."""
     plan_step = PlanStep(
         objective=agenda_step.objective,
         cost=agenda_step.cost,
         domain=agenda_step.domain,
-        requirements=tuple(
-            RequirementSpec(
-                type=r.type, target_entity_id=r.target_entity_id,
-                target_key=r.target_key, threshold=r.threshold,
-            )
-            for r in requirement_rows
-        ),
+        prerequisite=read_condition(db, role="prerequisite", agenda_step_id=agenda_step.id),
     )
-    verdicts = tuple(evaluate_requirements(plan_step, character, db))
-    return EvaluatedStep(step=plan_step, verdicts=verdicts)
+    bindings = plan_bindings(agenda_step.agenda_id, character, db)
+    return EvaluatedStep(step=plan_step, verdict=evaluate_requirements(plan_step, bindings, db))
 
 
 def budget_cut(steps: list[EvaluatedStep], budget: int) -> BudgetResult:
@@ -194,19 +218,14 @@ def anchor_requirements(
     dropped: list[dict] = []
     anchored_steps: list[PlanStep] = []
     for step_index, step in enumerate(steps):
-        kept_requirements = []
-        for req in step.requirements:
-            if req.type == "knowledge" and req.target_key not in anchorable:
-                dropped.append({
-                    "step_index": step_index, "objective": step.objective, "target_key": req.target_key,
-                })
-                _log.info(
-                    "day_plan: dropped unanchored knowledge requirement %r on step %d",
-                    req.target_key, step_index,
-                )
-                continue
-            kept_requirements.append(req)
-        anchored_steps.append(replace(step, requirements=tuple(kept_requirements)))
+        def unanchored(req: RequirementSpec) -> bool:
+            if req.type != "knowledge" or req.target_key in anchorable:
+                return False
+            dropped.append({"step_index": step_index, "objective": step.objective, "target_key": req.target_key})
+            _log.info("day_plan: dropped unanchored knowledge requirement %r on step %d", req.target_key, step_index)
+            return True
+
+        anchored_steps.append(replace(step, prerequisite=drop_leaves(step.prerequisite, unanchored)))
     return anchored_steps, dropped
 
 
@@ -269,7 +288,7 @@ def _validate_step(raw: object) -> PlanStep:
     if not isinstance(raw_requires, list):
         raise llm_parse.LlmParseError("day_plan: step 'requires' must be a list")
     requirements = tuple(_validate_requirement(item) for item in raw_requires)
-    return PlanStep(objective=objective.strip(), cost=cost, domain=domain, requirements=requirements)
+    return PlanStep(objective=objective.strip(), cost=cost, domain=domain, prerequisite=all_of(requirements))
 
 
 def learnable_facts(character: Character, db: Session) -> CodedFacts:
@@ -305,15 +324,12 @@ def _resolve_knowledge_codes(steps: list[PlanStep], learnable: CodedFacts) -> li
     """Each `knowledge` requirement's code becomes its fact id; a code the
     list did not show is kept as emitted, for `anchor_requirements` to drop
     and report."""
-    resolved_steps = []
-    for step in steps:
-        requirements = tuple(
-            replace(req, target_key=learnable.resolve(req.target_key) or req.target_key)
-            if req.type == "knowledge" else req
-            for req in step.requirements
-        )
-        resolved_steps.append(replace(step, requirements=requirements))
-    return resolved_steps
+    def resolve(req: RequirementSpec) -> RequirementSpec:
+        if req.type != "knowledge":
+            return req
+        return replace(req, target_key=learnable.resolve(req.target_key) or req.target_key)
+
+    return [replace(step, prerequisite=map_leaves(step.prerequisite, resolve)) for step in steps]
 
 
 def emit_plan(

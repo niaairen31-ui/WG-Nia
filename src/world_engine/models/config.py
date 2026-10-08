@@ -1,5 +1,6 @@
 """Conversation-window curated config (TICKET-0050, BRIEF-0050-a); `AgendaStep`
-and `agenda_step_requirement` (TICKET-0075, BRIEF-0075-b).
+(TICKET-0075, BRIEF-0075-b); `condition` and `condition_node` (TICKET-0111,
+BRIEF-0111-C), which replaced `agenda_step_requirement`.
 
 Split out of `canon.py` (974/1000 lines at TICKET-0050, again at exactly
 1000/1000 by TICKET-0075 — no headroom for a new table,
@@ -7,8 +8,8 @@ Split out of `canon.py` (974/1000 lines at TICKET-0050, again at exactly
 to a different stratum: `AgendaStep` is the same `agenda`/`agenda_step`
 family as `Agenda` (still in `canon.py`) — only its FILE moved, not its
 identity, and every existing `from ..models import AgendaStep` import is
-unaffected (resolved through `models/__init__.py`). `agenda_step_requirement`
-is canon curated-config, same family as `location_type_catalog` / `world_law`
+unaffected (resolved through `models/__init__.py`). `condition` / `condition_node`
+are canon curated-config, same family as `location_type_catalog` / `world_law`
 (metadata-config category, no `change_history`). `skill_rank` (TICKET-0106,
 BRIEF-0106-A) is the same curated-config family, placed here for the same
 module budget.
@@ -104,59 +105,90 @@ class AgendaStep(SQLModel, table=True):
 
 
 # -----------------------------------------------------------------------------
-# agenda_step_requirement  (day-plan precondition gate, schema v1.94,
-# TICKET-0075, BRIEF-0075-b). `goal_prerequisite` shape precedent (same
-# id/world_id/type/target_entity_id/threshold spine), widened to a closed
-# vocabulary and a `target_key` column for the forms that gate on a string
-# (knowledge fact id since TICKET-0097, resource tag, skill key, quest offer
-# id) rather than an entity. Eight forms since v2.17 (TICKET-0108,
-# BRIEF-0108-A): the four the day-plan model may emit, plus `has_met`,
-# `faction_member`, `skill_rank_gte` and `quest_completed`, authored by the
-# creator only (`condition_forms.MODEL_REQUIREMENT_TYPES`). Ten since v2.19
-# (TICKET-0110, BRIEF-0110-A, G1): `has_debt_to` and `no_debt_to`, an open
-# debt toward the target entity or none, creator only too.
+# condition / condition_node  (the condition language, schema v2.20,
+# TICKET-0111, BRIEF-0111-C -- decisions A1, I1, O-a, M1 and P1). They replace
+# `agenda_step_requirement` and `quest_offer_requirement` (v1.94 / v2.17).
 #
-# The per-type shape CHECK is the structural guarantee that an ill-formed row
-# cannot exist; its three groups are `condition_forms.ENTITY_TARGET_TYPES`,
-# `KEY_TARGET_TYPES` and `THRESHOLD_TYPES`. `quest_offer_requirement`
-# (models/quests.py) carries the same two CHECK texts, byte for byte
-# (`quests.py` check, QA1). Curated plan metadata, same family as
-# `npc_schedule` — no `change_history`.
+# A `condition` is ONE tree, owned by exactly one of an offer (its
+# eligibility), an offer step or an agenda step (its prerequisite or, M1, its
+# completion -- shown, never acting). At most one condition per owner and
+# role. Its nodes are rows (O-a: never JSON, the UI reads them): a connector
+# (`all`, `any`, `not`, `at_least` with `n`) or a leaf carrying one form of
+# `condition_forms.REQUIREMENT_TYPES` and its arguments; `parent_id` and
+# `position` give the tree its shape, the root has no parent.
 #
-# THE POSITIONAL WALL: `location_reachable`'s target lives HERE, on the
-# requirement row, never on `agenda_step` — a requirement states "the player
-# must be able to reach L", a precondition on the player, never a position of
-# an NPC. See BRIEF-0074-a-amendment-1.
+# The form vocabulary is a code-plane property (the `entity_trait.trait_key`
+# precedent): no CHECK lists the forms -- a new form is code, never a table
+# rebuild. `writes.conditions.write_condition` is the one writer and refuses
+# an unknown form, an ill-shaped tree or a target outside the world, before
+# any row; `conditions.py` (CC) holds it to that. What a CHECK can say without
+# naming a form, it says: a node is a connector or a leaf; a leaf names
+# exactly one subject; a connector carries no argument; `at_least` has n >= 1.
+# Curated plan metadata, the requirement rows' family: no `change_history`
+# (an offer snapshots itself; a save replaces its conditions whole).
 # -----------------------------------------------------------------------------
-class AgendaStepRequirement(SQLModel, table=True):
-    __tablename__ = "agenda_step_requirement"
+CONDITION_ROLES: tuple[str, ...] = ("eligibility", "prerequisite", "completion")
+CONDITION_OPS: tuple[str, ...] = ("all", "any", "not", "at_least", "leaf")
+
+
+class Condition(SQLModel, table=True):
+    __tablename__ = "condition"
     __table_args__ = (
+        CheckConstraint("role IN ('eligibility','prerequisite','completion')", name="ck_condition_role"),
         CheckConstraint(
-            "type IN ('knowledge','relation_gte','resource','location_reachable',"
-            "'has_met','faction_member','skill_rank_gte','quest_completed','has_debt_to','no_debt_to')",
-            name="ck_agenda_step_requirement_type",
+            "(quest_offer_id IS NOT NULL) + (quest_offer_step_id IS NOT NULL) + (agenda_step_id IS NOT NULL) = 1",
+            name="ck_condition_owner",
         ),
-        CheckConstraint(
-            "(type NOT IN ('relation_gte','location_reachable','has_met','faction_member','has_debt_to','no_debt_to') "
-            "OR target_entity_id IS NOT NULL) "
-            "AND (type NOT IN ('knowledge','resource','skill_rank_gte','quest_completed') "
-            "OR target_key IS NOT NULL) "
-            "AND (type NOT IN ('relation_gte','resource','skill_rank_gte') OR threshold IS NOT NULL)",
-            name="ck_agenda_step_requirement_shape",
-        ),
-        Index(
-            "idx_agenda_step_requirement_unique", "step_id", "type",
-            "target_entity_id", "target_key", unique=True,
-        ),
+        CheckConstraint("(quest_offer_id IS NOT NULL) = (role = 'eligibility')", name="ck_condition_owner_role"),
+        Index("idx_condition_offer", "quest_offer_id", "role", unique=True),
+        Index("idx_condition_offer_step", "quest_offer_step_id", "role", unique=True),
+        Index("idx_condition_agenda_step", "agenda_step_id", "role", unique=True),
     )
 
     id: str = Field(default_factory=_uuid, primary_key=True)
     world_id: str = Field(foreign_key="world.id", nullable=False)
-    step_id: str = Field(foreign_key="agenda_step.id", nullable=False)
-    type: str
+    role: str
+    quest_offer_id: Optional[str] = Field(default=None, foreign_key="quest_offer.id")
+    quest_offer_step_id: Optional[str] = Field(default=None, foreign_key="quest_offer_step.id")
+    agenda_step_id: Optional[str] = Field(default=None, foreign_key="agenda_step.id")
+    created_at: datetime = _created_ts()
+
+
+class ConditionNode(SQLModel, table=True):
+    __tablename__ = "condition_node"
+    __table_args__ = (
+        CheckConstraint("op IN ('all','any','not','at_least','leaf')", name="ck_condition_node_op"),
+        CheckConstraint("(op = 'leaf') = (form IS NOT NULL)", name="ck_condition_node_leaf"),
+        CheckConstraint(
+            "op = 'leaf' OR (subject_role IS NULL AND subject_entity_id IS NULL AND target_entity_id IS NULL "
+            "AND target_key IS NULL AND threshold IS NULL AND value IS NULL)",
+            name="ck_condition_node_connector",
+        ),
+        CheckConstraint(
+            "op <> 'leaf' OR ((subject_role IS NULL) <> (subject_entity_id IS NULL))",
+            name="ck_condition_node_subject",
+        ),
+        CheckConstraint(
+            "subject_role IS NULL OR subject_role IN ('doer','giver','contact')", name="ck_condition_node_role",
+        ),
+        CheckConstraint("(op = 'at_least') = (n IS NOT NULL) AND (n IS NULL OR n >= 1)", name="ck_condition_node_n"),
+        Index("idx_condition_node_condition", "condition_id", "parent_id", "position"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    condition_id: str = Field(foreign_key="condition.id", nullable=False)
+    parent_id: Optional[str] = Field(default=None, foreign_key="condition_node.id")
+    position: int = Field(default=0, sa_column_kwargs={"server_default": text("0")})
+    op: str
+    n: Optional[int] = None
+    form: Optional[str] = None
+    subject_role: Optional[str] = None
+    subject_entity_id: Optional[str] = Field(default=None, foreign_key="entity.id")
     target_entity_id: Optional[str] = Field(default=None, foreign_key="entity.id")
     target_key: Optional[str] = None
     threshold: Optional[int] = None
+    value: Optional[str] = None
 
 
 # -----------------------------------------------------------------------------

@@ -18415,6 +18415,60 @@ of a counting form (« 60/50 »). One phrase per form (`FORM_PHRASES_FR`).
 **Rejected.** A fourth verdict state for « not applicable »: a leaf whose
 subject cannot be bound is unknown, and a gate treats it as not met.
 
+## A CONDITION IS STORED AS ROWS, ONE TREE PER OWNER (TICKET-0111) -- THE TWO REQUIREMENT TABLES BECOME `condition`, TWELVE FORMS (BRIEF-0111-c, schema v2.20)
+
+**O-a.** A condition is stored as rows, never JSON (CLAUDE.md: UI-visible
+data is relational): `condition`, one per owner and role -- an offer's
+`eligibility`, an offer step's or an agenda step's `prerequisite`, or its
+`completion` (M1, shown, never acted on) -- and `condition_node`, one row per
+node (`parent_id`, `position`). The nodes' foreign keys give the cascade of
+a world and « who cites X » for free. `agenda_step_requirement` and
+`quest_offer_requirement` are dropped; v2.20 turned each owner's rows into
+`all` of its leaves, in the rows' order, judged on `doer`.
+
+**No CHECK names a form.** The vocabulary is a code-plane property (the
+`entity_trait.trait_key` precedent): a new form is code, never a table
+rebuild (v2.17 and v2.19 each rebuilt two tables to widen one CHECK).
+`writes.conditions` is the one writer (`single_canon_write.py`) and refuses
+an unknown form, an ill-shaped tree, a subject that is not a character of
+the world, a target outside it, a missing value -- before any row. What a
+CHECK can say without naming a form, it says.
+
+**I1.** One language for every agenda. Day plans, offers and accepted
+quests all store and judge a tree: `PlanStep.prerequisite`,
+`EvaluatedStep.verdict` (`met` only when the verdict is), `evaluate_agenda_step`
+binding an offer's giver and contact (`plan_bindings`), acceptance judging
+the eligibility with the same bindings. The model still emits a flat list of
+its four forms; it becomes `all` of them.
+
+**Q1.** What a requirement row used to mean beyond gating keeps meaning
+it, read on the leaves reached through `all` only: the day's NPC is the
+first such `relation_gte`'s target; a completed step deepens the `knowledge`
+leaves judged on the one who acts. A leaf under `any`, `not` or `at_least`
+is not guaranteed and counts for neither.
+
+**S1.** `quest_state` (an offer's quest `open`, `completed`, `failed` or
+`abandoned`) replaces `quest_completed` -- one form for a quest's state;
+`item_held` (at least N of an item, `item_holding`) and `vital_status` (the
+subject's own state) read data the canon already keeps. `vital_status`'s
+values are the creator form's: the column has no CHECK.
+
+**The day's French.** `blocked_details_fr` says what a judged condition
+still lacks: an unmet leaf's detail, an unknown leaf's reason, and under a
+`not` that a leaf must not hold.
+
+**Old migrations.** v1.94, v2.17 and v2.19 created or rebuilt the dropped
+tables from their models; each now carries that table's DDL, frozen as it
+created it (`_Retired`), so it still runs on the database it was written
+for.
+
+**Rejected.** O-b (the tree as JSON, an exception in `json_ui_boundary.py`):
+the first JSON exception for durable canon content, with no foreign keys.
+A CHECK listing the forms on `condition_node`: a table rebuild per form.
+GP1: `goal_prerequisite` (an NPC goal's completion gate, one form) is a
+third language left out of this ticket; its own ticket, once this one is
+stable.
+
 ---
 
 *Co-built with Claude, June 2026.*

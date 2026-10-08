@@ -125,6 +125,13 @@ _V2_08_DETAIL = (
     "CREATE TABLE discoverable_detail (id TEXT PRIMARY KEY, world_id TEXT NOT NULL, "
     "location_id TEXT NOT NULL, subject TEXT NOT NULL, content TEXT NOT NULL)"
 )
+# The table v2.09 rewrites the gates of, at v2.08: the current metadata no
+# longer has it (TICKET-0111 dropped it at v2.20, BRIEF-0111-C).
+_V2_08_REQUIREMENT = (
+    "CREATE TABLE agenda_step_requirement (id VARCHAR NOT NULL PRIMARY KEY, world_id VARCHAR NOT NULL "
+    "REFERENCES world (id), step_id VARCHAR NOT NULL REFERENCES agenda_step (id), type VARCHAR NOT NULL, "
+    "target_entity_id VARCHAR REFERENCES entity (id), target_key VARCHAR, threshold INTEGER)"
+)
 
 _ROWS: tuple[tuple[str, dict], ...] = (
     ("world", {"id": "w1", "name": "W"}),
@@ -213,8 +220,9 @@ def _insert(cursor, rows) -> None:
 
 def _v2_08_database() -> sqlite3.Connection:
     """A second database, built from the current metadata, then taken back
-    to the v2.08 shape: without the two objects v2.09 creates, and with the
-    `knowledge.subject` column and index v2.10 drops."""
+    to the v2.08 shape: without the two objects v2.09 creates, with the
+    `knowledge.subject` column and index v2.10 drops, and with the
+    `agenda_step_requirement` table v2.20 drops."""
     from sqlalchemy import create_engine
     from sqlmodel import SQLModel
 
@@ -226,6 +234,7 @@ def _v2_08_database() -> sqlite3.Connection:
     conn.execute("CREATE INDEX idx_knowledge_subject ON knowledge(subject)")
     conn.execute("DROP TABLE discoverable_detail")
     conn.execute(_V2_08_DETAIL)
+    conn.execute(_V2_08_REQUIREMENT)
     _insert(conn.cursor(), _ROWS)
     return conn
 
@@ -646,13 +655,15 @@ def _k6_plan(session, day) -> None:
         steps = emit_plan("déclaration", character, session)
     finally:
         ollama_client.chat = original
-    keys = [req.target_key for req in steps[0].requirements]
+    from world_engine.conditions import leaves
+
+    keys = [req.target_key for req in leaves(steps[0].prerequisite)]
     if not sent or "f2 — Le port ferme." not in sent[0] or keys != [day["port"], "f9"]:
         fail(f"K6b emit_plan sent {sent[:1]!r} and returned keys {keys!r}")
     anchored, dropped = anchor_requirements(steps, character, session)
-    if [r.target_key for r in anchored[0].requirements] != [day["port"]] \
-            or [d["target_key"] for d in dropped] != ["f9"]:
-        fail(f"K6b anchoring kept {anchored[0].requirements!r}, dropped {dropped!r}")
+    kept = leaves(anchored[0].prerequisite)
+    if [r.target_key for r in kept] != [day["port"]] or [d["target_key"] for d in dropped] != ["f9"]:
+        fail(f"K6b anchoring kept {kept!r}, dropped {dropped!r}")
 
 
 def _k6_verdicts(session, day) -> None:

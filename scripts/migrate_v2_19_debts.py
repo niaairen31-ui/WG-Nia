@@ -70,9 +70,43 @@ _REQUIREMENT_COLUMNS = {
     "agenda_step_requirement": "id, world_id, step_id, type, target_entity_id, target_key, threshold",
     "quest_offer_requirement": "id, world_id, offer_id, step_id, type, target_entity_id, target_key, threshold",
 }
+class _Retired:
+    """A table the code no longer declares -- TICKET-0111 (BRIEF-0111-C)
+    dropped it at v2.20, its rows converted into `condition` trees. Its DDL
+    is frozen here as this migration created it, so the migration still
+    runs on the database it was written for."""
+
+    def __init__(self, name: str, ddl: tuple[str, ...]) -> None:
+        self.__tablename__ = name
+        self.ddl = ddl
+
+
 _REQUIREMENT_MODELS = {
-    "agenda_step_requirement": models.AgendaStepRequirement,
-    "quest_offer_requirement": models.QuestOfferRequirement,
+    "agenda_step_requirement": _Retired("agenda_step_requirement", (
+    """CREATE TABLE agenda_step_requirement (
+	id VARCHAR NOT NULL, world_id VARCHAR NOT NULL, step_id VARCHAR NOT NULL,
+	type VARCHAR NOT NULL, target_entity_id VARCHAR, target_key VARCHAR, threshold INTEGER,
+	PRIMARY KEY (id),
+	CONSTRAINT ck_agenda_step_requirement_type CHECK (type IN ('knowledge','relation_gte','resource','location_reachable','has_met','faction_member','skill_rank_gte','quest_completed','has_debt_to','no_debt_to')),
+	CONSTRAINT ck_agenda_step_requirement_shape CHECK ((type NOT IN ('relation_gte','location_reachable','has_met','faction_member','has_debt_to','no_debt_to') OR target_entity_id IS NOT NULL) AND (type NOT IN ('knowledge','resource','skill_rank_gte','quest_completed') OR target_key IS NOT NULL) AND (type NOT IN ('relation_gte','resource','skill_rank_gte') OR threshold IS NOT NULL)),
+	FOREIGN KEY(world_id) REFERENCES world (id),
+	FOREIGN KEY(step_id) REFERENCES agenda_step (id),
+	FOREIGN KEY(target_entity_id) REFERENCES entity (id))""",
+    "CREATE UNIQUE INDEX idx_agenda_step_requirement_unique ON agenda_step_requirement (step_id, type, target_entity_id, target_key)",
+    )),
+    "quest_offer_requirement": _Retired("quest_offer_requirement", (
+    """CREATE TABLE quest_offer_requirement (
+	id VARCHAR NOT NULL, world_id VARCHAR NOT NULL, offer_id VARCHAR NOT NULL, step_id VARCHAR,
+	type VARCHAR NOT NULL, target_entity_id VARCHAR, target_key VARCHAR, threshold INTEGER,
+	PRIMARY KEY (id),
+	CONSTRAINT ck_quest_offer_requirement_type CHECK (type IN ('knowledge','relation_gte','resource','location_reachable','has_met','faction_member','skill_rank_gte','quest_completed','has_debt_to','no_debt_to')),
+	CONSTRAINT ck_quest_offer_requirement_shape CHECK ((type NOT IN ('relation_gte','location_reachable','has_met','faction_member','has_debt_to','no_debt_to') OR target_entity_id IS NOT NULL) AND (type NOT IN ('knowledge','resource','skill_rank_gte','quest_completed') OR target_key IS NOT NULL) AND (type NOT IN ('relation_gte','resource','skill_rank_gte') OR threshold IS NOT NULL)),
+	FOREIGN KEY(world_id) REFERENCES world (id),
+	FOREIGN KEY(offer_id) REFERENCES quest_offer (id),
+	FOREIGN KEY(step_id) REFERENCES quest_offer_step (id),
+	FOREIGN KEY(target_entity_id) REFERENCES entity (id))""",
+    "CREATE INDEX idx_quest_offer_requirement_offer ON quest_offer_requirement (offer_id)",
+    )),
 }
 _ECONOMY_COLUMNS = ("id, world_id, rate_money, rate_relation, rate_fact, rate_skill, band_low_pct, "
                     "band_high_pct, updated_at")
@@ -116,6 +150,10 @@ def _row_counts() -> dict[str, int]:
 
 
 def _create_from_model(cursor, model) -> None:
+    if isinstance(model, _Retired):
+        for statement in model.ddl:
+            cursor.execute(statement)
+        return
     cursor.execute(str(CreateTable(model.__table__).compile(dialect=engine.dialect)))
     for index in model.__table__.indexes:
         cursor.execute(str(CreateIndex(index).compile(dialect=engine.dialect)))

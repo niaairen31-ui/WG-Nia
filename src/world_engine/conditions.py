@@ -18,8 +18,9 @@ A verdict has three states (R1): `met`, `unmet`, `unknown`. The connectors
 follow Kleene's three-valued logic, so an `unknown` leaf can still be
 outweighed (`any` with a met sibling is met). A gate passes only on `met`.
 
-This module is pure apart from the evaluators it calls: it reads the canon
-through them and writes nothing. Storage is `writes/conditions.py`.
+This module writes nothing: it reads the canon through the evaluators and
+reads a stored tree back (`read_condition`). Its writer is
+`writes/conditions.py`.
 """
 
 from __future__ import annotations
@@ -27,10 +28,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from .condition_forms import _EVALUATORS, RequirementSpec, Verdict, _day_reachable_ids
-from .models import Character, Entity
+from .models import Character, Condition, ConditionNode, Entity
 
 # The four connectors, then the leaf.
 CONNECTORS: tuple[str, ...] = ("all", "any", "not", "at_least")
@@ -145,6 +146,29 @@ def flat_leaves(node: Optional[ConditionTree]) -> Optional[tuple[RequirementSpec
         return tuple(child.leaf for child in node.children)
     return None
 
+
+def map_leaves(tree: Optional[ConditionTree], fn) -> Optional[ConditionTree]:
+    """The same tree with `fn(spec) -> spec` applied to every leaf."""
+    if tree is None:
+        return None
+    if tree.op == "leaf":
+        return ConditionTree(op="leaf", leaf=fn(tree.leaf))
+    return ConditionTree(op=tree.op, n=tree.n, children=tuple(map_leaves(c, fn) for c in tree.children))
+
+
+def drop_leaves(tree: Optional[ConditionTree], drop) -> Optional[ConditionTree]:
+    """The tree without the leaves `drop(spec)` is true for. A connector left
+    with no child goes too; an `at_least` keeps `n` at most its remaining
+    children; no tree is left when the root goes."""
+    if tree is None:
+        return None
+    if tree.op == "leaf":
+        return None if drop(tree.leaf) else tree
+    children = tuple(kept for kept in (drop_leaves(c, drop) for c in tree.children) if kept is not None)
+    if not children:
+        return None
+    n = min(tree.n, len(children)) if tree.op == "at_least" else None
+    return ConditionTree(op=tree.op, n=n, children=children)
 
 # --- the dict form (what the API carries) --------------------------------------
 
@@ -315,3 +339,47 @@ def _evaluate_leaf(spec: RequirementSpec, bindings: Bindings, db: Session, reach
         ids = reachable[character.id]
     verdict = evaluator(spec, character, db, ids)
     return VerdictNode(state="met" if verdict.met else "unmet", op="leaf", spec=spec, verdict=verdict)
+
+
+# --- reading a stored tree -----------------------------------------------------
+
+# The three owners a `condition` row may have (TICKET-0111, BRIEF-0111-C).
+OWNER_COLUMNS: tuple[str, ...] = ("quest_offer_id", "quest_offer_step_id", "agenda_step_id")
+
+
+def owner_of(owner: dict) -> tuple[str, str]:
+    given = [(column, value) for column, value in owner.items() if column in OWNER_COLUMNS and value]
+    if len(given) != 1 or set(owner) - set(OWNER_COLUMNS):
+        raise ValueError(f"a condition has exactly one owner among {OWNER_COLUMNS}, got {owner}")
+    return given[0]
+
+
+def stored_condition(db: Session, role: str, column: str, owner_id: str) -> Optional[Condition]:
+    return db.exec(select(Condition).where(getattr(Condition, column) == owner_id, Condition.role == role)).first()
+
+
+def read_condition(db: Session, *, role: str, **owner) -> Optional[ConditionTree]:
+    """The stored tree of one owner for one role, or None."""
+    column, owner_id = owner_of(owner)
+    condition = stored_condition(db, role, column, owner_id)
+    if condition is None:
+        return None
+    nodes = db.exec(select(ConditionNode).where(ConditionNode.condition_id == condition.id)).all()
+    children: dict[Optional[str], list[ConditionNode]] = {}
+    for node in nodes:
+        children.setdefault(node.parent_id, []).append(node)
+    roots = children.get(None, [])
+    if len(roots) != 1:
+        raise ValueError(f"condition {condition.id!r} has {len(roots)} roots")
+    return _build(roots[0], children)
+
+
+def _build(node: ConditionNode, children: dict) -> ConditionTree:
+    if node.op == "leaf":
+        return ConditionTree(op="leaf", leaf=RequirementSpec(
+            type=node.form, subject_role=node.subject_role, subject_entity_id=node.subject_entity_id,
+            target_entity_id=node.target_entity_id, target_key=node.target_key, threshold=node.threshold,
+            value=node.value,
+        ))
+    kids = sorted(children.get(node.id, []), key=lambda n: n.position)
+    return ConditionTree(op=node.op, n=node.n, children=tuple(_build(k, children) for k in kids))

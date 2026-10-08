@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.19
+Current schema version: v2.20
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -2199,8 +2199,8 @@ metadata. NULL for every pre-v1.94 (NPC) step — no backfill; populated only
 by the day-plan chain. `cost` = day-budget slots consumed (1-4); `domain` =
 the `resolve_physical` domain, or NULL when the step needs no roll. No
 location column here or ever (the positional wall,
-BRIEF-0074-a-amendment-1) — `agenda_step_requirement`'s `location_reachable`
-rows carry a location on the REQUIREMENT, never on the step.
+BRIEF-0074-a-amendment-1) — a `location_reachable` leaf of its `condition`
+(v2.20) carries a location on the CONDITION, never on the step.
 
 ```sql
 CREATE TABLE agenda_step (
@@ -2227,63 +2227,84 @@ CREATE UNIQUE INDEX idx_agenda_step_one_active
 
 -----
 
-### `agenda_step_requirement`
+### `condition`
 
-Day-plan precondition gate on one `agenda_step` (schema v1.94, TICKET-0075,
-BRIEF-0075-b). `goal_prerequisite` shape precedent, widened to a closed
-vocabulary and a `target_key` column for the forms that gate on a string
-(a knowledge fact id since v2.09, TICKET-0097; a resource label; a skill
-key; a quest offer id) rather than an entity. Eight forms since v2.17
-(TICKET-0108, BRIEF-0108-A): `knowledge`, `relation_gte`, `resource`,
-`location_reachable` -- the four the day-plan model may emit
-(`day_plan.MODEL_REQUIREMENT_TYPES`) -- and `has_met`, `faction_member`,
-`skill_rank_gte`, `quest_completed`, authored by the creator only, on a
-quest offer. The per-type shape CHECK is the structural guarantee that an
-ill-formed row cannot exist: `relation_gte`/`location_reachable`/`has_met`/
-`faction_member` require `target_entity_id` NOT NULL;
-`knowledge`/`resource`/`skill_rank_gte`/`quest_completed` require
-`target_key` NOT NULL; `relation_gte`/`resource`/`skill_rank_gte` require
-`threshold` NOT NULL. Meanings: `relation_gte` reads what the TARGET feels
-toward the character (the social row target -> character, v2.17);
-`resource` is the character's money (one currency per world, `target_key`
-a label); `has_met` an encounter row of the pair; `faction_member` an
-active membership of the target faction; `skill_rank_gte` the rank held in
-a base domain or a skill definition (`target_key`), `threshold` 1-5;
-`quest_completed` a quest taken from the offer `target_key` whose agenda is
-`completed`. Ten forms since v2.19 (TICKET-0110, BRIEF-0110-A, G1):
-`has_debt_to` and `no_debt_to`, creator only, with `target_entity_id` the
-creditor (a character or a faction) -- the character is the debtor of at
-least one OPEN `debt` toward it, or of none; existence only, no threshold.
-Curated plan metadata, same family as `npc_schedule` -- no
-`change_history`. THE POSITIONAL WALL: `location_reachable`'s target lives
-HERE, never on `agenda_step` -- a requirement states "the player must be
-able to reach L", a precondition on the player, never a position of an NPC
-(see BRIEF-0074-a-amendment-1). Written by `writes.write_day_plan` and the
-quest acceptance; read by `day_plan.evaluate_specs`.
+One condition, owned by exactly one of an offer (its eligibility), an offer
+step or an agenda step (its prerequisite, or its completion) -- schema
+v2.20, TICKET-0111, BRIEF-0111-C (decisions A1, I1, O-a). It replaced
+`agenda_step_requirement` (v1.94) and `quest_offer_requirement` (v2.17): the
+migration turned each owner's rows into one tree, `all` of them. At most one
+condition per owner and role. `completion` (M1) is shown in Journée and in
+« Déclarer accomplie », never acted on by the engine. Curated plan metadata,
+the requirement rows' family: no `change_history`; a save replaces a
+condition whole. Written only by `writes.conditions.write_condition` (and
+`delete_offer_conditions` before an offer is saved); read by
+`conditions.read_condition`.
 
 ```sql
-CREATE TABLE agenda_step_requirement (
-  id                TEXT PRIMARY KEY,
-  world_id          TEXT NOT NULL REFERENCES world(id),
-  step_id           TEXT NOT NULL REFERENCES agenda_step(id),
-  type              TEXT NOT NULL
-                      CHECK (type IN ('knowledge','relation_gte','resource','location_reachable',
-                                      'has_met','faction_member','skill_rank_gte','quest_completed',
-                                      'has_debt_to','no_debt_to')),
-  target_entity_id  TEXT REFERENCES entity(id),
-  target_key        TEXT,
-  threshold         INTEGER,
-  CHECK (
-    (type NOT IN ('relation_gte','location_reachable','has_met','faction_member',
-                  'has_debt_to','no_debt_to')
-       OR target_entity_id IS NOT NULL)
-    AND (type NOT IN ('knowledge','resource','skill_rank_gte','quest_completed')
-       OR target_key IS NOT NULL)
-    AND (type NOT IN ('relation_gte','resource','skill_rank_gte') OR threshold IS NOT NULL)
-  )
+CREATE TABLE condition (
+  id                   TEXT PRIMARY KEY,
+  world_id             TEXT NOT NULL REFERENCES world(id),
+  role                 TEXT NOT NULL CHECK (role IN ('eligibility','prerequisite','completion')),
+  quest_offer_id       TEXT REFERENCES quest_offer(id),
+  quest_offer_step_id  TEXT REFERENCES quest_offer_step(id),
+  agenda_step_id       TEXT REFERENCES agenda_step(id),
+  created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+  CHECK ((quest_offer_id IS NOT NULL) + (quest_offer_step_id IS NOT NULL) + (agenda_step_id IS NOT NULL) = 1),
+  CHECK ((quest_offer_id IS NOT NULL) = (role = 'eligibility'))
 );
-CREATE UNIQUE INDEX idx_agenda_step_requirement_unique
-  ON agenda_step_requirement(step_id, type, target_entity_id, target_key);
+CREATE UNIQUE INDEX idx_condition_offer ON condition(quest_offer_id, role);
+CREATE UNIQUE INDEX idx_condition_offer_step ON condition(quest_offer_step_id, role);
+CREATE UNIQUE INDEX idx_condition_agenda_step ON condition(agenda_step_id, role);
+```
+
+-----
+
+### `condition_node`
+
+One node of a condition's tree (v2.20, O-a: rows, never JSON). A connector
+-- `all`, `any`, `not` (one child), `at_least` (`n` of its children) -- or
+a leaf carrying one form (`condition_forms.REQUIREMENT_TYPES`) and its
+arguments: its subject (a role bound when judged -- `doer`, `giver`,
+`contact` -- or one character, P1), its target (an entity or a key), a
+threshold, a value. `parent_id` and `position` give the tree its shape; the
+root has no parent. No CHECK names a form: the vocabulary is a code-plane
+property (the `entity_trait.trait_key` precedent), held by the one writer,
+which refuses an unknown form, a target outside the world or an ill-shaped
+tree before any row. Meanings of the forms: `relation_gte` reads what the
+TARGET feels toward the subject; `resource` the subject's money (one
+currency per world, `target_key` a label); `has_met` an encounter row;
+`faction_member` an active membership; `skill_rank_gte` a rank held (1-5);
+`quest_state` a quest taken from the offer `target_key` whose agenda is in
+`value` (`open`, `completed`, `failed`, `abandoned`); `has_debt_to` /
+`no_debt_to` an open debt toward the target or none; `item_held` at least
+`threshold` of the item held; `vital_status` the subject's own
+`vital_status` equal to `value`. THE POSITIONAL WALL holds:
+`location_reachable`'s target lives on the leaf, never on `agenda_step`.
+
+```sql
+CREATE TABLE condition_node (
+  id                 TEXT PRIMARY KEY,
+  world_id           TEXT NOT NULL REFERENCES world(id),
+  condition_id       TEXT NOT NULL REFERENCES condition(id),
+  parent_id          TEXT REFERENCES condition_node(id),
+  position           INTEGER NOT NULL DEFAULT 0,
+  op                 TEXT NOT NULL CHECK (op IN ('all','any','not','at_least','leaf')),
+  n                  INTEGER,
+  form               TEXT,
+  subject_role       TEXT CHECK (subject_role IS NULL OR subject_role IN ('doer','giver','contact')),
+  subject_entity_id  TEXT REFERENCES entity(id),
+  target_entity_id   TEXT REFERENCES entity(id),
+  target_key         TEXT,
+  threshold          INTEGER,
+  value              TEXT,
+  CHECK ((op = 'leaf') = (form IS NOT NULL)),
+  CHECK (op = 'leaf' OR (subject_role IS NULL AND subject_entity_id IS NULL AND target_entity_id IS NULL
+                         AND target_key IS NULL AND threshold IS NULL AND value IS NULL)),
+  CHECK (op <> 'leaf' OR ((subject_role IS NULL) <> (subject_entity_id IS NULL))),
+  CHECK ((op = 'at_least') = (n IS NOT NULL) AND (n IS NULL OR n >= 1))
+);
+CREATE INDEX idx_condition_node_condition ON condition_node(condition_id, parent_id, position);
 ```
 
 -----
@@ -2295,7 +2316,7 @@ The giver is a character or a faction of the world (H1). `status`: `open`
 (proposed to whoever is eligible) or `closed` (proposed to no one); an
 offer is never deleted. `repeatable` (L1): a repeatable offer may be
 accepted again once the last quest taken from it is over; any other offer
-once per character. Its steps and requirements are replaced whole on save
+once per character. Its steps and conditions are replaced whole on save
 (the `npc_price` full-replace precedent); the offer row keeps a
 `change_history`. Written only by `writes.write_quest_offer`.
 `contact_entity_id` (v2.19, TICKET-0110, X1): when the giver is a faction,
@@ -2324,7 +2345,8 @@ CREATE INDEX idx_quest_offer_world ON quest_offer(world_id);
 ### `quest_offer_step`
 
 One step of an offer, in order (v2.17). Copied to `agenda_step` when the
-offer is accepted: `cost` and `domain` mean what they mean there.
+offer is accepted, with its conditions: `cost` and `domain` mean what they
+mean there.
 
 ```sql
 CREATE TABLE quest_offer_step (
@@ -2337,32 +2359,6 @@ CREATE TABLE quest_offer_step (
   domain      TEXT
 );
 CREATE UNIQUE INDEX idx_quest_offer_step_order ON quest_offer_step(offer_id, step_order);
-```
-
------
-
-### `quest_offer_requirement`
-
-A requirement of an offer (v2.17): with no `step_id`, an ELIGIBILITY
-requirement -- the offer is proposed only to a character who meets all of
-them; with a `step_id`, a requirement of that step, copied to
-`agenda_step_requirement` on acceptance. The vocabulary is
-`agenda_step_requirement`'s, never a second one (B1): its two CHECK texts
-are that table's, byte for byte (checked by `quests.py`).
-
-```sql
-CREATE TABLE quest_offer_requirement (
-  id                TEXT PRIMARY KEY,
-  world_id          TEXT NOT NULL REFERENCES world(id),
-  offer_id          TEXT NOT NULL REFERENCES quest_offer(id),
-  step_id           TEXT REFERENCES quest_offer_step(id),
-  type              TEXT NOT NULL,      -- agenda_step_requirement's type CHECK
-  target_entity_id  TEXT REFERENCES entity(id),
-  target_key        TEXT,
-  threshold         INTEGER
-  -- agenda_step_requirement's shape CHECK
-);
-CREATE INDEX idx_quest_offer_requirement_offer ON quest_offer_requirement(offer_id);
 ```
 
 -----

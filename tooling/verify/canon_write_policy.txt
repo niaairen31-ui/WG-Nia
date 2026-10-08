@@ -4,8 +4,8 @@ knowledge ledger item skill skill_definition skill_system discoverable_detail
 event artifact npc_goal agenda agenda_step goal_agenda_link
 npc_price world_law obstacle obstacle_vertex door
 location_type_catalog entity_type entity_type_history conversation_window_config
-npc_schedule agenda_step_requirement fact fact_participant fact_default
-skill_rank quest_offer quest_offer_step quest_offer_requirement quest
+npc_schedule condition condition_node fact fact_participant fact_default
+skill_rank quest_offer quest_offer_step quest
 item_holding quest_offer_term quest_term quest_economy
 debt debt_term
 
@@ -50,12 +50,14 @@ src/world_engine/writes/config.py::upsert_skill_rank           skill_rank
 src/world_engine/writes/zone_promotion.py::apply_promotion     discoverable_detail
 # TICKET-0109, BRIEF-0109-A: write_holding is the one writer of item_holding -- set or move how many of an item an entity holds; apply_promotion now moves a place's items through it.
 src/world_engine/writes/items.py::write_holding                item_holding
-# TICKET-0075, BRIEF-0075-b: write_day_plan is the 30th site — its OWN body writes agenda_step_requirement only (it calls write_agenda/write_agenda_step, whose own db.add sites are already allow-listed above; single_canon_write.py is function-scoped, not interprocedural).
-src/world_engine/writes/goals_agendas.py::write_day_plan       agenda_step_requirement
 # TICKET-0108, BRIEF-0108-B: write_quest_offer creates or saves one quest offer -- its steps and requirements replaced whole (the write_npc_prices full-replace shape), the offer row snapshotted; creator CRUD only.
-src/world_engine/writes/quests.py::write_quest_offer           quest_offer quest_offer_step quest_offer_requirement
-# TICKET-0108, BRIEF-0108-B: accept_quest writes the quest row and copies the offer's step requirements; its agenda and steps go through write_agenda/write_agenda_step, allow-listed above (the write_day_plan precedent).
-src/world_engine/writes/quests.py::accept_quest                agenda_step_requirement quest
+src/world_engine/writes/quests.py::write_quest_offer           quest_offer quest_offer_step
+# TICKET-0108, BRIEF-0108-B: accept_quest writes the quest row; its agenda and steps go through write_agenda/write_agenda_step, allow-listed above, and since TICKET-0111 its steps' conditions through write_condition.
+src/world_engine/writes/quests.py::accept_quest                quest
+# TICKET-0111, BRIEF-0111-C: the condition language's one writer -- write_condition replaces one owner's condition whole (the full-replace shape), _write_node writes its nodes, delete_offer_conditions clears an offer's before write_quest_offer replaces them. Every caller (write_day_plan, write_quest_offer, accept_quest) calls them, never the tables.
+src/world_engine/writes/conditions.py::write_condition         condition condition_node
+src/world_engine/writes/conditions.py::_write_node             condition_node
+src/world_engine/writes/conditions.py::delete_offer_conditions condition condition_node
 # TICKET-0109, BRIEF-0109-B: write_offer_terms replaces an offer's costs and rewards whole (write_quest_offer's full-replace shape); copy_terms_to_quest gives an accepted quest its own copy; upsert_quest_economy sets a world's rates (curated config, upsert-one).
 src/world_engine/writes/quest_terms.py::write_offer_terms      quest_offer_term
 src/world_engine/writes/quest_terms.py::copy_terms_to_quest    quest_term

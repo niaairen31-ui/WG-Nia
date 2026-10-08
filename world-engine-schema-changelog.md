@@ -13,6 +13,16 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.20** — TICKET-0111, BRIEF-0111-C: the condition language. `condition`
+  (one per owner and role: an offer's eligibility, an offer step's or an
+  agenda step's prerequisite or completion) and `condition_node` (a tree of
+  `all`/`any`/`not`/`at_least` connectors over leaves carrying one form, its
+  subject, target, threshold and value) are added; `agenda_step_requirement`
+  and `quest_offer_requirement` are dropped, every row converted into a leaf
+  of `all`, in its insertion order, judged on the one who acts.
+  `quest_completed` becomes `quest_state` with the value `completed`; the
+  forms `item_held` and `vital_status` are new. No CHECK names a form any
+  more: the vocabulary is the writer's (`writes.conditions`).
 - **v2.19** — TICKET-0110, BRIEF-0110-A: debts. `debt` (debtor, creditor,
   a faction creditor's contact, origin, reason, secrecy, its fact, status
   open/settled/forgiven -- never deleted) and `debt_term` (money, items, a

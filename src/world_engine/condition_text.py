@@ -31,9 +31,18 @@ FORM_PHRASES_FR: dict[str, str] = {
     "has_met": "{who} a rencontré {target}",
     "faction_member": "{who} est membre de {target}",
     "skill_rank_gte": "{who} a « {target} » au rang {threshold} ou plus",
-    "quest_completed": "{who} a accompli la quête « {target} »",
+    "quest_state": "la quête « {target} » de {who} est {value}",
     "has_debt_to": "{who} a une dette envers {target}",
     "no_debt_to": "{who} n'a aucune dette envers {target}",
+    "item_held": "{who} possède au moins {threshold} × « {target} »",
+    "vital_status": "{who} est {value}",
+}
+
+# The French of a form's value (`condition_forms.FORM_VALUES`), one label per
+# value, kept equal to it by `conditions.py` CC.
+VALUE_LABELS_FR: dict[str, dict[str, str]] = {
+    "vital_status": {"alive": "en vie", "dead": "mort", "missing": "disparu", "unknown": "d'état inconnu"},
+    "quest_state": {"open": "en cours", "completed": "accomplie", "failed": "échouée", "abandoned": "abandonnée"},
 }
 
 CONNECTOR_HEADS_FR: dict[str, str] = {
@@ -61,7 +70,7 @@ def _target(db: Session, spec: RequirementSpec) -> str:
         return fact_text(db, fact) if fact is not None else str(spec.target_key)
     if spec.type == "skill_rank_gte":
         return skill_label(db, spec.target_key)
-    if spec.type == "quest_completed":
+    if spec.type == "quest_state":
         offer = db.get(QuestOffer, spec.target_key) if spec.target_key else None
         return offer.title if offer is not None else str(spec.target_key)
     return str(spec.target_key or "")
@@ -77,8 +86,8 @@ def leaf_text(db: Session, spec: RequirementSpec) -> str:
     phrase = FORM_PHRASES_FR.get(spec.type)
     if phrase is None:
         raise ValueError(f"condition_text: unknown requirement type {spec.type!r}")
-    text = phrase.format(who=_subject(db, spec), target=_target(db, spec),
-                         threshold=spec.threshold, value=spec.value)
+    value = VALUE_LABELS_FR.get(spec.type, {}).get(spec.value, spec.value)
+    text = phrase.format(who=_subject(db, spec), target=_target(db, spec), threshold=spec.threshold, value=value)
     return text[0].upper() + text[1:]
 
 

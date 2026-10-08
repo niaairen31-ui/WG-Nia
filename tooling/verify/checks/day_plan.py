@@ -4,20 +4,26 @@ BRIEF-0075-b). Stdlib `ast` and text only, no DB — same FAILURES/fail()/
 
 R1 (evaluator bijection, `_SOURCE_LOOKUPS` precedent): `_EVALUATORS`' key set
 equals `REQUIREMENT_TYPES` exactly, in both directions.
-R2 (type vocabulary): `agenda_step_requirement`'s `type` CHECK
-(`ck_agenda_step_requirement_type`) quotes exactly `REQUIREMENT_TYPES`'s
-values (eight since TICKET-0108).
-R3 (shape CHECK): `ck_agenda_step_requirement_shape` exists and its
-expression mentions every (type, column) pair from the per-type shape rule
-(eleven since TICKET-0108).
+R2 (type vocabulary): `REQUIREMENT_TYPES` (`condition_forms.py`) is exactly
+`EXPECTED_REQUIREMENT_TYPES` (twelve since TICKET-0111), and no
+`ck_condition*` CheckConstraint quotes a form (`goal_prerequisite`'s own
+CHECK is another language, TICKET-0111's GP1): since v2.20 the
+vocabulary is a code-plane property (TICKET-0111, BRIEF-0111-C), held by
+`writes.conditions`, never a SQL CHECK. (`agenda_step_requirement`'s type
+CHECK, which this rule read until v2.19, is gone with its table.)
+R3 (shape groups): every (form, argument) pair of the per-form shape rule
+is in its group constant of `condition_forms.py` -- `ENTITY_TARGET_TYPES`,
+`KEY_TARGET_TYPES`, `THRESHOLD_TYPES`, `NO_TARGET_TYPES` -- the constants
+the writer checks (the retired `ck_agenda_step_requirement_shape` until
+v2.19).
 R4 (budget derivation): `DAY_BUDGET_SLOTS` is a `len(...)` derivation, never
 a numeric literal.
 R5 (P2 / positional read exclusion): `day_plan.py` contains no reference to
 `current_phase`, and no `select(` against `NpcSchedule`.
 R6 (the positional wall, BRIEF-0074-a-amendment-1 — the single most important
 check in this brief): `Agenda`/`AgendaStep` declare no location-named field,
-and `schedule_reads.py` references neither `Agenda`, `AgendaStep` nor
-`AgendaStepRequirement`.
+and `schedule_reads.py` references none of `Agenda`, `AgendaStep`,
+`Condition`, `ConditionNode` (`AgendaStepRequirement` until v2.19).
 R7 (purity): `budget_cut`'s body contains no `db`, `select(`, `chat(`,
 `datetime`, or `randint`.
 R8 (parse + registry wiring): `emit_plan` routes through `llm_parse`, and
@@ -66,7 +72,8 @@ R15 (brief R5): the S3 refusal from -b (`_guard_no_active_agenda`, "already
 holds an active agenda") is gone from `routes/day.py`, and `plan_day` calls
 `_load_standing_agenda` — the reconciliation path is wired where the
 refusal used to be.
-R16 (brief R6): `day_reconcile.py` references neither `AgendaStepRequirement`
+R16 (brief R6): `day_reconcile.py` references none of `Condition`,
+`ConditionNode`, `read_condition` (`AgendaStepRequirement` until v2.19),
 nor `.cost` — it classifies intent, nothing else.
 R17 (brief R7): any `ProposedMutation(` constructed by the reconciliation
 path carries a `rationale` kwarg. Deliberately NOT vacuity-guarded to
@@ -186,17 +193,20 @@ GOALS_AGENDAS_FILE = SRC / "writes" / "goals_agendas.py"
 MUTATIONS_FILE = SRC / "cockpit" / "mutations.py"
 SEED_PILOT_FILE = ROOT / "scripts" / "seed_pilot.py"
 
-# AgendaStep/AgendaStepRequirement live in config.py, not canon.py (module_budget
-# headroom, TICKET-0075/BRIEF-0075-b) — Agenda stays in canon.py.
+# AgendaStep and the condition tables live in config.py, not canon.py
+# (module_budget headroom, TICKET-0075/BRIEF-0075-b) — Agenda stays in canon.py.
 _MODEL_FILES = (CANON_FILE, CONFIG_FILE)
 
 # Eight forms since v2.17 (TICKET-0108, BRIEF-0108-A): the model's four, then
 # the creator's four. Which ones the model may emit is `quests.py`'s QA1.
 EXPECTED_REQUIREMENT_TYPES = (
     "knowledge", "relation_gte", "resource", "location_reachable",
-    "has_met", "faction_member", "skill_rank_gte", "quest_completed",
+    "has_met", "faction_member", "skill_rank_gte", "quest_state",
     # TICKET-0110 (BRIEF-0110-A, G1): ten since v2.19.
     "has_debt_to", "no_debt_to",
+    # TICKET-0111 (BRIEF-0111-C, S1): twelve since v2.20; `quest_state`
+    # replaced `quest_completed`.
+    "item_held", "vital_status",
 )
 EXPECTED_RECONCILE_VERDICTS = ("continue", "modify", "replace")
 EXPECTED_PLAN_ACTIONS = ("continue", "modify", "replace", "resume")
@@ -335,47 +345,56 @@ def _all_check_constraints() -> dict[str, str]:
 
 
 def check_type_constraint() -> None:
+    """R2."""
+    tree = _parse(CONDITION_FORMS_FILE)
+    if tree is None:
+        return
+    forms = _tuple_assign(tree, "REQUIREMENT_TYPES")
+    values = tuple(e.value for e in forms.elts if isinstance(e, ast.Constant)) if forms is not None else ()
+    if values != EXPECTED_REQUIREMENT_TYPES:
+        fail(f"day_plan R2: REQUIREMENT_TYPES is {values!r}, expected {EXPECTED_REQUIREMENT_TYPES!r}")
     constraints = _all_check_constraints()
     if not constraints:
         fail("day_plan: zero CheckConstraint declarations located across canon.py/config.py")
         return
-    expr = constraints.get("ck_agenda_step_requirement_type")
-    if expr is None:
-        fail("day_plan: CheckConstraint 'ck_agenda_step_requirement_type' not found in canon.py/config.py")
-        return
-    quoted = set(re.findall(r"'([^']*)'", expr))
-    if quoted != set(EXPECTED_REQUIREMENT_TYPES):
-        fail(
-            f"day_plan R2: ck_agenda_step_requirement_type quotes {sorted(quoted)!r}, "
-            f"expected {sorted(EXPECTED_REQUIREMENT_TYPES)!r}"
-        )
+    condition_checks = {name: expr for name, expr in constraints.items() if name.startswith("ck_condition")}
+    if not condition_checks:
+        fail("day_plan R2: zero ck_condition* CheckConstraint located in config.py")
+    for name, expr in condition_checks.items():
+        named = set(re.findall(r"'([^']*)'", expr)) & set(EXPECTED_REQUIREMENT_TYPES)
+        if named:
+            fail(f"day_plan R2: {name} quotes the form(s) {sorted(named)!r} — the vocabulary is code-plane")
 
 
 def check_shape_constraint() -> None:
-    constraints = _all_check_constraints()
-    expr = constraints.get("ck_agenda_step_requirement_shape")
-    if expr is None:
-        fail("day_plan: CheckConstraint 'ck_agenda_step_requirement_shape' not found in canon.py/config.py")
+    """R3."""
+    tree = _parse(CONDITION_FORMS_FILE)
+    if tree is None:
         return
-
+    groups = {}
+    for name in ("ENTITY_TARGET_TYPES", "KEY_TARGET_TYPES", "THRESHOLD_TYPES", "NO_TARGET_TYPES"):
+        node = _tuple_assign(tree, name)
+        if node is None:
+            fail(f"day_plan R3: {_rel(CONDITION_FORMS_FILE)}: {name} not found")
+            return
+        groups[name] = {e.value for e in node.elts if isinstance(e, ast.Constant)}
     required_pairs = [
-        ("relation_gte", "target_entity_id"),
-        ("location_reachable", "target_entity_id"),
-        ("knowledge", "target_key"),
-        ("resource", "target_key"),
-        ("relation_gte", "threshold"),
-        ("resource", "threshold"),
-        ("has_met", "target_entity_id"),
-        ("faction_member", "target_entity_id"),
-        ("skill_rank_gte", "target_key"),
-        ("quest_completed", "target_key"),
-        ("skill_rank_gte", "threshold"),
-        ("has_debt_to", "target_entity_id"),
-        ("no_debt_to", "target_entity_id"),
+        ("relation_gte", "ENTITY_TARGET_TYPES"), ("location_reachable", "ENTITY_TARGET_TYPES"),
+        ("has_met", "ENTITY_TARGET_TYPES"), ("faction_member", "ENTITY_TARGET_TYPES"),
+        ("has_debt_to", "ENTITY_TARGET_TYPES"), ("no_debt_to", "ENTITY_TARGET_TYPES"),
+        ("item_held", "ENTITY_TARGET_TYPES"),
+        ("knowledge", "KEY_TARGET_TYPES"), ("resource", "KEY_TARGET_TYPES"),
+        ("skill_rank_gte", "KEY_TARGET_TYPES"), ("quest_state", "KEY_TARGET_TYPES"),
+        ("relation_gte", "THRESHOLD_TYPES"), ("resource", "THRESHOLD_TYPES"),
+        ("skill_rank_gte", "THRESHOLD_TYPES"), ("item_held", "THRESHOLD_TYPES"),
+        ("vital_status", "NO_TARGET_TYPES"),
     ]
-    missing = [pair for pair in required_pairs if pair[0] not in expr or pair[1] not in expr]
+    missing = [pair for pair in required_pairs if pair[0] not in groups[pair[1]]]
     if missing:
-        fail(f"day_plan R3: ck_agenda_step_requirement_shape missing condition(s) {missing!r}")
+        fail(f"day_plan R3: the shape groups miss {missing!r}")
+    targets = groups["ENTITY_TARGET_TYPES"] | groups["KEY_TARGET_TYPES"] | groups["NO_TARGET_TYPES"]
+    if targets != set(EXPECTED_REQUIREMENT_TYPES):
+        fail(f"day_plan R3: the target groups cover {sorted(targets)!r}, not every form")
 
 
 def check_budget_derivation() -> None:
@@ -448,7 +467,7 @@ def check_positional_wall() -> None:
     # comments and any string literal that merely mentions the word.
     schedule_reads_tree = _parse(SCHEDULE_READS_FILE)
     if schedule_reads_tree is not None:
-        forbidden_names = {"Agenda", "AgendaStep", "AgendaStepRequirement"}
+        forbidden_names = {"Agenda", "AgendaStep", "Condition", "ConditionNode"}
         for node in ast.walk(schedule_reads_tree):
             if isinstance(node, ast.ImportFrom):
                 for alias in node.names:
@@ -757,8 +776,8 @@ def check_reconcile_no_cost_or_requirement_reads() -> None:
     if tree is None:
         return
     for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and node.id == "AgendaStepRequirement":
-            fail(f"day_plan R16: {_rel(DAY_RECONCILE_FILE)}:{node.lineno} — references AgendaStepRequirement")
+        if isinstance(node, ast.Name) and node.id in {"Condition", "ConditionNode", "read_condition"}:
+            fail(f"day_plan R16: {_rel(DAY_RECONCILE_FILE)}:{node.lineno} — references {node.id}")
         if isinstance(node, ast.Attribute) and node.attr == "cost":
             fail(f"day_plan R16: {_rel(DAY_RECONCILE_FILE)}:{node.lineno} — references .cost")
 

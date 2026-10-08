@@ -17,7 +17,10 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
-from .day_resolve import requirement_detail_fr
+from .condition_forms import FORM_VALUES
+from .condition_text import VALUE_LABELS_FR
+from .conditions import flat_leaves, read_condition
+from .day_resolve import blocked_details_fr
 from .day_plan import evaluate_agenda_step
 from .models import (
     BASE_SKILL_DOMAINS,
@@ -37,7 +40,7 @@ from .prose_render import fact_texts
 from .quest_value import offer_value, value_dict, world_rates
 from .quest_wording import term_dict, term_line
 from .writes.quest_terms import FACT_REWARD_LEVELS, offer_terms, quest_terms
-from .writes.quests import QUEST_GIVER_TYPES, acceptance_refusal, offer_requirements
+from .writes.quests import QUEST_GIVER_TYPES, acceptance_refusal
 
 # M1: the agenda's status, as the player reads it.
 QUEST_STATE_LABELS: dict[str, str] = {
@@ -51,7 +54,18 @@ QUEST_STATE_LABELS: dict[str, str] = {
 
 def _requirement_dict(req) -> dict:
     return {"type": req.type, "target_entity_id": req.target_entity_id, "target_key": req.target_key,
-            "threshold": req.threshold}
+            "threshold": req.threshold, "subject_role": req.subject_role,
+            "subject_entity_id": req.subject_entity_id, "value": req.value}
+
+
+def _requirement_list(tree) -> list[dict]:
+    """A flat condition as the editor's list (T1). Until the surfaces read
+    trees (BRIEF-0111-D), every stored condition is flat: nothing else can
+    be written."""
+    flat = flat_leaves(tree)
+    if flat is None:
+        raise ValueError("a nested condition cannot be read as a list")
+    return [_requirement_dict(r) for r in flat]
 
 
 def _name(db: Session, entity_id: Optional[str]) -> Optional[str]:
@@ -70,10 +84,10 @@ def offer_dict(offer: QuestOffer, db: Session) -> dict:
         # TICKET-0110 (X1): a faction giver's contact.
         "contact_entity_id": offer.contact_entity_id, "contact_name": _name(db, offer.contact_entity_id),
         "title": offer.title, "summary": offer.summary, "repeatable": offer.repeatable, "status": offer.status,
-        "eligibility": [_requirement_dict(r) for r in offer_requirements(db, offer.id, None)],
+        "eligibility": _requirement_list(read_condition(db, role="eligibility", quest_offer_id=offer.id)),
         "steps": [{
             "objective": step.objective, "cost": step.cost, "domain": step.domain,
-            "requirements": [_requirement_dict(r) for r in offer_requirements(db, offer.id, step.id)],
+            "requirements": _requirement_list(read_condition(db, role="prerequisite", quest_offer_step_id=step.id)),
         } for step in steps],
         # TICKET-0109 (B1, C1): the costs and rewards, and their indicative value.
         "terms": [term_dict(db, t, offer.giver_entity_id) for t in terms],
@@ -109,7 +123,8 @@ def editor_choices(world_id: str, db: Session) -> dict:
     """What the offer editor's pickers list: givers, characters, locations,
     factions, facts (their text), skills (base domains, then definitions),
     offers; items with their value, the fact reward levels and the world's
-    rates (TICKET-0109); each faction's members (TICKET-0110, X1)."""
+    rates (TICKET-0109); each faction's members (TICKET-0110, X1); the
+    values a form compares to (TICKET-0111)."""
     facts = db.exec(select(Fact).where(Fact.world_id == world_id)).all()
     definitions = db.exec(select(SkillDefinition).where(SkillDefinition.world_id == world_id)).all()
     characters = _named(db, world_id, "character")
@@ -129,6 +144,9 @@ def editor_choices(world_id: str, db: Session) -> dict:
         "fact_levels": list(FACT_REWARD_LEVELS),
         "rates": world_rates(db, world_id),
         "members": faction_members(world_id, db),
+        # TICKET-0111 (S1): the values a form compares to, in French.
+        "form_values": {form: [{"value": value, "label": VALUE_LABELS_FR[form][value]} for value in values]
+                        for form, values in FORM_VALUES.items()},
     }
 
 
@@ -148,7 +166,7 @@ def _steps_view(agenda: Agenda, character: Character, db: Session) -> list[dict]
         blocked: list[str] = []
         if step.status == "active":
             evaluated = evaluate_agenda_step(step, character, db)
-            blocked = [requirement_detail_fr(v) for v in evaluated.verdicts if not v.met]
+            blocked = blocked_details_fr(evaluated.verdict, db)
         view.append({"order": step.step_order, "objective": step.objective, "status": step.status,
                      "outcome": step.outcome, "blocked": blocked})
     return view

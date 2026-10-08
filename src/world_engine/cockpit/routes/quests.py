@@ -32,6 +32,7 @@ from sqlmodel import Session, select
 
 from ... import quest_reads
 from ...condition_forms import RequirementSpec
+from ...conditions import all_of
 from ...day_plan import PlanStep
 from ...db import get_session
 from ...models import Quest, QuestEconomy, QuestOffer
@@ -53,6 +54,11 @@ class RequirementBody(BaseModel):
     target_entity_id: Optional[str] = None
     target_key: Optional[str] = None
     threshold: Optional[int] = None
+    # TICKET-0111 (P1, S1): the leaf's subject (a role, else one entity) and
+    # the value of a form that compares to one.
+    subject_role: Optional[str] = None
+    subject_entity_id: Optional[str] = None
+    value: Optional[str] = None
 
 
 class OfferStepBody(BaseModel):
@@ -118,18 +124,21 @@ class CreditBody(BaseModel):
 
 
 def _spec(req: RequirementBody) -> RequirementSpec:
+    subject_entity_id = req.subject_entity_id or None
     return RequirementSpec(type=req.type, target_entity_id=req.target_entity_id or None,
-                           target_key=req.target_key or None, threshold=req.threshold)
+                           target_key=req.target_key or None, threshold=req.threshold,
+                           subject_role=req.subject_role or (None if subject_entity_id else "doer"),
+                           subject_entity_id=subject_entity_id, value=req.value or None)
 
 
 def _save_offer(body: OfferBody, offer: Optional[QuestOffer], world_id: str, db: Session) -> dict:
     steps = [PlanStep(objective=s.objective, cost=s.cost, domain=s.domain or None,
-                      requirements=tuple(_spec(r) for r in s.requirements)) for s in body.steps]
+                      prerequisite=all_of(_spec(r) for r in s.requirements)) for s in body.steps]
     try:
         offer = write_quest_offer(
             db, world_id=world_id, offer=offer, giver_entity_id=body.giver_entity_id, title=body.title,
             summary=body.summary, repeatable=body.repeatable, status=body.status,
-            eligibility=[_spec(r) for r in body.eligibility], steps=steps,
+            eligibility=all_of(_spec(r) for r in body.eligibility), steps=steps,
             terms=None if body.terms is None else [_term(t) for t in body.terms],
             contact_entity_id=body.contact_entity_id or None,
         )

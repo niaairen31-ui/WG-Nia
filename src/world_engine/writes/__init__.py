@@ -52,10 +52,13 @@ Layout, by canon domain:
                           `clean_terms`, `write_offer_terms`,
                           `copy_terms_to_quest`, `upsert_quest_economy`
                           (TICKET-0109, BRIEF-0109-B).
-    quests.py           — `quest_offer`/`quest_offer_step`/
-                          `quest_offer_requirement`/`quest`:
+    quests.py           — `quest_offer`/`quest_offer_step`/`quest`:
                           `write_quest_offer`, `accept_quest`,
                           `abandon_quest` (TICKET-0108, BRIEF-0108-B).
+    conditions.py       — `condition`/`condition_node`: `clean_leaf`,
+                          `clean_condition`, `write_condition`,
+                          `delete_offer_conditions` (TICKET-0111,
+                          BRIEF-0111-C).
     worlds.py           — `delete_world_cascade` (the sole delete-side
                           helper, wildcard-allowed in canon_write_policy.txt).
 
@@ -151,9 +154,10 @@ from .quests import (
     abandon_refusal,
     accept_quest,
     acceptance_refusal,
-    offer_requirements,
+    offer_bindings,
     write_quest_offer,
 )
+from .conditions import clean_condition, clean_leaf, delete_offer_conditions, write_condition
 from .pipeline import (
     BATCH_RESOLVED_STATUS,
     BATCH_STATUSES,
