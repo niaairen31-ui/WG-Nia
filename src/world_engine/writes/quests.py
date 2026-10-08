@@ -2,20 +2,21 @@
 contract C-03).
 
 - `write_quest_offer(...)` : create or save one offer, all or nothing. Its
-  steps and requirements are replaced whole (the `write_npc_prices`
+  steps and conditions are replaced whole (the `write_npc_prices`
   full-replace shape, `DELETE FROM` scoped to the offer, then the submitted
   set); the offer row snapshots its previous state into `change_history`.
 - `accept_quest(...)`      : the player takes an offer (B1, A1): one agenda
   born `paused` through `write_agenda`, its steps (the first `active`, the
-  creator-agenda precedent) and their requirements copied from the offer,
+  creator-agenda precedent) and their conditions -- prerequisite and, since
+  BRIEF-0111-D, completion (M1) -- copied from the offer,
   the `quest` row, and its own copy of the offer's terms (TICKET-0109, B1). Eligibility and L1 are judged HERE, so no caller can
   skip them.
 - `abandon_quest(...)`     : N1, the quest's agenda to `abandoned` through
   `write_agenda_status`; nothing is deleted.
 
-Every requirement goes through `goals_agendas._clean_requirement`, the same
-shape and target checks as a day plan's (B1: one language). None of these
-functions commits.
+Every condition goes through `conditions.clean_condition`, the same checks
+as a day plan's (B1, then I1 of TICKET-0111: one language), and is written
+by `conditions.write_condition`. None of these functions commits.
 """
 
 from __future__ import annotations
@@ -27,24 +28,24 @@ from sqlalchemy import text
 from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
-from ..day_plan import MAX_PLAN_STEPS, PlanStep, RequirementSpec, evaluate_specs
+from ..conditions import Bindings, ConditionTree, evaluate, leaves, read_condition
+from ..day_plan import MAX_PLAN_STEPS, PlanStep
 from ..models import (
     BASE_SKILL_DOMAINS,
     QUEST_OFFER_STATUSES,
     Agenda,
     AgendaStep,
-    AgendaStepRequirement,
     Character,
     Entity,
     PassPlay,
     ProposedMutation,
     Quest,
     QuestOffer,
-    QuestOfferRequirement,
     QuestOfferStep,
 )
 from .debts import is_active_member
-from .goals_agendas import _clean_requirement, write_agenda, write_agenda_status, write_agenda_step
+from .conditions import clean_condition, delete_offer_conditions, write_condition
+from .goals_agendas import write_agenda, write_agenda_status, write_agenda_step
 from .quest_terms import TERM_COLUMNS, TermSpec, clean_terms, copy_terms_to_quest, offer_terms, write_offer_terms
 
 # An offer is given by a character or a faction of the world (H1).
@@ -54,10 +55,10 @@ QUEST_GIVER_TYPES: tuple[str, ...] = ("character", "faction")
 OPEN_QUEST_STATUSES: tuple[str, ...] = ("active", "paused")
 
 
-def _clean_offer_steps(db: Session, world_id: str, steps: list[PlanStep]) -> list[tuple[PlanStep, list[dict]]]:
+def _clean_offer_steps(db: Session, world_id: str, steps: list[PlanStep]) -> list[tuple[PlanStep, object, object]]:
     if not 1 <= len(steps) <= MAX_PLAN_STEPS:
         raise ValueError(f"write_quest_offer: an offer has 1 to {MAX_PLAN_STEPS} steps, got {len(steps)}")
-    clean: list[tuple[PlanStep, list[dict]]] = []
+    clean: list[tuple[PlanStep, object, object]] = []
     for index, step in enumerate(steps):
         if not isinstance(step.objective, str) or not step.objective.strip():
             raise ValueError(f"write_quest_offer: step {index} needs an objective")
@@ -65,7 +66,9 @@ def _clean_offer_steps(db: Session, world_id: str, steps: list[PlanStep]) -> lis
             raise ValueError(f"write_quest_offer: step {index} has invalid cost {step.cost!r}")
         if step.domain is not None and step.domain not in BASE_SKILL_DOMAINS:
             raise ValueError(f"write_quest_offer: step {index} has invalid domain {step.domain!r}")
-        clean.append((step, [_clean_requirement(db, world_id, index, req) for req in step.requirements]))
+        where = f"write_quest_offer: step {index}: "
+        clean.append((step, clean_condition(db, world_id, step.prerequisite, where),
+                      clean_condition(db, world_id, step.completion, where)))
     return clean
 
 
@@ -111,14 +114,14 @@ def write_quest_offer(
     summary: Optional[str],
     repeatable: bool,
     status: str,
-    eligibility: list[RequirementSpec],
+    eligibility: Optional[ConditionTree],
     steps: list[PlanStep],
     terms: Optional[list[TermSpec]] = None,
     contact_entity_id: Optional[str] = None,
 ) -> QuestOffer:
     """Create (`offer` None) or save one offer (C-03). Everything is
-    validated before the first write; a `quest_completed` requirement on the
-    offer itself is refused (it could never be met). `terms` (TICKET-0109,
+    validated before the first write; a `quest_state` leaf naming the offer
+    itself is refused (a quest cannot wait on its own state). `terms` (TICKET-0109,
     B1) replaces the offer's costs and rewards whole; None keeps them, each
     re-validated against the giver, who may have changed.
     `contact_entity_id` (TICKET-0110, X1) is written as given."""
@@ -128,10 +131,11 @@ def write_quest_offer(
         raise ValueError(f"write_quest_offer: status must be one of {QUEST_OFFER_STATUSES}, got {status!r}")
     _check_giver(db, world_id, giver_entity_id)
     _check_contact(db, world_id, giver_entity_id, contact_entity_id or None)
-    every = list(eligibility) + [req for step in steps for req in step.requirements]
-    if offer is not None and any(r.type == "quest_completed" and r.target_key == offer.id for r in every):
-        raise ValueError("write_quest_offer: an offer cannot require its own completion")
-    clean_eligibility = [_clean_requirement(db, world_id, -1, req) for req in eligibility]
+    every = list(leaves(eligibility)) + [req for step in steps
+                                         for req in leaves(step.prerequisite) + leaves(step.completion)]
+    if offer is not None and any(r.type == "quest_state" and r.target_key == offer.id for r in every):
+        raise ValueError("write_quest_offer: an offer cannot require its own state")
+    clean_eligibility = clean_condition(db, world_id, eligibility, "write_quest_offer: eligibility: ")
     clean_steps = _clean_offer_steps(db, world_id, steps)
     if terms is None:
         terms = [TermSpec(**{c: getattr(t, c) for c in TERM_COLUMNS}) for t in offer_terms(db, offer.id)] if offer else []
@@ -141,7 +145,7 @@ def write_quest_offer(
         offer = QuestOffer(world_id=world_id, giver_entity_id=giver_entity_id, title=title.strip(), change_history=[])
     else:
         _snapshot(offer)
-        db.execute(text("DELETE FROM quest_offer_requirement WHERE offer_id = :oid"), {"oid": offer.id})
+        delete_offer_conditions(db, offer.id)
         db.execute(text("DELETE FROM quest_offer_step WHERE offer_id = :oid"), {"oid": offer.id})
     offer.giver_entity_id = giver_entity_id
     offer.contact_entity_id = contact_entity_id or None
@@ -153,27 +157,22 @@ def write_quest_offer(
     db.add(offer)
     db.flush()
 
-    for clean in clean_eligibility:
-        db.add(QuestOfferRequirement(world_id=world_id, offer_id=offer.id, step_id=None, **clean))
-    for order, (step, clean_requirements) in enumerate(clean_steps, start=1):
+    write_condition(db, world_id=world_id, role="eligibility", tree=clean_eligibility, quest_offer_id=offer.id)
+    for order, (step, prerequisite, completion) in enumerate(clean_steps, start=1):
         row = QuestOfferStep(world_id=world_id, offer_id=offer.id, step_order=order,
                              objective=step.objective.strip(), cost=step.cost, domain=step.domain)
         db.add(row)
         db.flush()
-        for clean in clean_requirements:
-            db.add(QuestOfferRequirement(world_id=world_id, offer_id=offer.id, step_id=row.id, **clean))
+        write_condition(db, world_id=world_id, role="prerequisite", tree=prerequisite, quest_offer_step_id=row.id)
+        write_condition(db, world_id=world_id, role="completion", tree=completion, quest_offer_step_id=row.id)
     write_offer_terms(db, world_id=world_id, offer_id=offer.id, clean=clean_term_rows)
     return offer
 
 
-def offer_requirements(db: Session, offer_id: str, step_id: Optional[str]) -> tuple[RequirementSpec, ...]:
-    """An offer's eligibility (`step_id` None) or one step's requirements."""
-    condition = (QuestOfferRequirement.step_id.is_(None) if step_id is None
-                 else QuestOfferRequirement.step_id == step_id)
-    rows = db.exec(select(QuestOfferRequirement).where(
-        QuestOfferRequirement.offer_id == offer_id, condition).order_by(QuestOfferRequirement.id)).all()
-    return tuple(RequirementSpec(type=r.type, target_entity_id=r.target_entity_id, target_key=r.target_key,
-                                 threshold=r.threshold) for r in rows)
+def offer_bindings(offer: QuestOffer, character: Character) -> Bindings:
+    """What an offer's roles name for `character` (P1): he acts; the giver
+    and the contact are the offer's."""
+    return Bindings(doer=character, giver_id=offer.giver_entity_id, contact_id=offer.contact_entity_id)
 
 
 def acceptance_refusal(db: Session, offer: QuestOffer, character: Character) -> Optional[str]:
@@ -190,9 +189,12 @@ def acceptance_refusal(db: Session, offer: QuestOffer, character: Character) -> 
         return "quête déjà acceptée"
     if any(status in OPEN_QUEST_STATUSES for status in taken):
         return "quête déjà en cours"
-    unmet = [v for v in evaluate_specs(offer_requirements(db, offer.id, None), character, db) if not v.met]
-    if unmet:
-        return "; ".join(v.reason for v in unmet)
+    eligibility = evaluate(read_condition(db, role="eligibility", quest_offer_id=offer.id),
+                           offer_bindings(offer, character), db)
+    if eligibility is not None and not eligibility.met:
+        unmet = [node.verdict.reason if node.verdict else (node.reason or "") for node in eligibility.leaf_nodes()
+                 if not node.met]
+        return "; ".join(unmet) or "conditions non remplies"
     return None
 
 
@@ -207,19 +209,19 @@ def accept_quest(db: Session, *, offer: QuestOffer, character: Character) -> Que
                     .order_by(QuestOfferStep.step_order)).all()
     if not steps:
         raise ValueError("accept_quest: the offer has no step")
-    copied = [(step, [_clean_requirement(db, offer.world_id, step.step_order, req)
-                      for req in offer_requirements(db, offer.id, step.id)]) for step in steps]
+    copied = [(step, {role: read_condition(db, role=role, quest_offer_step_id=step.id)
+                      for role in ("prerequisite", "completion")}) for step in steps]
 
     agenda = write_agenda(db, world_id=offer.world_id, owner_entity_id=character.id, title=offer.title,
                           status="paused")
     db.flush()
-    for step, clean_requirements in copied:
+    for step, conditions in copied:
         row = write_agenda_step(db, agenda_id=agenda.id, step_order=step.step_order, objective=step.objective,
                                 status="active" if step.step_order == 1 else "pending",
                                 cost=step.cost, domain=step.domain)
         db.flush()
-        for clean in clean_requirements:
-            db.add(AgendaStepRequirement(world_id=offer.world_id, step_id=row.id, **clean))
+        for role, tree in conditions.items():
+            write_condition(db, world_id=offer.world_id, role=role, tree=tree, agenda_step_id=row.id)
     quest = Quest(world_id=offer.world_id, offer_id=offer.id, character_id=character.id, agenda_id=agenda.id)
     db.add(quest)
     db.flush()

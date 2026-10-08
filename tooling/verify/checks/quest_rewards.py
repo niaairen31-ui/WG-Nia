@@ -498,7 +498,7 @@ def _offer(ids: dict, **over) -> dict:
     from world_engine.day_plan import PlanStep
 
     base = dict(world_id=ids["world"], offer=None, giver_entity_id=ids["npc"], title="La fourrure",
-                summary=None, repeatable=False, status="open", eligibility=[],
+                summary=None, repeatable=False, status="open", eligibility=None,
                 steps=[PlanStep(objective="Chasser", cost=1, domain=None)])
     base.update(over)
     return base
@@ -724,7 +724,7 @@ def _rc_quest(session, ids, terms, title: str):
     from world_engine.writes import accept_quest, write_quest_offer
 
     offer = write_quest_offer(session, world_id=ids["world"], offer=None, giver_entity_id=ids["npc"], title=title,
-                              summary=None, repeatable=True, status="open", eligibility=[],
+                              summary=None, repeatable=True, status="open", eligibility=None,
                               steps=[PlanStep(objective="Chasser", cost=1, domain=None)], terms=terms)
     session.flush()
     quest = accept_quest(session, offer=offer, character=session.get(Character, ids["pc"]))

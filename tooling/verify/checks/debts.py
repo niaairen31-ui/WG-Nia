@@ -10,8 +10,10 @@ DA1 -- schema and vocabulary (BRIEF-0110-A, import and static).
       values those CHECKs quote, in order; `quest_offer` has
       `contact_entity_id` and `quest_economy` `debt_fact_relation` and
       `debt_skill_relation`; `DEFAULT_RATES` gives them 10 and 20 and
-      `ECONOMY_COLUMNS` lists them; the code's schema version is v2.19.
-   b. `day_plan.REQUIREMENT_TYPES` ends with `has_debt_to`, `no_debt_to`;
+      `ECONOMY_COLUMNS` lists them; the code's schema version is v2.19 or
+      later (TICKET-0111 moved it to v2.20).
+   b. `condition_forms.REQUIREMENT_TYPES` holds `has_debt_to`, `no_debt_to`,
+      in that order (last until TICKET-0111 added two forms after them);
       both are in `ENTITY_TARGET_TYPES`, neither in `THRESHOLD_TYPES` nor
       `MODEL_REQUIREMENT_TYPES`; each has an evaluator and a French blocked
       detail; `questRequirements.js` offers both on the `givers` list.
@@ -35,7 +37,8 @@ DA3 -- the evaluators (fixture). With an OPEN debt of the character toward
    debt toward another creditor and a debt the character is OWED count for
    nothing. A faction creditor is judged like a character.
    `requirement_detail_fr` names the creditor in both forms.
-   `_clean_requirement` accepts a character and a faction as target and
+   `writes.conditions.clean_leaf` (`_clean_requirement` until TICKET-0111)
+   accepts a character and a faction as target and
    refuses a location.
 
 DB1 -- writing a debt (BRIEF-0110-B, fixture). `create_debt` refuses, each
@@ -255,21 +258,23 @@ def check_da1a() -> None:
             fail(f"DA1a: quest_economy has no {name}")
         if DEFAULT_RATES.get(name) != default or name not in ECONOMY_COLUMNS:
             fail(f"DA1a: {name} is not a default {default} economy column")
-    if EXPECTED_STATIC_SCHEMA_VERSION != "v2.19":
-        fail(f"DA1a: the code's schema version is {EXPECTED_STATIC_SCHEMA_VERSION}")
+    major, minor = (int(part) for part in EXPECTED_STATIC_SCHEMA_VERSION.lstrip("v").split("."))
+    if (major, minor) < (2, 19):
+        fail(f"DA1a: the code's schema version is {EXPECTED_STATIC_SCHEMA_VERSION}, older than v2.19")
 
 
 def check_da1b() -> None:
-    from world_engine import day_plan, day_resolve
+    from world_engine import condition_forms, day_resolve
 
-    if tuple(day_plan.REQUIREMENT_TYPES[-2:]) != DEBT_FORMS:
-        fail(f"DA1b: REQUIREMENT_TYPES ends with {day_plan.REQUIREMENT_TYPES[-2:]}")
+    types = tuple(condition_forms.REQUIREMENT_TYPES)
+    if not set(DEBT_FORMS) <= set(types) or types.index("no_debt_to") != types.index("has_debt_to") + 1:
+        fail(f"DA1b: REQUIREMENT_TYPES lacks the two debt forms in order: {types}")
     for form in DEBT_FORMS:
-        if form not in day_plan.ENTITY_TARGET_TYPES:
+        if form not in condition_forms.ENTITY_TARGET_TYPES:
             fail(f"DA1b: {form} is not an entity-target form")
-        if form in day_plan.THRESHOLD_TYPES or form in day_plan.MODEL_REQUIREMENT_TYPES:
+        if form in condition_forms.THRESHOLD_TYPES or form in condition_forms.MODEL_REQUIREMENT_TYPES:
             fail(f"DA1b: {form} takes a threshold or is offered to the model")
-        if form not in day_plan._EVALUATORS or form not in day_resolve._BLOCKED_DETAIL_FR:
+        if form not in condition_forms._EVALUATORS or form not in day_resolve._BLOCKED_DETAIL_FR:
             fail(f"DA1b: {form} has no evaluator or no French detail")
     text = _read("creation/questRequirements.js")
     for form in DEBT_FORMS:
@@ -353,7 +358,7 @@ def _seed_v218(db_path: str) -> dict:
         ids["model_shapes"] = {t: _shape(conn, t) for t in CHANGED_TABLES + ("debt", "debt_term")}
         conn.execute("PRAGMA foreign_keys=OFF")
         for table in ("debt_term", "debt") + CHANGED_TABLES:
-            conn.execute(f"DROP TABLE {table}")
+            conn.execute(f"DROP TABLE IF EXISTS {table}")
         for statement in _V218_DDL:
             conn.execute(statement)
         w, p, s = ids["world"], ids["person"], ids["step"]
@@ -478,7 +483,7 @@ def _debt(session, ids: dict, debtor: str, creditor: str, status: str = "open") 
 
 
 def _verdicts(session, pc, target: str) -> tuple[bool, bool]:
-    from world_engine.day_plan import RequirementSpec, evaluate_specs
+    from world_engine.condition_forms import RequirementSpec, evaluate_specs
 
     has, none = evaluate_specs((RequirementSpec(type="has_debt_to", target_entity_id=target),
                                 RequirementSpec(type="no_debt_to", target_entity_id=target)), pc, session)
@@ -488,10 +493,10 @@ def _verdicts(session, pc, target: str) -> tuple[bool, bool]:
 def check_da3(engine) -> None:
     from sqlmodel import Session
 
-    from world_engine.day_plan import RequirementSpec, evaluate_specs
+    from world_engine.condition_forms import RequirementSpec, evaluate_specs
     from world_engine.day_resolve import requirement_detail_fr
     from world_engine.models import Character
-    from world_engine.writes.goals_agendas import _clean_requirement
+    from world_engine.writes.conditions import clean_leaf
 
     with Session(engine) as session:
         ids = _da3_world(session)
@@ -517,12 +522,12 @@ def check_da3(engine) -> None:
         for target, ok in (("npc", True), ("guild", True), ("place", False)):
             for form in DEBT_FORMS:
                 try:
-                    _clean_requirement(session, ids["world"], 0, RequirementSpec(type=form, target_entity_id=ids[target]))
+                    clean_leaf(session, ids["world"], RequirementSpec(type=form, target_entity_id=ids[target]))
                     accepted = True
                 except ValueError:
                     accepted = False
                 if accepted != ok:
-                    fail(f"DA3: _clean_requirement {'refuses' if ok else 'accepts'} {form} toward {target}")
+                    fail(f"DA3: clean_leaf {'refuses' if ok else 'accepts'} {form} toward {target}")
 
 
 # --- DB --------------------------------------------------------------------------
@@ -684,7 +689,7 @@ def _regard(session, ids, who="npc") -> int:
 
 
 def check_db2(session, ids) -> None:
-    from world_engine.day_plan import RequirementSpec, evaluate_specs
+    from world_engine.condition_forms import RequirementSpec, evaluate_specs
     from world_engine.ledger import get_balance
     from world_engine.holdings import held_quantity
     from sqlmodel import select
@@ -785,7 +790,7 @@ def _db4_quest(session, ids, giver, terms, title, contact=None):
     from world_engine.writes import accept_quest, write_quest_offer
 
     offer = write_quest_offer(session, world_id=ids["world"], offer=None, giver_entity_id=ids[giver], title=title,
-                              summary=None, repeatable=True, status="open", eligibility=[],
+                              summary=None, repeatable=True, status="open", eligibility=None,
                               steps=[PlanStep(objective="Chasser", cost=1, domain=None)], terms=terms,
                               contact_entity_id=ids[contact] if contact else None)
     session.flush()

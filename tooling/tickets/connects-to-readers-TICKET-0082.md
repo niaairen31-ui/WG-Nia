@@ -121,3 +121,7 @@ producing a mechanical verdict (E2), explicitly deferred by this ticket.
 Recorded here, per `BRIEF-0082-d-amendment-1-public-floor-reader.md`'s
 instruction, as the reactivation condition for a successor ticket — not
 implemented, not widened, here.
+
+**Note (TICKET-0111, BRIEF-0111-A).** Row 12's `_day_reachable_ids` moved, unchanged,
+from `day_plan.py` to `condition_forms.py`, with the evaluator it feeds
+(`_eval_location_reachable`). Its classification and its D1 standing are unchanged.

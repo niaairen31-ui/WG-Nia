@@ -30,7 +30,7 @@ from .. import day_plans, day_rewrite
 from ..day_concordance import ConcordanceResult
 from ..day_plan import emit_plan, evaluate_agenda_step
 from ..day_reconcile import Reconciliation, plan_action, reconcile
-from ..day_resolve import requirement_detail_fr
+from ..day_resolve import blocked_details_fr
 from ..llm_parse import LlmParseError
 from ..models import Agenda, AgendaStep, Character, PassPlay
 from ..writes import next_day_rewrite_generation, write_agenda_status, write_day_rewrite
@@ -71,7 +71,7 @@ def _refuse_unstarted_plan(character: Character, agenda: Agenda, db: Session) ->
             ),
         )
     evaluated = evaluate_agenda_step(pending_step, character, db)
-    unmet = [requirement_detail_fr(v) for v in evaluated.verdicts if not v.met]
+    unmet = blocked_details_fr(evaluated.verdict, db, character.id)
     detail = "; ".join(unmet) if unmet else (
         "aucun prerequis non satisfait - le veto de faisabilite a juge l'action elle-meme irrealisable"
     )

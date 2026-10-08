@@ -29,7 +29,7 @@ Layout, by stratum:
                         friends, TICKET-0051); telemetry, never canon —
                         absent from canon_write_policy.txt's [CANON_TABLES].
     quests.py        — quest offers and accepted quests (QuestOffer,
-                        QuestOfferStep, QuestOfferRequirement, Quest;
+                        QuestOfferStep, Quest;
                         TICKET-0108, schema v2.17), their terms and a
                         world's quest economy (QuestOfferTerm, QuestTerm,
                         QuestEconomy; TICKET-0109, v2.18), and debts
@@ -86,7 +86,15 @@ from .canon_faction import (
     FactionRole,
 )
 from .canon_knowledge import Fact, FactDefault, FactParticipant, Knowledge, Relation
-from .config import AgendaStep, AgendaStepRequirement, ConversationWindowConfig, SkillRank
+from .config import (
+    CONDITION_OPS,
+    CONDITION_ROLES,
+    AgendaStep,
+    Condition,
+    ConditionNode,
+    ConversationWindowConfig,
+    SkillRank,
+)
 from .schedule import SCHEDULE_PHASES, NpcSchedule
 from .ephemeral import (
     ENCOUNTER_SOURCES,
@@ -141,7 +149,6 @@ from .quests import (
     Quest,
     QuestEconomy,
     QuestOffer,
-    QuestOfferRequirement,
     QuestOfferStep,
     QuestOfferTerm,
     QuestTerm,
@@ -211,11 +218,13 @@ __all__ = [
     "UnresolvedMention",
     "Agenda",
     "AgendaStep",
-    "AgendaStepRequirement",
+    "Condition",
+    "ConditionNode",
+    "CONDITION_OPS",
+    "CONDITION_ROLES",
     "QUEST_OFFER_STATUSES",
     "Quest",
     "QuestOffer",
-    "QuestOfferRequirement",
     "QuestOfferStep",
     "QUEST_TERM_CURRENCIES",
     "QUEST_TERM_DIRECTIONS",

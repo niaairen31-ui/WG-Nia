@@ -41,6 +41,7 @@ from ...day_mutations import emit_mutations
 # `rewrite` here is day_narration's late-delta prose rewrite -- unrelated to
 # the day_rewrite MODULE imported above (declaration rewrite, BRIEF-0081-b);
 # aliased to keep the two "rewrite" concepts from colliding on one name.
+from ...conditions import Bindings, and_path_leaves, read_condition
 from ...day_narration import detect_late_delta, narrate, rewrite as rewrite_narration
 from ...day_narration_guard import JudgeVerdict, judge_narration, lowercase_offending_words
 from ...day_plan import (
@@ -64,7 +65,6 @@ from ...prompt_coverage import DAY_CHAIN_USAGES, missing_usages
 from ...models import (
     Agenda,
     AgendaStep,
-    AgendaStepRequirement,
     Batch,
     Character,
     DayRewrite,
@@ -296,13 +296,13 @@ def _account_rendezvous(mutations: list[ProposedMutation], db: Session) -> Optio
     if active_step is None:
         return None
 
+    # Q1 (TICKET-0111): the day's NPC is the target of the first
+    # `relation_gte` the step cannot be met without -- reached through `all`.
     npc_id, npc_name = None, None
-    for req in db.exec(
-        select(AgendaStepRequirement).where(
-            AgendaStepRequirement.step_id == active_step.id,
-            AgendaStepRequirement.type == "relation_gte",
-        )
-    ).all():
+    prerequisite = read_condition(db, role="prerequisite", agenda_step_id=active_step.id)
+    for req in and_path_leaves(prerequisite):
+        if req.type != "relation_gte":
+            continue
         target = db.get(Entity, req.target_entity_id) if req.target_entity_id else None
         if target is not None:
             npc_id, npc_name = target.id, target.name
@@ -551,11 +551,12 @@ def _finalize_plan(
 ) -> dict:
     # BRIEF-0078-a, Scope IN item 7: anchoring runs BEFORE evaluate_requirements
     # so a dropped requirement never reaches evaluate_requirements or
-    # agenda_step_requirement (E2 — reporting, never refusing: /plan still
+    # the step's stored condition (E2 — reporting, never refusing: /plan still
     # returns 200 and writes the plan exactly as it does today).
     anchored_steps, dropped_report = anchor_requirements(raw_steps, character, db)
+    bindings = Bindings(doer=character)
     evaluated_steps = [
-        EvaluatedStep(step=step, verdicts=tuple(evaluate_requirements(step, character, db)))
+        EvaluatedStep(step=step, verdict=evaluate_requirements(step, bindings, db))
         for step in anchored_steps
     ]
     budget_result = budget_cut(evaluated_steps, DAY_BUDGET_SLOTS)

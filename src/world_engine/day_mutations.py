@@ -21,7 +21,7 @@ The delta contract (BRIEF-0075-e-amendment-1): it travels on the
 (`_apply_completion_effects`, `cockpit/mutations.py`, TICKET-0024/
 BRIEF-0024-c) — `relation_delta`, `ledger_transfer`, `role_change`, at most
 `_MAX_EFFECTS`. This module never invents an effect: there is no per-step
-reward column anywhere on `AgendaStep`/`AgendaStepRequirement` to compute
+reward column anywhere on `AgendaStep` or its condition to compute
 one from (a `resource`-type requirement carries no counterparty entity at
 all, so a `ledger_transfer` cannot even be well-formed from it; a
 `relation_gte`-type requirement carries no `relation_type` and no delta
@@ -46,8 +46,8 @@ documented no-op so the dispatch is a literal bijection with the constant
 `day_concordance.py`'s job).
 
 The armed rendezvous (I1, corrected by BRIEF-0075-e-amendment-1): not
-detected by inventing a marker. `AgendaStepRequirement` already has a
-`knowledge` requirement type (`_eval_knowledge`, `day_plan.py`) gating a
+detected by inventing a marker. A step's prerequisite already has a
+`knowledge` form (`_eval_knowledge`, `condition_forms.py`) gating a
 step on the player ALREADY holding a `Knowledge` row on its fact — meaning that
 row must already exist for the step to have been attemptable at all. This
 module treats successfully completing such a step as Nia's "a contact
@@ -83,8 +83,9 @@ from typing import Callable, Optional
 
 from sqlmodel import Session, select
 
+from .conditions import and_path_leaves, read_condition
 from .day_resolve import BLOCKED_BAND, StepOutcome, outcome_line
-from .models import AgendaStepRequirement, Character, Fact, PassPlay, ProposedMutation
+from .models import Character, Fact, PassPlay, ProposedMutation
 from .prose_render import fact_text
 
 EMITTED_MUTATION_TYPES: tuple[str, ...] = (
@@ -149,15 +150,16 @@ def _emit_knowledge_change(
 ) -> list[ProposedMutation]:
     """The rendezvous half (see module docstring): deepen every `knowledge`
     -type precondition this COMPLETED step already carried. Emits nothing
-    on `fail`, and nothing for a step with no `knowledge` requirement."""
+    on `fail`, and nothing for a step with no `knowledge` requirement.
+    Since TICKET-0111 (Q1): the `knowledge` leaves of the step's
+    prerequisite the step cannot be met without (reached through `all`),
+    and judged on the one who acts -- a fact someone else must know is not
+    his to deepen."""
     if _step_action(outcome) != "complete":
         return []
-    requirements = db.exec(
-        select(AgendaStepRequirement).where(
-            AgendaStepRequirement.step_id == outcome.agenda_step_id,
-            AgendaStepRequirement.type == "knowledge",
-        )
-    ).all()
+    prerequisite = read_condition(db, role="prerequisite", agenda_step_id=outcome.agenda_step_id)
+    requirements = [req for req in and_path_leaves(prerequisite)
+                    if req.type == "knowledge" and req.subject_role == "doer"]
     mutations: list[ProposedMutation] = []
     for req in requirements:
         label = _fact_label(req.target_key, db)
@@ -231,7 +233,7 @@ def _emit_new_knowledge(
     `knowledge` verdict, on the fact `v.required` names (TICKET-0097: the
     lead attaches the character to that very fact, which opens the gate
     once approved; the fact already carries its participants). Does NOT
-    re-query `AgendaStepRequirement`: `Verdict.type` (BRIEF-0078-a) already
+    re-read the step's condition: `Verdict.type` (BRIEF-0078-a) already
     makes the verdicts self-describing, and re-deriving the same fact from a
     second source would be a second authority for it."""
     if outcome.band != BLOCKED_BAND:

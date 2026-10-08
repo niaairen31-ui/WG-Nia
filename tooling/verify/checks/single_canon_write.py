@@ -78,7 +78,9 @@ holds the role) — creator-CRUD-only, never reachable from any AI or play
 path. Full-replace config deletes (whole-set replace, not
 single-row correction): `write_npc_prices`, `write_world_laws`,
 `write_location_obstacles`, `write_location_doors`, `write_quest_offer`
-(TICKET-0108, BRIEF-0108-B: an offer's steps and requirements) and
+(TICKET-0108, BRIEF-0108-B: an offer's steps; its conditions through
+`delete_offer_conditions`, TICKET-0111, BRIEF-0111-C), `write_condition`
+(TICKET-0111: one owner's condition and its nodes) and
 `write_offer_terms` (TICKET-0109, BRIEF-0109-B: an offer's terms) each
 `DELETE FROM` their table(s) scoped to one parent (NPC / world / location /
 location / offer) then re-insert the submitted set, in one transaction —

@@ -2,15 +2,16 @@
   /* TICKET-0108 (BRIEF-0108-C, E1). The « Quêtes » island: the world's
      quest offers and one offer's editor -- giver, title, summary,
      « répétable », open/closed, the conditions that decide who it is
-     offered to, and its steps with what each needs. Its CREATION_ISLANDS
+     offered to, and its steps with what each needs and -- TICKET-0111
+     (M1) -- when its objective is reached. Its CREATION_ISLANDS
      entry declares origin 'new'. Saving sends the whole offer; an accepted
      quest keeps its own copy (writes/quests.py). State and requests live in
      questOffers.svelte.js. */
   import { serverState } from '../lib/serverState.svelte.js';
-  import QuestRequirementRow from './QuestRequirementRow.svelte';
+  import ConditionEditor from './ConditionEditor.svelte';
   import QuestTermRow from './QuestTermRow.svelte';
   import {
-    questOffersState, loadOffers, newDraft, editOffer, saveDraft, blankStep, addRequirement,
+    questOffersState, loadOffers, newDraft, editOffer, saveDraft, blankStep,
     addTerm, refreshValue, saveEconomy,
   } from './questOffers.svelte.js';
   import { TERM_DIRECTIONS } from './questTerms.js';
@@ -133,11 +134,7 @@
         </div>
 
         <h4>Proposée à qui remplit</h4>
-        {#if draft.eligibility.length === 0}<p class="muted">Tout le monde.</p>{/if}
-        {#each draft.eligibility as req, i (i)}
-          <QuestRequirementRow {req} {choices} onremove={() => draft.eligibility.splice(i, 1)} />
-        {/each}
-        <button onclick={() => addRequirement(draft.eligibility)}>+ condition</button>
+        <ConditionEditor cond={draft.eligibility} {choices} emptyLabel="Tout le monde." addLabel="+ condition" />
 
         <h4>Étapes</h4>
         {#each draft.steps as step, i (i)}
@@ -159,10 +156,11 @@
               <button class="btn-icon" title="Retirer l'étape" disabled={draft.steps.length === 1}
                       onclick={() => draft.steps.splice(i, 1)}>✕</button>
             </div>
-            {#each step.requirements as req, j (j)}
-              <QuestRequirementRow {req} {choices} onremove={() => step.requirements.splice(j, 1)} />
-            {/each}
-            <button onclick={() => addRequirement(step.requirements)}>+ prérequis de l'étape</button>
+            <div class="muted">Prérequis</div>
+            <ConditionEditor cond={step.prerequisite} {choices} addLabel="+ prérequis de l'étape" />
+            <div class="muted">Objectif atteint quand</div>
+            <ConditionEditor cond={step.completion} {choices}
+                             emptyLabel="Rien de vérifiable : c'est vous qui le déclarez." addLabel="+ condition d'objectif" />
           </div>
         {/each}
         <button onclick={() => draft.steps.push(blankStep())}>+ étape</button>

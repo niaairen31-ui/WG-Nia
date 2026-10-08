@@ -1,19 +1,23 @@
 <script>
   /* TICKET-0108 (BRIEF-0108-C). One requirement of a quest offer: its form,
      its target from the matching picker list, its threshold when the form
-     takes one. `req` is a draft object owned by questOffersState. */
-  import { REQUIREMENT_FORMS, targetOptions } from './questRequirements.js';
+     takes one. `req` is a draft object owned by questOffersState.
+     TICKET-0111: its subject first (P1), its value when the form compares
+     to one. */
+  import { REQUIREMENT_FORMS, subjectOptions, targetOptions, valueOptions } from './questRequirements.js';
 
   let { req, choices, onremove } = $props();
 
   let form = $derived(REQUIREMENT_FORMS[req.type]);
   let options = $derived(targetOptions(req.type, choices));
+  let values = $derived(valueOptions(req.type, choices));
 
   function setType(type) {
     req.type = type;
     req.target_entity_id = '';
     req.target_key = '';
     req.threshold = REQUIREMENT_FORMS[type].threshold ? 1 : null;
+    req.value = '';
   }
 
   function setTarget(value) {
@@ -23,17 +27,31 @@
 </script>
 
 <div class="quest-req">
+  <select value={req.subject || 'role:doer'} title="Qui la condition juge"
+          onchange={(e) => { req.subject = e.target.value; }}>
+    {#each subjectOptions(choices) as o (o.value)}
+      <option value={o.value}>{o.label}</option>
+    {/each}
+  </select>
   <select value={req.type} onchange={(e) => setType(e.target.value)}>
     {#each Object.entries(REQUIREMENT_FORMS) as [type, f] (type)}
       <option value={type}>{f.label}</option>
     {/each}
   </select>
-  {#if form.list !== 'money'}
+  {#if form.list !== 'money' && form.column !== 'none'}
     <select value={form.column === 'entity' ? req.target_entity_id : req.target_key}
             onchange={(e) => setTarget(e.target.value)}>
       <option value="">—</option>
       {#each options as o (o.value)}
         <option value={o.value}>{o.label}</option>
+      {/each}
+    </select>
+  {/if}
+  {#if form.values}
+    <select value={req.value ?? ''} onchange={(e) => { req.value = e.target.value; }}>
+      <option value="">—</option>
+      {#each values as v (v.value)}
+        <option value={v.value}>{v.label}</option>
       {/each}
     </select>
   {/if}

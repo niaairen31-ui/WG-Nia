@@ -5,15 +5,15 @@ The lot adds its pieces brief by brief; this check grows with it (the
 `npc_skills.py` precedent, TICKET-0107). Each brief adds its rules here in
 the same commit.
 
-QA1 -- vocabulary (BRIEF-0108-A, static and import). `day_plan.REQUIREMENT_
-   TYPES` holds the eight forms, then TICKET-0110's two debt forms; `MODEL_REQUIREMENT_TYPES` is exactly the
-   model's four and a subset of it; `ENTITY_TARGET_TYPES` and
-   `KEY_TARGET_TYPES` partition it and `THRESHOLD_TYPES` is inside it; the
-   three `type NOT IN (...)` groups of `ck_agenda_step_requirement_shape`
-   are, in order, those three constants; `quest_offer_requirement`'s two
-   CHECK texts equal `agenda_step_requirement`'s; `day_plan.
-   _validate_requirement` (the model's parser) accepts each model form and
-   refuses each creator form.
+QA1 -- vocabulary (BRIEF-0108-A, static and import; since TICKET-0111 the
+   forms are `condition_forms`', no table carries their CHECK).
+   `REQUIREMENT_TYPES` holds the model's four forms, the creator's four
+   (`quest_state` in place of `quest_completed` since v2.20), TICKET-0110's
+   two debt forms and TICKET-0111's two (`conditions.py` owns those);
+   `MODEL_REQUIREMENT_TYPES` is exactly the model's four;
+   `ENTITY_TARGET_TYPES`, `KEY_TARGET_TYPES` and `NO_TARGET_TYPES` partition
+   it and `THRESHOLD_TYPES` is inside it; `day_plan._validate_requirement`
+   (the model's parser) accepts each model form and refuses every other.
 QA2 -- migration `scripts/migrate_v2_17_quests.py`, on a v2.16-shaped
    database (`agenda_step_requirement` in its v2.16 DDL, verbatim below, no
    quest table), holding one requirement row and a `session` row pointing
@@ -31,8 +31,9 @@ QA3 -- the evaluators (fixture). `relation_gte` reads what the target feels
    `faction_member` an active membership, secret included, a left one not;
    `skill_rank_gte` a base domain without a row at Initié, a definition
    without a row as not held, a row at its rank; `quest_completed` a quest
-   whose agenda is `completed`, not `paused`. `requirement_detail_fr` names
-   the target of each new form. `_clean_requirement` refuses a
+   whose agenda is `completed`, not `paused` (`quest_state` with the value
+   `completed` since v2.20). `requirement_detail_fr` names
+   the target of each new form. `writes.conditions.clean_leaf` refuses a
    `faction_member` aimed at a character, a `skill_rank_gte` threshold of
    6, an unknown skill, an unknown quest offer, and accepts each form well
    aimed.
@@ -40,14 +41,14 @@ QA3 -- the evaluators (fixture). `relation_gte` reads what the target feels
 QB1 -- the offer writer (BRIEF-0108-B, fixture). `write_quest_offer` refuses
    a location as giver, an empty title, a status `draft`, no step, a cost of
    5, a domain `magic`, a `faction_member` aimed at a character, and an
-   offer requiring its own completion -- each with no row written. A valid
-   offer writes its eligibility and its steps with their requirements;
-   saving it again replaces its steps and requirements whole (the old rows
+   offer requiring its own state -- each with no row written. A valid
+   offer writes its eligibility and its steps with their conditions;
+   saving it again replaces its steps and conditions whole (the old rows
    gone) and appends one `change_history` entry.
 QB2 -- acceptance (fixture, B1, A1, L1). An unmet eligibility refuses with
    no agenda written. Met: one agenda, `paused`, titled as the offer, the
    player's active plan still `active`; its steps copied in order, the first
-   `active`, the others `pending`, with their requirements; one `quest` row.
+   `active`, the others `pending`, with their conditions; one `quest` row.
    The same non-repeatable offer is refused a second time; a repeatable one
    is refused while its quest is open, accepted again once it is
    `completed`; a `closed` offer is refused. `available_offers` lists
@@ -69,9 +70,10 @@ QB4 -- what the player sees (fixture and static). `journee_payload` and the
 
 QC1 -- the editor's mirror (BRIEF-0108-C, static). `frontend/src/creation/
    questRequirements.js`'s `REQUIREMENT_FORMS` has exactly the keys of
-   `day_plan.REQUIREMENT_TYPES`; its forms with `column: 'entity'` are
+   `condition_forms.REQUIREMENT_TYPES`; its forms with `column: 'entity'` are
    `ENTITY_TARGET_TYPES`, with `column: 'key'` `KEY_TARGET_TYPES`, with
-   `threshold: true` `THRESHOLD_TYPES`.
+   `column: 'none'` `NO_TARGET_TYPES`, with `threshold: true`
+   `THRESHOLD_TYPES`, with `values: true` the keys of `FORM_VALUES`.
 QC2 -- the « Quêtes » tab (static). `tabs.js`'s `quetes` entry mounts the
    `questOffers` island in `creation-quetes` and routes « + Nouvelle quête »
    through `triggerPrimaryAction('questOffers')`; `QuestOffers.svelte`
@@ -102,10 +104,20 @@ MIGRATION = ROOT / "scripts" / "migrate_v2_17_quests.py"
 FAILURES: list[str] = []
 
 MODEL_FORMS = ("knowledge", "relation_gte", "resource", "location_reachable")
-CREATOR_FORMS = ("has_met", "faction_member", "skill_rank_gte", "quest_completed")
+CREATOR_FORMS = ("has_met", "faction_member", "skill_rank_gte", "quest_state")
 # TICKET-0110 (BRIEF-0110-A, G1): two more creator-only forms; `debts.py` owns them.
 DEBT_FORMS = ("has_debt_to", "no_debt_to")
+# TICKET-0111 (BRIEF-0111-C, S1): two more; `conditions.py` owns them.
+CONDITION_FORMS = ("item_held", "vital_status")
+# QA2 runs the v2.17 migration: the forms it added, the tables it created.
+V217_FORMS = ("has_met", "faction_member", "skill_rank_gte", "quest_completed")
 QUEST_TABLES = ("quest_offer", "quest_offer_step", "quest_offer_requirement", "quest")
+# The table v2.17 created that v2.20 dropped: its shape as v2.17 wrote it.
+V217_OFFER_REQUIREMENT_SHAPE = [
+    ("id", "VARCHAR", 1, None), ("offer_id", "VARCHAR", 1, None), ("step_id", "VARCHAR", 0, None),
+    ("target_entity_id", "VARCHAR", 0, None), ("target_key", "VARCHAR", 0, None),
+    ("threshold", "INTEGER", 0, None), ("type", "VARCHAR", 1, None), ("world_id", "VARCHAR", 1, None),
+]
 
 # `agenda_step_requirement` as v2.16 created it (dumped from `main` at 4b06dde).
 _V216_DDL = (
@@ -137,49 +149,26 @@ def _fresh_db() -> str:
 
 # --- QA1 -----------------------------------------------------------------------
 
-def _check_texts(table) -> dict[str, str]:
-    from sqlalchemy import CheckConstraint
-
-    return {c.name: str(c.sqltext) for c in table.constraints if isinstance(c, CheckConstraint)}
-
-
-def _shape_groups(shape: str) -> list[tuple[str, ...]]:
-    return [tuple(re.findall(r"'([^']*)'", group)) for group in re.findall(r"type NOT IN \(([^)]*)\)", shape)]
-
-
 def check_qa1() -> None:
-    from world_engine import day_plan, llm_parse
-    from world_engine.models import AgendaStepRequirement, QuestOfferRequirement
+    from world_engine import condition_forms, day_plan, llm_parse
 
-    types = day_plan.REQUIREMENT_TYPES
-    if tuple(types) != MODEL_FORMS + CREATOR_FORMS + DEBT_FORMS:
+    types = condition_forms.REQUIREMENT_TYPES
+    if tuple(types) != MODEL_FORMS + CREATOR_FORMS + DEBT_FORMS + CONDITION_FORMS:
         fail(f"QA1: REQUIREMENT_TYPES is {types}")
-    if tuple(day_plan.MODEL_REQUIREMENT_TYPES) != MODEL_FORMS or not set(MODEL_FORMS) <= set(types):
-        fail(f"QA1: MODEL_REQUIREMENT_TYPES is {day_plan.MODEL_REQUIREMENT_TYPES}")
-    entity, key, threshold = (set(day_plan.ENTITY_TARGET_TYPES), set(day_plan.KEY_TARGET_TYPES),
-                              set(day_plan.THRESHOLD_TYPES))
-    if entity & key or entity | key != set(types) or not threshold or not threshold <= set(types):
-        fail(f"QA1: the shape groups do not partition the vocabulary: {entity}, {key}, {threshold}")
-
-    agenda = _check_texts(AgendaStepRequirement.__table__)
-    offer = _check_texts(QuestOfferRequirement.__table__)
-    shape = agenda.get("ck_agenda_step_requirement_shape", "")
-    groups = _shape_groups(shape)
-    expected = [tuple(day_plan.ENTITY_TARGET_TYPES), tuple(day_plan.KEY_TARGET_TYPES), tuple(day_plan.THRESHOLD_TYPES)]
-    if groups != expected:
-        fail(f"QA1: the shape CHECK groups are {groups}, expected {expected}")
-    pairs = (("ck_agenda_step_requirement_type", "ck_quest_offer_requirement_type"),
-             ("ck_agenda_step_requirement_shape", "ck_quest_offer_requirement_shape"))
-    for agenda_name, offer_name in pairs:
-        if not agenda.get(agenda_name) or agenda.get(agenda_name) != offer.get(offer_name):
-            fail(f"QA1: {offer_name} differs from {agenda_name}")
+    if tuple(condition_forms.MODEL_REQUIREMENT_TYPES) != MODEL_FORMS or not set(MODEL_FORMS) <= set(types):
+        fail(f"QA1: MODEL_REQUIREMENT_TYPES is {condition_forms.MODEL_REQUIREMENT_TYPES}")
+    entity, key, none = (set(condition_forms.ENTITY_TARGET_TYPES), set(condition_forms.KEY_TARGET_TYPES),
+                         set(condition_forms.NO_TARGET_TYPES))
+    threshold = set(condition_forms.THRESHOLD_TYPES)
+    if entity & key or (entity | key) & none or entity | key | none != set(types) or not threshold <= set(types):
+        fail(f"QA1: the shape groups do not partition the vocabulary: {entity}, {key}, {none}, {threshold}")
 
     for form in MODEL_FORMS:
         try:
             day_plan._validate_requirement({"type": form, "target_key": "k", "threshold": 1})
         except llm_parse.LlmParseError as exc:
             fail(f"QA1: the model's parser refuses {form!r}: {exc}")
-    for form in CREATOR_FORMS + DEBT_FORMS:
+    for form in CREATOR_FORMS + DEBT_FORMS + CONDITION_FORMS:
         try:
             day_plan._validate_requirement({"type": form, "target_key": "k", "threshold": 1})
         except llm_parse.LlmParseError:
@@ -226,10 +215,11 @@ def _seed_v216(db_path: str) -> dict:
         session.commit()
     engine.dispose()
     with sqlite3.connect(db_path) as conn:
-        ids["model_shapes"] = {t: _shape(conn, t) for t in QUEST_TABLES}
+        ids["model_shapes"] = {t: _shape(conn, t) for t in QUEST_TABLES if t != "quest_offer_requirement"}
+        ids["model_shapes"]["quest_offer_requirement"] = V217_OFFER_REQUIREMENT_SHAPE
         conn.execute("PRAGMA foreign_keys=OFF")
         for table in QUEST_TABLES[::-1] + ("agenda_step_requirement",):
-            conn.execute(f"DROP TABLE {table}")
+            conn.execute(f"DROP TABLE IF EXISTS {table}")
         for statement in _V216_DDL:
             conn.execute(statement)
         conn.execute(
@@ -270,7 +260,7 @@ def check_qa2(db_path: str) -> None:
     after = _state(db_path)
     if after["requirements"] != before["requirements"] or not after["requirements"]:
         fail(f"QA2b: the requirement rows are {after['requirements']}")
-    absent = [form for form in CREATOR_FORMS if f"'{form}'" not in after["check"]]
+    absent = [form for form in V217_FORMS if f"'{form}'" not in after["check"]]
     if absent:
         fail(f"QA2b: the stored CHECK lacks {absent}")
     if after["quest_tables"] != ids["model_shapes"]:
@@ -326,7 +316,7 @@ def _qa3_world(session) -> dict:
 
 
 def _verdict(session, character, form: str, **target):
-    from world_engine.day_plan import RequirementSpec, evaluate_specs
+    from world_engine.condition_forms import RequirementSpec, evaluate_specs
 
     return evaluate_specs((RequirementSpec(type=form, **target),), character, session)[0]
 
@@ -398,48 +388,50 @@ def _qa3_quest(session, ids, pc) -> None:
     session.add(Quest(world_id=ids["world"], offer_id=offer.id, character_id=ids["pc"], agenda_id=agenda.id))
     session.commit()
     ids["offer"] = offer.id
-    if _verdict(session, pc, "quest_completed", target_key=offer.id).met:
-        fail("QA3: quest_completed is met by a paused quest")
+    if _verdict(session, pc, "quest_state", target_key=offer.id, value="completed").met:
+        fail("QA3: quest_state completed is met by a paused quest")
+    if not _verdict(session, pc, "quest_state", target_key=offer.id, value="open").met:
+        fail("QA3: quest_state open is unmet by a paused quest")
     agenda.status = "completed"
     session.add(agenda)
     session.commit()
-    if not _verdict(session, pc, "quest_completed", target_key=offer.id).met:
-        fail("QA3: quest_completed is unmet by a completed quest")
+    if not _verdict(session, pc, "quest_state", target_key=offer.id, value="completed").met:
+        fail("QA3: quest_state completed is unmet by a completed quest")
 
 
 def _qa3_wording_and_cleaning(session, ids, pc) -> None:
-    from world_engine.day_plan import RequirementSpec
+    from world_engine.condition_forms import RequirementSpec
     from world_engine.day_resolve import requirement_detail_fr
-    from world_engine.writes.goals_agendas import _clean_requirement
+    from world_engine.writes.conditions import clean_leaf
 
     targets = {
         "has_met": {"target_entity_id": ids["npc"]},
         "faction_member": {"target_entity_id": ids["faction"]},
         "skill_rank_gte": {"target_key": ids["definition"], "threshold": 2},
-        "quest_completed": {"target_key": ids["offer"]},
+        "quest_state": {"target_key": ids["offer"], "value": "failed"},
     }
     names = {"has_met": "NPC", "faction_member": "Guilde", "skill_rank_gte": "Herboristerie",
-             "quest_completed": "La fourrure"}
+             "quest_state": "La fourrure"}
     for form, target in targets.items():
         text = requirement_detail_fr(_verdict(session, pc, form, **target))
         if names[form] not in text:
             fail(f"QA3: requirement_detail_fr for {form!r} is {text!r}")
         try:
-            _clean_requirement(session, ids["world"], 0, RequirementSpec(type=form, **target))
+            clean_leaf(session, ids["world"], RequirementSpec(type=form, **target))
         except ValueError as exc:
-            fail(f"QA3: _clean_requirement refuses a well-aimed {form!r}: {exc}")
+            fail(f"QA3: clean_leaf refuses a well-aimed {form!r}: {exc}")
     refused = (
         RequirementSpec(type="faction_member", target_entity_id=ids["npc"]),
         RequirementSpec(type="skill_rank_gte", target_key="agility", threshold=6),
         RequirementSpec(type="skill_rank_gte", target_key="no-such-skill", threshold=1),
-        RequirementSpec(type="quest_completed", target_key="no-such-offer"),
+        RequirementSpec(type="quest_state", target_key="no-such-offer", value="completed"),
     )
     for spec in refused:
         try:
-            _clean_requirement(session, ids["world"], 0, spec)
+            clean_leaf(session, ids["world"], spec)
         except ValueError:
             continue
-        fail(f"QA3: _clean_requirement accepts {spec}")
+        fail(f"QA3: clean_leaf accepts {spec}")
 
 
 def check_qa3(engine) -> None:
@@ -487,16 +479,19 @@ def _qb_world(session) -> dict:
 
 
 def _offer_kwargs(ids: dict, **over) -> dict:
-    from world_engine.day_plan import PlanStep, RequirementSpec
+    from world_engine.condition_forms import RequirementSpec
+    from world_engine.conditions import all_of
+    from world_engine.day_plan import PlanStep
 
     steps = [
         PlanStep(objective="Traquer le loup", cost=2, domain="perception",
-                 requirements=(RequirementSpec(type="has_met", target_entity_id=ids["npc"]),)),
+                 prerequisite=all_of([RequirementSpec(type="has_met", target_entity_id=ids["npc"])])),
         PlanStep(objective="Rapporter la fourrure", cost=1, domain=None),
     ]
     base = dict(world_id=ids["world"], offer=None, giver_entity_id=ids["npc"], title="La fourrure",
                 summary="Le chasseur veut la fourrure.", repeatable=False, status="open",
-                eligibility=[RequirementSpec(type="faction_member", target_entity_id=ids["guild"])], steps=steps)
+                eligibility=all_of([RequirementSpec(type="faction_member", target_entity_id=ids["guild"])]),
+                steps=steps)
     base.update(over)
     return base
 
@@ -504,21 +499,23 @@ def _offer_kwargs(ids: dict, **over) -> dict:
 def _counts(session) -> tuple:
     from sqlmodel import func, select
 
-    from world_engine.models import Agenda, Quest, QuestOffer, QuestOfferRequirement, QuestOfferStep
+    from world_engine.models import Agenda, Condition, ConditionNode, Quest, QuestOffer, QuestOfferStep
 
     return tuple(session.exec(select(func.count()).select_from(m)).one()
-                 for m in (QuestOffer, QuestOfferStep, QuestOfferRequirement, Quest, Agenda))
+                 for m in (QuestOffer, QuestOfferStep, Condition, ConditionNode, Quest, Agenda))
 
 
 def _qb1_refusals(session, ids) -> None:
-    from world_engine.day_plan import PlanStep, RequirementSpec
+    from world_engine.condition_forms import RequirementSpec
+    from world_engine.conditions import all_of
+    from world_engine.day_plan import PlanStep
     from world_engine.writes import write_quest_offer
 
     bad = (
         {"giver_entity_id": ids["place"]}, {"title": "  "}, {"status": "draft"}, {"steps": []},
         {"steps": [PlanStep(objective="o", cost=5, domain=None)]},
         {"steps": [PlanStep(objective="o", cost=1, domain="magic")]},
-        {"eligibility": [RequirementSpec(type="faction_member", target_entity_id=ids["npc"])]},
+        {"eligibility": all_of([RequirementSpec(type="faction_member", target_entity_id=ids["npc"])])},
     )
     for over in bad:
         before = _counts(session)
@@ -536,22 +533,26 @@ def _qb1_refusals(session, ids) -> None:
 def check_qb1(session, ids) -> None:
     from sqlmodel import select
 
-    from world_engine.day_plan import PlanStep, RequirementSpec
-    from world_engine.models import QuestOfferRequirement, QuestOfferStep
+    from world_engine.condition_forms import RequirementSpec
+    from world_engine.conditions import all_of, leaves, read_condition
+    from world_engine.day_plan import PlanStep
+    from world_engine.models import QuestOfferStep
     from world_engine.writes import write_quest_offer
 
     _qb1_refusals(session, ids)
     offer = write_quest_offer(session, **_offer_kwargs(ids))
     session.commit()
     ids["offer"] = offer.id
-    steps = session.exec(select(QuestOfferStep).where(QuestOfferStep.offer_id == offer.id)).all()
-    reqs = session.exec(select(QuestOfferRequirement).where(QuestOfferRequirement.offer_id == offer.id)).all()
-    if [s.step_order for s in sorted(steps, key=lambda s: s.step_order)] != [1, 2] or len(reqs) != 2:
+    steps = sorted(session.exec(select(QuestOfferStep).where(QuestOfferStep.offer_id == offer.id)).all(),
+                   key=lambda s: s.step_order)
+    reqs = list(leaves(read_condition(session, role="eligibility", quest_offer_id=offer.id)))
+    reqs += [r for s in steps for r in leaves(read_condition(session, role="prerequisite", quest_offer_step_id=s.id))]
+    if [s.step_order for s in steps] != [1, 2] or len(reqs) != 2:
         fail(f"QB1: a new offer wrote {len(steps)} step(s), {len(reqs)} requirement(s)")
     try:
-        write_quest_offer(session, **_offer_kwargs(ids, offer=offer, eligibility=[
-            RequirementSpec(type="quest_completed", target_key=offer.id)]))
-        fail("QB1: an offer requiring its own completion was saved")
+        write_quest_offer(session, **_offer_kwargs(ids, offer=offer, eligibility=all_of([
+            RequirementSpec(type="quest_state", target_key=offer.id, value="completed")])))
+        fail("QB1: an offer requiring its own state was saved")
     except ValueError:
         session.rollback()
     old_ids = {s.id for s in steps}
@@ -582,7 +583,8 @@ def _accept_refused(session, offer, pc, label: str) -> None:
 def _qb2_accepted(session, ids, quest) -> None:
     from sqlmodel import select
 
-    from world_engine.models import Agenda, AgendaStep, AgendaStepRequirement
+    from world_engine.conditions import leaves, read_condition
+    from world_engine.models import Agenda, AgendaStep
 
     agenda = session.get(Agenda, quest.agenda_id)
     if agenda is None or agenda.status != "paused" or agenda.title != "La fourrure":
@@ -595,7 +597,7 @@ def _qb2_accepted(session, ids, quest) -> None:
     if [(s.objective, s.status, s.cost) for s in steps] != [
             ("Traquer le loup", "active", 2), ("Rapporter la fourrure", "pending", 1)]:
         fail(f"QB2: the copied steps are {[(s.objective, s.status, s.cost) for s in steps]}")
-    reqs = session.exec(select(AgendaStepRequirement).where(AgendaStepRequirement.step_id == steps[0].id)).all()
+    reqs = leaves(read_condition(session, role="prerequisite", agenda_step_id=steps[0].id))
     if [(r.type, r.target_entity_id) for r in reqs] != [("has_met", ids["npc"])]:
         fail(f"QB2: the copied requirements are {[(r.type, r.target_entity_id) for r in reqs]}")
 
@@ -627,7 +629,7 @@ def check_qb2(session, ids) -> None:
         fail("QB2: an offer already taken is still available")
     _accept_refused(session, offer, pc, "a non-repeatable offer taken twice")
 
-    errand = write_quest_offer(session, **_offer_kwargs(ids, title="Bois", repeatable=True, eligibility=[]))
+    errand = write_quest_offer(session, **_offer_kwargs(ids, title="Bois", repeatable=True, eligibility=None))
     session.commit()
     first = accept_quest(session, offer=errand, character=pc)
     session.commit()
@@ -638,7 +640,7 @@ def check_qb2(session, ids) -> None:
     session.commit()
     accept_quest(session, offer=errand, character=pc)
     session.commit()
-    closed = write_quest_offer(session, **_offer_kwargs(ids, title="Fermée", status="closed", eligibility=[]))
+    closed = write_quest_offer(session, **_offer_kwargs(ids, title="Fermée", status="closed", eligibility=None))
     session.commit()
     _accept_refused(session, closed, pc, "a closed offer")
 
@@ -788,19 +790,23 @@ def _read(rel: str) -> str:
 
 
 def check_qc1() -> None:
-    from world_engine import day_plan
+    from world_engine import condition_forms
 
     text = _read("creation/questRequirements.js")
-    forms = dict(re.findall(r"^\s+(\w+): \{ label: '[^']*', list: '\w+', (column: '\w+', threshold: \w+) \},$",
-                            text, re.M))
+    forms = dict(re.findall(
+        r"^\s+(\w+): \{ label: '[^']*', list: '\w+', (column: '\w+', threshold: \w+(?:, values: true)?) \},$",
+        text, re.M))
     if not forms:
         fail("QC1: REQUIREMENT_FORMS holds zero forms")
         return
-    if list(forms) != list(day_plan.REQUIREMENT_TYPES):
+    if list(forms) != list(condition_forms.REQUIREMENT_TYPES):
         fail(f"QC1: REQUIREMENT_FORMS keys {list(forms)} != REQUIREMENT_TYPES")
     groups = {
-        "column: 'entity'": tuple(day_plan.ENTITY_TARGET_TYPES), "column: 'key'": tuple(day_plan.KEY_TARGET_TYPES),
-        "threshold: true": tuple(day_plan.THRESHOLD_TYPES),
+        "column: 'entity'": tuple(condition_forms.ENTITY_TARGET_TYPES),
+        "column: 'key'": tuple(condition_forms.KEY_TARGET_TYPES),
+        "column: 'none'": tuple(condition_forms.NO_TARGET_TYPES),
+        "threshold: true": tuple(condition_forms.THRESHOLD_TYPES),
+        "values: true": tuple(f for f in condition_forms.REQUIREMENT_TYPES if f in condition_forms.FORM_VALUES),
     }
     for marker, expected in groups.items():
         found = tuple(form for form, spec in forms.items() if marker in spec)

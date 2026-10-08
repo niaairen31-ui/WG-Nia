@@ -8,9 +8,9 @@ steps and their requirements into a new `agenda` of the player, born
 `paused` (A1); `quest` links that agenda to the offer it came from. A
 quest's state is its agenda's status, never a second column (M1).
 
-The requirement vocabulary is `agenda_step_requirement`'s, not a second
-language (B1): `quest_offer_requirement` carries the same two CHECK texts,
-byte for byte, and `day_plan.evaluate_specs` judges both.
+The requirement vocabulary is the condition language's, not a second one
+(B1, then I1 of TICKET-0111): an offer's eligibility and each step's
+conditions are `condition` trees (models/config.py), like an agenda step's.
 
 Offers are curated content: their steps and requirements are replaced
 whole when the creator saves an offer (the `npc_price` full-replace
@@ -83,39 +83,6 @@ class QuestOfferStep(SQLModel, table=True):
     objective: str
     cost: int  # day-budget slots, as agenda_step.cost
     domain: Optional[str] = None  # a base skill domain, or NULL: no roll
-
-
-# -----------------------------------------------------------------------------
-# quest_offer_requirement  (eligibility when step_id is NULL; else a step's
-# requirement). Same vocabulary and CHECK texts as agenda_step_requirement.
-# -----------------------------------------------------------------------------
-class QuestOfferRequirement(SQLModel, table=True):
-    __tablename__ = "quest_offer_requirement"
-    __table_args__ = (
-        CheckConstraint(
-            "type IN ('knowledge','relation_gte','resource','location_reachable',"
-            "'has_met','faction_member','skill_rank_gte','quest_completed','has_debt_to','no_debt_to')",
-            name="ck_quest_offer_requirement_type",
-        ),
-        CheckConstraint(
-            "(type NOT IN ('relation_gte','location_reachable','has_met','faction_member','has_debt_to','no_debt_to') "
-            "OR target_entity_id IS NOT NULL) "
-            "AND (type NOT IN ('knowledge','resource','skill_rank_gte','quest_completed') "
-            "OR target_key IS NOT NULL) "
-            "AND (type NOT IN ('relation_gte','resource','skill_rank_gte') OR threshold IS NOT NULL)",
-            name="ck_quest_offer_requirement_shape",
-        ),
-        Index("idx_quest_offer_requirement_offer", "offer_id"),
-    )
-
-    id: str = Field(default_factory=_uuid, primary_key=True)
-    world_id: str = Field(foreign_key="world.id", nullable=False)
-    offer_id: str = Field(foreign_key="quest_offer.id", nullable=False)
-    step_id: Optional[str] = Field(default=None, foreign_key="quest_offer_step.id")
-    type: str
-    target_entity_id: Optional[str] = Field(default=None, foreign_key="entity.id")
-    target_key: Optional[str] = None
-    threshold: Optional[int] = None
 
 
 # -----------------------------------------------------------------------------

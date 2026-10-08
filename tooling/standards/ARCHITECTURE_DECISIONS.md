@@ -18357,6 +18357,170 @@ whom, a faction's member to pick (its contact preselected), secrecy, and
 stored rows only and would show less than the player knows.
 
 
+## THE REQUIREMENT FORMS GET THEIR OWN MODULE (TICKET-0111) -- `condition_forms.py`, A PURE MOVE OUT OF `day_plan.py` (BRIEF-0111-a, no schema change)
+
+**Why.** TICKET-0111 turns the flat list of requirements into a language of
+conditions (A1 of the series, I1: one language for every agenda). Its
+leaves are the ten requirement forms; their evaluators are what the tree
+evaluates. `day_plan.py` will need the tree for its steps and the tree will
+need the forms: kept in `day_plan.py`, the forms would make the two modules
+import each other.
+
+**What moved, unchanged.** `REQUIREMENT_TYPES`, `MODEL_REQUIREMENT_TYPES`,
+the three shape groups, `RequirementSpec`, `Verdict`, the ten `_eval_*`
+evaluators and `_EVALUATORS`, `_entity_name`, `_open_debt`,
+`_day_reachable_ids` (with its D1 history) and `evaluate_specs`.
+`day_plan.py` keeps the plan: `PlanStep`, `EvaluatedStep`, the budget cut,
+the anchoring and the emission. Every importer names the new home; no name
+is re-exported from `day_plan.py`, so each lives in one place
+(`conditions.py` CA1).
+
+**Checks retargeted, not changed.** `day_plan.py` R1, R10 and R25 read
+`condition_forms.py`; `known_reachability.py` documents it in place of
+`day_plan.py` as a `connects_to` reader (row 12 of the census, unchanged).
+
+## A CONDITION IS A TREE OF FOUR CONNECTORS OVER THE FORMS (TICKET-0111) -- EACH LEAF NAMES ITS SUBJECT, A VERDICT HAS THREE STATES (BRIEF-0111-b, no schema change)
+
+**A1, I1.** A condition is a tree (`conditions.ConditionTree`, each node the
+root of its own subtree): its leaves
+are the requirement forms (`RequirementSpec`), its inner nodes `all`,
+`any`, `not` (one child) and `at_least` (`n` of its children). The
+vocabulary grows by forms, never by connectors. A tree is at most six
+levels and sixty nodes deep (`MAX_DEPTH`, `MAX_NODES`); `check_shape` holds
+the language's shape, form-blind -- whether a form is known and its target
+exists stays the writer's check.
+
+**P1.** Every leaf names its subject: a role bound at evaluation --
+`doer`, the character who acts; `giver`, an offer's giver; `contact`, a
+faction giver's contact -- or one fixed entity (`subject_entity_id`).
+`RequirementSpec` gains `subject_role` (default `doer`, so every existing
+construction still judges the player), `subject_entity_id` and `value`.
+A form judges a character: a role nothing binds, or a subject that is not a
+character, makes the leaf `unknown` with its French reason.
+
+**R1.** A verdict (`VerdictNode`) is `met`, `unmet` or `unknown`; the
+connectors follow Kleene's three-valued logic, so an `unknown` leaf can be
+outweighed (`any` with a met sibling is met). A gate passes only on `met`.
+Each subject's reachable set is computed once per evaluation.
+
+**Q1, T1.** `and_path_leaves` gives the leaves a condition cannot be met
+without (reached through `all` only) -- what the day's NPC and the deepened
+facts will read; `flat_leaves` gives the leaves of a flat tree (none, one,
+or `all` of leaves) and None otherwise -- what a list editor can show.
+
+**French.** `condition_text.describe` reads a tree back as indented lines;
+`verdict_lines` reads a judged tree with a mark per line and the progress
+of a counting form (« 60/50 »). One phrase per form (`FORM_PHRASES_FR`).
+
+**Rejected.** A fourth verdict state for « not applicable »: a leaf whose
+subject cannot be bound is unknown, and a gate treats it as not met.
+
+## A CONDITION IS STORED AS ROWS, ONE TREE PER OWNER (TICKET-0111) -- THE TWO REQUIREMENT TABLES BECOME `condition`, TWELVE FORMS (BRIEF-0111-c, schema v2.20)
+
+**O-a.** A condition is stored as rows, never JSON (CLAUDE.md: UI-visible
+data is relational): `condition`, one per owner and role -- an offer's
+`eligibility`, an offer step's or an agenda step's `prerequisite`, or its
+`completion` (M1, shown, never acted on) -- and `condition_node`, one row per
+node (`parent_id`, `position`). The nodes' foreign keys give the cascade of
+a world and « who cites X » for free. `agenda_step_requirement` and
+`quest_offer_requirement` are dropped; v2.20 turned each owner's rows into
+`all` of its leaves, in the rows' order, judged on `doer`.
+
+**No CHECK names a form.** The vocabulary is a code-plane property (the
+`entity_trait.trait_key` precedent): a new form is code, never a table
+rebuild (v2.17 and v2.19 each rebuilt two tables to widen one CHECK).
+`writes.conditions` is the one writer (`single_canon_write.py`) and refuses
+an unknown form, an ill-shaped tree, a subject that is not a character of
+the world, a target outside it, a missing value -- before any row. What a
+CHECK can say without naming a form, it says.
+
+**I1.** One language for every agenda. Day plans, offers and accepted
+quests all store and judge a tree: `PlanStep.prerequisite`,
+`EvaluatedStep.verdict` (`met` only when the verdict is), `evaluate_agenda_step`
+binding an offer's giver and contact (`plan_bindings`), acceptance judging
+the eligibility with the same bindings. The model still emits a flat list of
+its four forms; it becomes `all` of them.
+
+**Q1.** What a requirement row used to mean beyond gating keeps meaning
+it, read on the leaves reached through `all` only: the day's NPC is the
+first such `relation_gte`'s target; a completed step deepens the `knowledge`
+leaves judged on the one who acts. A leaf under `any`, `not` or `at_least`
+is not guaranteed and counts for neither.
+
+**S1.** `quest_state` (an offer's quest `open`, `completed`, `failed` or
+`abandoned`) replaces `quest_completed` -- one form for a quest's state;
+`item_held` (at least N of an item, `item_holding`) and `vital_status` (the
+subject's own state) read data the canon already keeps. `vital_status`'s
+values are the creator form's: the column has no CHECK.
+
+**The day's French.** `blocked_details_fr` says what a judged condition
+still lacks: an unmet leaf's detail, an unknown leaf's reason, and under a
+`not` that a leaf must not hold.
+
+**Old migrations.** v1.94, v2.17 and v2.19 created or rebuilt the dropped
+tables from their models; each now carries that table's DDL, frozen as it
+created it (`_Retired`), so it still runs on the database it was written
+for.
+
+**Rejected.** O-b (the tree as JSON, an exception in `json_ui_boundary.py`):
+the first JSON exception for durable canon content, with no foreign keys.
+A CHECK listing the forms on `condition_node`: a table rebuild per form.
+GP1: `goal_prerequisite` (an NPC goal's completion gate, one form) is a
+third language left out of this ticket; its own ticket, once this one is
+stable.
+
+## A QUEST STEP SAYS WHEN ITS OBJECTIVE IS REACHED (TICKET-0111) -- SHOWN, NEVER ACTED ON; THE EDITOR SPEAKS TREES (BRIEF-0111-d, no schema change)
+
+**M1.** An offer step gains a `completion` condition beside its
+prerequisite: « objectif atteint quand ». It is copied to the agenda step at
+acceptance, judged on the quest's bindings, and shown -- in Journée under
+the active step, each line marked ✓, ✗ or ? with its progress (« 3/5 »),
+and in the recap of « Déclarer accomplie » for every step. It never moves a
+step nor settles a quest: Nia still declares (F1 of the series, G1 of
+0109). Rejected: M2 (completing on its own when the condition is met;
+reactivation: Nia confirming what the condition already says, measured on
+the dashboard once it exists).
+
+**The API speaks trees.** `POST`/`PUT /api/quest-offers` take each
+condition -- the eligibility, a step's prerequisite and completion -- as a
+tree in `conditions.node_to_dict`'s dict form; a malformed one answers 422
+with nothing written. `offer_dict` returns each condition as a view: the
+tree, its rows when it is flat, its French lines.
+
+**T1.** The editor edits a flat condition as a list of rows (`all` of
+them), each row naming its subject first (P1: the character, the giver,
+the contact, or one character) and, for a form that takes one, its value.
+A nested condition is shown by its lines, read-only, saved back unchanged,
+and can be cleared: the interpreter (TICKET-0112) will write and edit those.
+
+**Rejected.** T2 (a visual tree editor): much frontend for what the
+interpreter will do in prose.
+
+**What a player may read (AMENDMENT-0111-01, A1, V2).** A condition shown
+on a player surface -- Journée's quest panel, « Déclarer accomplie », the
+refusal of a standing plan, a blocked step's line in the day's narration --
+is read as the character may know it, never as the canon holds it.
+A1: a fact he does not resolve above `unaware` (`knowledge_resolve`) is
+never written out -- a secret, the creator's note, a fact still to learn
+read « un fait encore caché » (`condition_text.HIDDEN_FACT_FR`,
+`day_resolve.HIDDEN_KNOWLEDGE_DETAIL_FR`). V2: a judged leaf about someone
+else -- the giver, the contact, a named character -- reads `?`
+(`VerdictNode.seen_by`), and every head line is recombined from what is
+left, so « Objectif atteint » never rests on a hidden leaf; the count of a
+`relation_gte` (another's regard toward him) is never shown. A leaf about
+the character himself is shown as it stands, its target named. The
+creator's surfaces read the verdict whole. The fact text had reached the
+player since TICKET-0108 through a blocked step's « ce qui manque »; the
+amendment closes that path too. A blocked step names to the narration,
+and teaches through its lead, only the leaves that hold it back for its
+doer (`blocking_verdicts`): never a leaf under a `not`, never one about
+the giver. Rejected: A2 (the fact as player-visible: the secrets
+invariant); A3 (no `knowledge` leaf in a completion: it leaves 0108's path
+open and loses « apprends X »); V1 (the canon's state as a quest tracker:
+the character may not have seen it; reactivation: the event journal of
+TICKET-0114 says who witnessed what -- « tue le loup géant » is tracked
+from then).
+
 ---
 
 *Co-built with Claude, June 2026.*

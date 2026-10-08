@@ -815,8 +815,8 @@ class Agenda(SQLModel, table=True):
     )
 
 
-# `AgendaStep` and `agenda_step_requirement` (schema v1.94, TICKET-0075,
-# BRIEF-0075-b) live in `models/config.py` — see the header comment above.
+# `AgendaStep` (schema v1.94, TICKET-0075, BRIEF-0075-b) and its `condition`
+# (v2.20, TICKET-0111) live in `models/config.py` — see the header comment above.
 
 
 # -----------------------------------------------------------------------------
