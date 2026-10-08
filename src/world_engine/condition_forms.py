@@ -83,10 +83,18 @@ THRESHOLD_TYPES: tuple[str, ...] = ("relation_gte", "resource", "skill_rank_gte"
 
 @dataclass(frozen=True)
 class RequirementSpec:
+    """One form with its arguments: a leaf of the condition language. Its
+    SUBJECT (TICKET-0111, P1) is a role bound when the condition is judged
+    (`conditions.SUBJECT_ROLES`, `doer` by default: the character who acts)
+    or one fixed entity; `value` is the state a form compares to, for the
+    forms that take one."""
     type: str
     target_entity_id: Optional[str] = None
     target_key: Optional[str] = None
     threshold: Optional[int] = None
+    subject_role: Optional[str] = "doer"
+    subject_entity_id: Optional[str] = None
+    value: Optional[str] = None
 
 
 

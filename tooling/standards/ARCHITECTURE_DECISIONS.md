@@ -18379,6 +18379,42 @@ is re-exported from `day_plan.py`, so each lives in one place
 `condition_forms.py`; `known_reachability.py` documents it in place of
 `day_plan.py` as a `connects_to` reader (row 12 of the census, unchanged).
 
+## A CONDITION IS A TREE OF FOUR CONNECTORS OVER THE FORMS (TICKET-0111) -- EACH LEAF NAMES ITS SUBJECT, A VERDICT HAS THREE STATES (BRIEF-0111-b, no schema change)
+
+**A1, I1.** A condition is a tree (`conditions.ConditionTree`, each node the
+root of its own subtree): its leaves
+are the requirement forms (`RequirementSpec`), its inner nodes `all`,
+`any`, `not` (one child) and `at_least` (`n` of its children). The
+vocabulary grows by forms, never by connectors. A tree is at most six
+levels and sixty nodes deep (`MAX_DEPTH`, `MAX_NODES`); `check_shape` holds
+the language's shape, form-blind -- whether a form is known and its target
+exists stays the writer's check.
+
+**P1.** Every leaf names its subject: a role bound at evaluation --
+`doer`, the character who acts; `giver`, an offer's giver; `contact`, a
+faction giver's contact -- or one fixed entity (`subject_entity_id`).
+`RequirementSpec` gains `subject_role` (default `doer`, so every existing
+construction still judges the player), `subject_entity_id` and `value`.
+A form judges a character: a role nothing binds, or a subject that is not a
+character, makes the leaf `unknown` with its French reason.
+
+**R1.** A verdict (`VerdictNode`) is `met`, `unmet` or `unknown`; the
+connectors follow Kleene's three-valued logic, so an `unknown` leaf can be
+outweighed (`any` with a met sibling is met). A gate passes only on `met`.
+Each subject's reachable set is computed once per evaluation.
+
+**Q1, T1.** `and_path_leaves` gives the leaves a condition cannot be met
+without (reached through `all` only) -- what the day's NPC and the deepened
+facts will read; `flat_leaves` gives the leaves of a flat tree (none, one,
+or `all` of leaves) and None otherwise -- what a list editor can show.
+
+**French.** `condition_text.describe` reads a tree back as indented lines;
+`verdict_lines` reads a judged tree with a mark per line and the progress
+of a counting form (« 60/50 »). One phrase per form (`FORM_PHRASES_FR`).
+
+**Rejected.** A fourth verdict state for « not applicable »: a leaf whose
+subject cannot be bound is unknown, and a gate treats it as not met.
+
 ---
 
 *Co-built with Claude, June 2026.*
