@@ -7,6 +7,11 @@ its state and, for a form that counts, its progress (« 3/15 »). Both are
 read by the surfaces; neither decides anything. Every phrase comes from
 `FORM_PHRASES_FR`, one per form, kept equal to `REQUIREMENT_TYPES` by
 `conditions.py` CB4.
+
+A player surface passes its character as `viewer_id` (AMENDMENT-0111-01):
+a fact he does not know is never written out (A1, `HIDDEN_FACT_FR`), a leaf
+about someone else shows `?` (V2, `VerdictNode.seen_by`), and no line
+counts another's regard toward him. The creator reads every line whole.
 """
 
 from __future__ import annotations
@@ -17,6 +22,7 @@ from sqlmodel import Session
 
 from .condition_forms import RequirementSpec
 from .conditions import ConditionTree, VerdictNode
+from .knowledge_resolve import resolve_knowledge_level
 from .models import Entity, Fact, QuestOffer
 from .prose_render import fact_text
 from .skill_access import skill_label
@@ -56,6 +62,20 @@ SUBJECT_LABELS_FR: dict[str, str] = {"doer": "le personnage", "giver": "le donne
 
 STATE_MARKS: dict[str, str] = {"met": "✓", "unmet": "✗", "unknown": "?"}
 
+# A1 (AMENDMENT-0111-01): what a player reads in place of a fact his
+# character does not know -- a secret, the creator's note, or simply a fact
+# still to learn.
+HIDDEN_FACT_FR = "{who} connaît un fait encore caché"
+
+# Forms whose progress a player never sees: the count is another's regard.
+HIDDEN_PROGRESS_FORMS: tuple[str, ...] = ("relation_gte",)
+
+
+def known_to(db: Session, viewer_id: str, fact_id: Optional[str]) -> bool:
+    """A1: the viewer resolves the fact above `unaware` (stored row, scope
+    defaults and contacts, `knowledge_resolve`)."""
+    return bool(fact_id) and resolve_knowledge_level(db, viewer_id, fact_id) != "unaware"
+
 
 def _entity_name(db: Session, entity_id: Optional[str]) -> str:
     entity = db.get(Entity, entity_id) if entity_id else None
@@ -82,10 +102,14 @@ def _subject(db: Session, spec: RequirementSpec) -> str:
     return _entity_name(db, spec.subject_entity_id)
 
 
-def leaf_text(db: Session, spec: RequirementSpec) -> str:
+def leaf_text(db: Session, spec: RequirementSpec, viewer_id: Optional[str] = None) -> str:
+    """One leaf in French. With `viewer_id` (a player surface), a fact the
+    viewer does not know is not written out (A1)."""
     phrase = FORM_PHRASES_FR.get(spec.type)
     if phrase is None:
         raise ValueError(f"condition_text: unknown requirement type {spec.type!r}")
+    if spec.type == "knowledge" and viewer_id is not None and not known_to(db, viewer_id, spec.target_key):
+        phrase = HIDDEN_FACT_FR
     value = VALUE_LABELS_FR.get(spec.type, {}).get(spec.value, spec.value)
     text = phrase.format(who=_subject(db, spec), target=_target(db, spec), threshold=spec.threshold, value=value)
     return text[0].upper() + text[1:]
@@ -113,9 +137,9 @@ def _describe(db: Session, node: ConditionTree, depth: int, lines: list[dict]) -
         _describe(db, child, depth + 1, lines)
 
 
-def _progress(verdict_node: VerdictNode) -> Optional[str]:
+def _progress(verdict_node: VerdictNode, viewer_id: Optional[str] = None) -> Optional[str]:
     verdict = verdict_node.verdict
-    if verdict is None:
+    if verdict is None or (viewer_id is not None and verdict.type in HIDDEN_PROGRESS_FORMS):
         return None
     current, required = verdict.current, verdict.required
     if isinstance(current, int) and isinstance(required, int) and not isinstance(current, bool):
@@ -123,24 +147,27 @@ def _progress(verdict_node: VerdictNode) -> Optional[str]:
     return None
 
 
-def verdict_lines(db: Session, verdict: Optional[VerdictNode]) -> list[dict]:
+def verdict_lines(db: Session, verdict: Optional[VerdictNode], viewer_id: Optional[str] = None) -> list[dict]:
     """A judged tree as lines: `{"depth", "text", "state", "mark",
-    "progress"}`; an `unknown` leaf's text ends with why."""
+    "progress"}`; an `unknown` leaf's text ends with why. With `viewer_id`
+    (a player surface), the verdict is first `seen_by` him (V2) and every
+    leaf is written as he may read it (A1)."""
     lines: list[dict] = []
     if verdict is not None:
-        _verdict_lines(db, verdict, 0, lines)
+        seen = verdict.seen_by(viewer_id) if viewer_id is not None else verdict
+        _verdict_lines(db, seen, 0, lines, viewer_id)
     return lines
 
 
-def _verdict_lines(db: Session, node: VerdictNode, depth: int, lines: list[dict]) -> None:
+def _verdict_lines(db: Session, node: VerdictNode, depth: int, lines: list[dict], viewer_id: Optional[str]) -> None:
     if node.op == "leaf":
-        text = leaf_text(db, node.spec)
+        text = leaf_text(db, node.spec, viewer_id)
         if node.state == "unknown" and node.reason:
             text = f"{text} ({node.reason})"
         lines.append({"depth": depth, "text": text, "state": node.state, "mark": STATE_MARKS[node.state],
-                      "progress": _progress(node)})
+                      "progress": _progress(node, viewer_id)})
         return
     lines.append({"depth": depth, "text": _head(node.op, node.n), "state": node.state,
                   "mark": STATE_MARKS[node.state], "progress": None})
     for child in node.children:
-        _verdict_lines(db, child, depth + 1, lines)
+        _verdict_lines(db, child, depth + 1, lines, viewer_id)

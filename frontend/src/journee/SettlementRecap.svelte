@@ -7,7 +7,9 @@
      quest is named by its quest_id only. TICKET-0110 (A2): when coins or
      items are all that is lacking, « Régler à crédit » shows what would be
      owed to whom -- a faction creditor's member to pick, its contact
-     preselected -- and settles with the rest as debts. */
+     preselected -- and settles with the rest as debts. TICKET-0111 (M1):
+     each step's completion condition, judged line by line -- measured, never
+     a verdict: Nia still decides. */
   import { questState, settleQuest, settleOnCredit } from './quests.svelte.js';
   import { loadJourneeDebts } from './debts.svelte.js';
 
@@ -38,7 +40,13 @@
     <h5>Étapes</h5>
     <ol>
       {#each ctx.steps as step (step.order)}
-        <li>{step.objective} — {step.status}{#if step.outcome} <span class="muted">({step.outcome})</span>{/if}</li>
+        <li>{step.objective} — {step.status}{#if step.outcome} <span class="muted">({step.outcome})</span>{/if}
+          {#each step.completion || [] as line, i (i)}
+            <div class="muted" style={'padding-left:' + line.depth * 14 + 'px'}>
+              {line.mark} {line.text}{#if line.progress} — {line.progress}{/if}
+            </div>
+          {/each}
+        </li>
       {/each}
     </ol>
 

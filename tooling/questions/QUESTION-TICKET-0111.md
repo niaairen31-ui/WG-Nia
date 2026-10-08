@@ -24,3 +24,4 @@ A. Yes — filter by query construction in the player path (`_steps_view` only; 
 B. No — the creator's completion text is deliberately player-visible; accept as is.
 C. Forbid `knowledge` leaves in a `completion` condition at write time.
 ## Response
+A1, V2 -- AMENDMENT-0111-01

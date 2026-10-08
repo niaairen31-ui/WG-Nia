@@ -5,7 +5,10 @@
      A quest is shown by its title and objectives; the plan behind it is
      never named here. TICKET-0109 (BRIEF-0109-D): each offer and quest
      lists its costs and rewards; « Déclarer accomplie » opens the measured
-     recap (SettlementRecap) and settles from it (D1). */
+     recap (SettlementRecap) and settles from it (D1). TICKET-0111
+     (BRIEF-0111-D, M1): the active step shows where its objective stands,
+     each line of its completion condition marked ✓, ✗ or ?, with its
+     progress (« 3/15 ») -- shown, never acted on. */
   import { questState, loadQuests, acceptOffer, abandonQuest, openSettlement } from './quests.svelte.js';
   import SettlementRecap from './SettlementRecap.svelte';
 
@@ -56,6 +59,16 @@
               {step.objective}
               {#if step.status === 'completed'} ✓{/if}
               {#each step.blocked as reason}<div class="muted">Il manque : {reason}</div>{/each}
+              {#if step.status === 'active' && step.completion?.length}
+                <div class="objective">
+                  <span class="muted">Objectif{step.completion_met ? ' atteint' : ''} :</span>
+                  {#each step.completion as line, i (i)}
+                    <div class={'cl-' + line.state} style={'padding-left:' + line.depth * 14 + 'px'}>
+                      {line.mark} {line.text}{#if line.progress} — {line.progress}{/if}
+                    </div>
+                  {/each}
+                </div>
+              {/if}
             </li>
           {/each}
         </ol>
@@ -85,4 +98,7 @@
   .step-completed, .step-failed { color: var(--muted); }
   .over { opacity: 0.7; }
   .terms { margin: 2px 0 6px 18px; padding: 0; font-size: 12px; }
+  .objective { font-weight: normal; font-size: 12px; margin: 2px 0; }
+  .cl-met { color: var(--green); }
+  .cl-unmet { color: var(--muted); }
 </style>

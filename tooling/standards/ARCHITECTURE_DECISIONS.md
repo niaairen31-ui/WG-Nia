@@ -18469,6 +18469,58 @@ GP1: `goal_prerequisite` (an NPC goal's completion gate, one form) is a
 third language left out of this ticket; its own ticket, once this one is
 stable.
 
+## A QUEST STEP SAYS WHEN ITS OBJECTIVE IS REACHED (TICKET-0111) -- SHOWN, NEVER ACTED ON; THE EDITOR SPEAKS TREES (BRIEF-0111-d, no schema change)
+
+**M1.** An offer step gains a `completion` condition beside its
+prerequisite: « objectif atteint quand ». It is copied to the agenda step at
+acceptance, judged on the quest's bindings, and shown -- in Journée under
+the active step, each line marked ✓, ✗ or ? with its progress (« 3/5 »),
+and in the recap of « Déclarer accomplie » for every step. It never moves a
+step nor settles a quest: Nia still declares (F1 of the series, G1 of
+0109). Rejected: M2 (completing on its own when the condition is met;
+reactivation: Nia confirming what the condition already says, measured on
+the dashboard once it exists).
+
+**The API speaks trees.** `POST`/`PUT /api/quest-offers` take each
+condition -- the eligibility, a step's prerequisite and completion -- as a
+tree in `conditions.node_to_dict`'s dict form; a malformed one answers 422
+with nothing written. `offer_dict` returns each condition as a view: the
+tree, its rows when it is flat, its French lines.
+
+**T1.** The editor edits a flat condition as a list of rows (`all` of
+them), each row naming its subject first (P1: the character, the giver,
+the contact, or one character) and, for a form that takes one, its value.
+A nested condition is shown by its lines, read-only, saved back unchanged,
+and can be cleared: the interpreter (TICKET-0112) will write and edit those.
+
+**Rejected.** T2 (a visual tree editor): much frontend for what the
+interpreter will do in prose.
+
+**What a player may read (AMENDMENT-0111-01, A1, V2).** A condition shown
+on a player surface -- Journée's quest panel, « Déclarer accomplie », the
+refusal of a standing plan, a blocked step's line in the day's narration --
+is read as the character may know it, never as the canon holds it.
+A1: a fact he does not resolve above `unaware` (`knowledge_resolve`) is
+never written out -- a secret, the creator's note, a fact still to learn
+read « un fait encore caché » (`condition_text.HIDDEN_FACT_FR`,
+`day_resolve.HIDDEN_KNOWLEDGE_DETAIL_FR`). V2: a judged leaf about someone
+else -- the giver, the contact, a named character -- reads `?`
+(`VerdictNode.seen_by`), and every head line is recombined from what is
+left, so « Objectif atteint » never rests on a hidden leaf; the count of a
+`relation_gte` (another's regard toward him) is never shown. A leaf about
+the character himself is shown as it stands, its target named. The
+creator's surfaces read the verdict whole. The fact text had reached the
+player since TICKET-0108 through a blocked step's « ce qui manque »; the
+amendment closes that path too. A blocked step names to the narration,
+and teaches through its lead, only the leaves that hold it back for its
+doer (`blocking_verdicts`): never a leaf under a `not`, never one about
+the giver. Rejected: A2 (the fact as player-visible: the secrets
+invariant); A3 (no `knowledge` leaf in a completion: it leaves 0108's path
+open and loses « apprends X »); V1 (the canon's state as a quest tracker:
+the character may not have seen it; reactivation: the event journal of
+TICKET-0114 says who witnessed what -- « tue le loup géant » is tracked
+from then).
+
 ---
 
 *Co-built with Claude, June 2026.*

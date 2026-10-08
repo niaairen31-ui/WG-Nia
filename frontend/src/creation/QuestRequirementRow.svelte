@@ -1,8 +1,10 @@
 <script>
   /* TICKET-0108 (BRIEF-0108-C). One requirement of a quest offer: its form,
      its target from the matching picker list, its threshold when the form
-     takes one. `req` is a draft object owned by questOffersState. */
-  import { REQUIREMENT_FORMS, targetOptions, valueOptions } from './questRequirements.js';
+     takes one. `req` is a draft object owned by questOffersState.
+     TICKET-0111: its subject first (P1), its value when the form compares
+     to one. */
+  import { REQUIREMENT_FORMS, subjectOptions, targetOptions, valueOptions } from './questRequirements.js';
 
   let { req, choices, onremove } = $props();
 
@@ -25,6 +27,12 @@
 </script>
 
 <div class="quest-req">
+  <select value={req.subject || 'role:doer'} title="Qui la condition juge"
+          onchange={(e) => { req.subject = e.target.value; }}>
+    {#each subjectOptions(choices) as o (o.value)}
+      <option value={o.value}>{o.label}</option>
+    {/each}
+  </select>
   <select value={req.type} onchange={(e) => setType(e.target.value)}>
     {#each Object.entries(REQUIREMENT_FORMS) as [type, f] (type)}
       <option value={type}>{f.label}</option>

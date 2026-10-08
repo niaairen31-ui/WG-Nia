@@ -71,7 +71,7 @@ def _refuse_unstarted_plan(character: Character, agenda: Agenda, db: Session) ->
             ),
         )
     evaluated = evaluate_agenda_step(pending_step, character, db)
-    unmet = blocked_details_fr(evaluated.verdict, db)
+    unmet = blocked_details_fr(evaluated.verdict, db, character.id)
     detail = "; ".join(unmet) if unmet else (
         "aucun prerequis non satisfait - le veto de faisabilite a juge l'action elle-meme irrealisable"
     )

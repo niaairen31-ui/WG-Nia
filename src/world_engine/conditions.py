@@ -18,6 +18,11 @@ A verdict has three states (R1): `met`, `unmet`, `unknown`. The connectors
 follow Kleene's three-valued logic, so an `unknown` leaf can still be
 outweighed (`any` with a met sibling is met). A gate passes only on `met`.
 
+A player sees a verdict only as his character could (AMENDMENT-0111-01,
+V2): `VerdictNode.seen_by` turns every judged leaf about someone else -- the
+giver, the contact, another character -- into `unknown`, and recombines the
+connectors from what is left. The creator's surfaces read the verdict whole.
+
 This module writes nothing: it reads the canon through the evaluators and
 reads a stored tree back (`read_condition`). Its writer is
 `writes/conditions.py`.
@@ -25,7 +30,7 @@ reads a stored tree back (`read_condition`). Its writer is
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional
 
 from sqlmodel import Session, select
@@ -95,6 +100,51 @@ class VerdictNode:
         """The verdicts of the leaves that were judged, in order; an
         `unknown` leaf has none."""
         return tuple(node.verdict for node in self.leaf_nodes() if node.verdict is not None)
+
+    def blocking_verdicts(self) -> tuple[Verdict, ...]:
+        """The verdicts of the leaves that hold this condition back for the
+        one who acts (AMENDMENT-0111-01): judged on `doer`, unmet, and not
+        under a `not` (an unmet leaf under a `not` is what the condition
+        wants). What a blocked day step names and teaches reads these only."""
+        found: list[Verdict] = []
+        _blocking(self, False, found)
+        return tuple(found)
+
+    def seen_by(self, viewer_id: str) -> "VerdictNode":
+        """This verdict as the character `viewer_id` could know it (V2): a
+        judged leaf whose subject is not him becomes `unknown` -- he cannot
+        see whether the giver knows a fact or whether another is alive --
+        and every connector is recombined from what is left, so no head
+        line betrays a hidden leaf."""
+        if self.op == "leaf":
+            if self.verdict is None or _seen_subject(self.spec, viewer_id):
+                return self
+            return replace(self, state="unknown", verdict=None, reason=UNSEEN_REASON_FR)
+        children = tuple(child.seen_by(viewer_id) for child in self.children)
+        return replace(self, state=_combine(self, children), children=children)
+
+
+# V2 (AMENDMENT-0111-01): why a leaf about someone else shows `?` to a player.
+UNSEEN_REASON_FR = "le personnage ne peut pas le vérifier"
+
+
+def _seen_subject(spec: Optional[RequirementSpec], viewer_id: str) -> bool:
+    """A leaf is about the viewer when it judges `doer` (the viewer, on
+    every player surface) or names him as its fixed subject."""
+    if spec is None:
+        return False
+    return spec.subject_role == "doer" or (spec.subject_entity_id is not None and spec.subject_entity_id == viewer_id)
+
+
+def _blocking(node: "VerdictNode", negated: bool, found: list) -> None:
+    if node.op == "not":
+        _blocking(node.children[0], not negated, found)
+    elif node.op != "leaf":
+        for child in node.children:
+            _blocking(child, negated, found)
+    elif (not negated and node.state == "unmet" and node.verdict is not None
+          and node.spec is not None and node.spec.subject_role == "doer"):
+        found.append(node.verdict)
 
 
 # --- building ------------------------------------------------------------------

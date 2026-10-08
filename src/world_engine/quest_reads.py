@@ -18,10 +18,10 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from .condition_forms import FORM_VALUES
-from .condition_text import VALUE_LABELS_FR
-from .conditions import flat_leaves, read_condition
+from .condition_text import VALUE_LABELS_FR, describe, verdict_lines
+from .conditions import evaluate, flat_leaves, node_to_dict, read_condition
 from .day_resolve import blocked_details_fr
-from .day_plan import evaluate_agenda_step
+from .day_plan import evaluate_agenda_step, plan_bindings
 from .models import (
     BASE_SKILL_DOMAINS,
     Agenda,
@@ -58,14 +58,13 @@ def _requirement_dict(req) -> dict:
             "subject_entity_id": req.subject_entity_id, "value": req.value}
 
 
-def _requirement_list(tree) -> list[dict]:
-    """A flat condition as the editor's list (T1). Until the surfaces read
-    trees (BRIEF-0111-D), every stored condition is flat: nothing else can
-    be written."""
+def condition_view(db: Session, tree) -> dict:
+    """One condition as the editor reads it (TICKET-0111, T1): the tree
+    itself, its leaves when it is flat (the list the editor edits; None when
+    it is not -- shown, sent back unchanged), and its French lines."""
     flat = flat_leaves(tree)
-    if flat is None:
-        raise ValueError("a nested condition cannot be read as a list")
-    return [_requirement_dict(r) for r in flat]
+    return {"tree": node_to_dict(tree), "flat": None if flat is None else [_requirement_dict(r) for r in flat],
+            "lines": describe(db, tree)}
 
 
 def _name(db: Session, entity_id: Optional[str]) -> Optional[str]:
@@ -84,10 +83,11 @@ def offer_dict(offer: QuestOffer, db: Session) -> dict:
         # TICKET-0110 (X1): a faction giver's contact.
         "contact_entity_id": offer.contact_entity_id, "contact_name": _name(db, offer.contact_entity_id),
         "title": offer.title, "summary": offer.summary, "repeatable": offer.repeatable, "status": offer.status,
-        "eligibility": _requirement_list(read_condition(db, role="eligibility", quest_offer_id=offer.id)),
+        "eligibility": condition_view(db, read_condition(db, role="eligibility", quest_offer_id=offer.id)),
         "steps": [{
             "objective": step.objective, "cost": step.cost, "domain": step.domain,
-            "requirements": _requirement_list(read_condition(db, role="prerequisite", quest_offer_step_id=step.id)),
+            "prerequisite": condition_view(db, read_condition(db, role="prerequisite", quest_offer_step_id=step.id)),
+            "completion": condition_view(db, read_condition(db, role="completion", quest_offer_step_id=step.id)),
         } for step in steps],
         # TICKET-0109 (B1, C1): the costs and rewards, and their indicative value.
         "terms": [term_dict(db, t, offer.giver_entity_id) for t in terms],
@@ -159,16 +159,26 @@ def available_offers(character: Character, db: Session) -> list[QuestOffer]:
 
 
 def _steps_view(agenda: Agenda, character: Character, db: Session) -> list[dict]:
+    """Each step: what the active one still needs, and -- M1 (TICKET-0111) --
+    where its objective stands, every line of its completion condition
+    judged (« 3/15 »); [] when it has none. Shown, never acted on. A player
+    surface: every line is as the character may read it (AMENDMENT-0111-01,
+    A1 and V2), `completion_met` included."""
     steps = db.exec(select(AgendaStep).where(AgendaStep.agenda_id == agenda.id)
                     .order_by(AgendaStep.step_order)).all()
+    bindings = plan_bindings(agenda.id, character, db)
     view = []
     for step in steps:
         blocked: list[str] = []
         if step.status == "active":
             evaluated = evaluate_agenda_step(step, character, db)
-            blocked = blocked_details_fr(evaluated.verdict, db)
+            blocked = blocked_details_fr(evaluated.verdict, db, character.id)
+        completion = evaluate(read_condition(db, role="completion", agenda_step_id=step.id), bindings, db)
+        seen = completion.seen_by(character.id) if completion is not None else None
         view.append({"order": step.step_order, "objective": step.objective, "status": step.status,
-                     "outcome": step.outcome, "blocked": blocked})
+                     "outcome": step.outcome, "blocked": blocked,
+                     "completion": verdict_lines(db, completion, character.id),
+                     "completion_met": seen.met if seen is not None else None})
     return view
 
 

@@ -67,7 +67,7 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from .condition_forms import Verdict as RequirementVerdict
-from .condition_text import leaf_text
+from .condition_text import known_to, leaf_text
 from .conditions import VerdictNode, leaves
 from .day_concordance import ConcordanceResult
 from .day_plan import (
@@ -247,7 +247,7 @@ def _truncate_on_failure(rolled: list[_RolledStep]) -> list[StepOutcome]:
             domain=item.evaluated.step.domain,
             verdict=item.verdict,
             band=item.band,
-            requirement_verdicts=item.evaluated.verdicts,
+            requirement_verdicts=item.evaluated.blocking,
             canon_ids=item.canon_ids,
         ))
         if item.band == "failure":
@@ -290,32 +290,49 @@ def requirement_detail_fr(verdict: RequirementVerdict) -> str:
     return template.format(required=getattr(verdict, "required_label", None) or verdict.required)
 
 
-def blocked_details_fr(verdict: Optional[VerdictNode], db: Session) -> list[str]:
-    """What a judged condition still lacks, in player-facing French
-    (TICKET-0111): an unmet leaf's `requirement_detail_fr`, an unknown
-    leaf's reason, and -- under a `not` -- a leaf that holds when it must
-    not. [] when the condition is met or absent."""
+# A1 (AMENDMENT-0111-01): what the player and the narration read for a fact
+# his character does not know, in place of `_BLOCKED_DETAIL_FR["knowledge"]`.
+HIDDEN_KNOWLEDGE_DETAIL_FR = "il lui manque encore un fait à découvrir"
+
+
+def player_detail_fr(verdict: RequirementVerdict, viewer_id: str, db: Session) -> str:
+    """`requirement_detail_fr` as the character `viewer_id` may read it
+    (A1): a `knowledge` leaf names its fact only when he knows it."""
+    if verdict.type == "knowledge" and not known_to(db, viewer_id, verdict.required):
+        return HIDDEN_KNOWLEDGE_DETAIL_FR
+    return requirement_detail_fr(verdict)
+
+
+def blocked_details_fr(verdict: Optional[VerdictNode], db: Session, viewer_id: str) -> list[str]:
+    """What a judged condition still lacks, in player-facing French, as the
+    character `viewer_id` may read it (TICKET-0111, AMENDMENT-0111-01): the
+    verdict is first `seen_by` him (V2); then an unmet leaf's
+    `player_detail_fr` (A1), an unknown leaf's text and reason, and -- under
+    a `not` -- a leaf that holds when it must not. [] when the condition is
+    met or absent."""
     if verdict is None or verdict.met:
         return []
     details: list[str] = []
-    _blocked(verdict, db, False, details)
+    _blocked(verdict.seen_by(viewer_id), db, viewer_id, False, details)
     return details
 
 
-def _blocked(node: VerdictNode, db: Session, negated: bool, details: list[str]) -> None:
+def _blocked(node: VerdictNode, db: Session, viewer_id: str, negated: bool, details: list[str]) -> None:
     if node.op == "not":
-        _blocked(node.children[0], db, not negated, details)
+        _blocked(node.children[0], db, viewer_id, not negated, details)
         return
     if node.op != "leaf":
         for child in node.children:
-            _blocked(child, db, negated, details)
+            _blocked(child, db, viewer_id, negated, details)
         return
     if node.state == "unknown":
-        details.append(node.reason or "une condition ne peut pas être vérifiée")
+        text = leaf_text(db, node.spec, viewer_id)
+        reason = node.reason or "une condition ne peut pas être vérifiée"
+        details.append(f"{text[0].lower()}{text[1:]} ({reason})")
     elif node.state == "unmet" and not negated:
-        details.append(requirement_detail_fr(node.verdict))
+        details.append(player_detail_fr(node.verdict, viewer_id, db))
     elif node.state == "met" and negated:
-        text = leaf_text(db, node.spec)
+        text = leaf_text(db, node.spec, viewer_id)
         details.append(f"il ne faut pas que : {text[0].lower()}{text[1:]}")
 
 
@@ -357,7 +374,7 @@ def _append_blocked_step(
         domain=evaluated.step.domain,
         verdict=None,
         band=BLOCKED_BAND,
-        requirement_verdicts=evaluated.verdicts,
+        requirement_verdicts=evaluated.blocking,
         canon_ids=canon_ids,
     ))
 
@@ -459,7 +476,7 @@ def freeze_facts(
             modifier=o.verdict.modifier if o.verdict is not None else None,
             total=o.verdict.total if o.verdict is not None else None,
             blocked_detail=(
-                " ; ".join(requirement_detail_fr(v) for v in o.requirement_verdicts if not v.met)
+                " ; ".join(player_detail_fr(v, character.id, db) for v in o.requirement_verdicts if not v.met)
                 if o.band == BLOCKED_BAND else None
             ),
         )

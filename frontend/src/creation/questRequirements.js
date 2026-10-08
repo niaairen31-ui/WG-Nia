@@ -33,8 +33,23 @@ export const MONEY_KEY = 'monnaie';
 
 export const STEP_DOMAINS = ['physical', 'agility', 'perception', 'composure'];
 
+// TICKET-0111 (BRIEF-0111-D, P1): who a requirement judges -- a role bound
+// when it is judged, or one character (`entity:<id>`). Mirrors
+// `conditions.SUBJECT_ROLES` (kept equal by `conditions.py` CD1).
+export const SUBJECT_ROLES = {
+  doer: 'Le personnage',
+  giver: 'Le donneur',
+  contact: 'Le contact',
+};
+
 export function blankRequirement() {
-  return { type: 'has_met', target_entity_id: '', target_key: '', threshold: null, value: '' };
+  return { type: 'has_met', subject: 'role:doer', target_entity_id: '', target_key: '', threshold: null, value: '' };
+}
+
+/** The subject options: the three roles, then every character. */
+export function subjectOptions(choices) {
+  const roles = Object.entries(SUBJECT_ROLES).map(([role, label]) => ({ value: 'role:' + role, label }));
+  return roles.concat((choices?.characters || []).map((c) => ({ value: 'entity:' + c.id, label: c.name })));
 }
 
 /** The (value, label) options of a form's picker, from the editor's choices. */
@@ -61,11 +76,45 @@ export function valueOptions(form, choices) {
 /** The request body of one requirement row: only the columns its form uses. */
 export function requirementBody(req) {
   const form = REQUIREMENT_FORMS[req.type];
+  const [kind, id] = (req.subject || 'role:doer').split(':');
   return {
+    op: 'leaf',
     type: req.type,
+    subject_role: kind === 'role' ? id : null,
+    subject_entity_id: kind === 'entity' ? id : null,
     target_entity_id: form.column === 'entity' ? (req.target_entity_id || null) : null,
     target_key: form.list === 'money' ? MONEY_KEY : form.column === 'key' ? (req.target_key || null) : null,
     threshold: form.threshold ? (req.threshold === '' || req.threshold === null ? null : Number(req.threshold)) : null,
     value: form.values ? (req.value || null) : null,
   };
+}
+
+/* TICKET-0111 (BRIEF-0111-D, T1). A condition in the editor: `list`, the
+   rows of a flat condition (`all` of its leaves), or `locked`, a nested
+   tree shown read-only by its French `lines` and sent back unchanged --
+   only the interpreter will edit those. */
+
+/** The editor's draft of one condition, from the server's view (`quest_reads.condition_view`). */
+export function conditionDraft(view) {
+  if (view && !view.flat) return { list: [], locked: view.tree, lines: view.lines || [] };
+  return {
+    list: (view?.flat || []).map((r) => ({
+      ...r,
+      subject: r.subject_entity_id ? 'entity:' + r.subject_entity_id : 'role:' + (r.subject_role || 'doer'),
+      target_entity_id: r.target_entity_id || '', target_key: r.target_key || '', value: r.value || '',
+    })),
+    locked: null,
+    lines: [],
+  };
+}
+
+export function blankCondition() {
+  return { list: [], locked: null, lines: [] };
+}
+
+/** The tree a condition draft sends: the locked tree, `all` of the rows, or null. */
+export function conditionBody(cond) {
+  if (cond.locked) return cond.locked;
+  if (!cond.list.length) return null;
+  return { op: 'all', children: cond.list.map(requirementBody) };
 }

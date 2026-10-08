@@ -31,8 +31,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ... import quest_reads
-from ...condition_forms import RequirementSpec
-from ...conditions import all_of
+from ...conditions import node_from_dict
 from ...day_plan import PlanStep
 from ...db import get_session
 from ...models import Quest, QuestEconomy, QuestOffer
@@ -49,23 +48,14 @@ from .day import _resolve_player_character
 router = APIRouter()
 
 
-class RequirementBody(BaseModel):
-    type: str
-    target_entity_id: Optional[str] = None
-    target_key: Optional[str] = None
-    threshold: Optional[int] = None
-    # TICKET-0111 (P1, S1): the leaf's subject (a role, else one entity) and
-    # the value of a form that compares to one.
-    subject_role: Optional[str] = None
-    subject_entity_id: Optional[str] = None
-    value: Optional[str] = None
-
-
 class OfferStepBody(BaseModel):
     objective: str
     cost: int
     domain: Optional[str] = None
-    requirements: list[RequirementBody] = Field(default_factory=list)
+    # TICKET-0111 (I1, M1): a step's conditions are trees in the dict form of
+    # `conditions.node_to_dict`; null is none.
+    prerequisite: Optional[dict] = None
+    completion: Optional[dict] = None
 
 
 class TermBody(BaseModel):
@@ -87,7 +77,7 @@ class OfferBody(BaseModel):
     summary: Optional[str] = None
     repeatable: bool = False
     status: str = "open"
-    eligibility: list[RequirementBody] = Field(default_factory=list)
+    eligibility: Optional[dict] = None
     steps: list[OfferStepBody] = Field(default_factory=list)
     # TICKET-0109 (B1): the offer's costs and rewards, replaced whole; absent
     # (None) keeps the stored ones.
@@ -123,22 +113,15 @@ class CreditBody(BaseModel):
     contacts: dict[str, str] = Field(default_factory=dict)
 
 
-def _spec(req: RequirementBody) -> RequirementSpec:
-    subject_entity_id = req.subject_entity_id or None
-    return RequirementSpec(type=req.type, target_entity_id=req.target_entity_id or None,
-                           target_key=req.target_key or None, threshold=req.threshold,
-                           subject_role=req.subject_role or (None if subject_entity_id else "doer"),
-                           subject_entity_id=subject_entity_id, value=req.value or None)
-
-
 def _save_offer(body: OfferBody, offer: Optional[QuestOffer], world_id: str, db: Session) -> dict:
-    steps = [PlanStep(objective=s.objective, cost=s.cost, domain=s.domain or None,
-                      prerequisite=all_of(_spec(r) for r in s.requirements)) for s in body.steps]
     try:
+        steps = [PlanStep(objective=s.objective, cost=s.cost, domain=s.domain or None,
+                          prerequisite=node_from_dict(s.prerequisite), completion=node_from_dict(s.completion))
+                 for s in body.steps]
         offer = write_quest_offer(
             db, world_id=world_id, offer=offer, giver_entity_id=body.giver_entity_id, title=body.title,
             summary=body.summary, repeatable=body.repeatable, status=body.status,
-            eligibility=all_of(_spec(r) for r in body.eligibility), steps=steps,
+            eligibility=node_from_dict(body.eligibility), steps=steps,
             terms=None if body.terms is None else [_term(t) for t in body.terms],
             contact_entity_id=body.contact_entity_id or None,
         )

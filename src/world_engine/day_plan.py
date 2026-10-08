@@ -77,18 +77,23 @@ DAY_PLAN_OPTIONS: dict = {"repeat_penalty": 1.1, "repeat_last_n": 128}
 class PlanStep:
     """One step of a plan. Its `prerequisite` is a condition tree
     (TICKET-0111, I1) -- `all` of the model's leaves for a day plan, any
-    tree for a quest step; None when nothing gates it."""
+    tree for a quest step; None when nothing gates it. `completion` (M1,
+    BRIEF-0111-D) says when a quest step's objective is reached: shown,
+    never acted on; a day plan has none."""
     objective: str
     cost: Optional[int]
     domain: Optional[str]
     prerequisite: Optional[ConditionTree] = None
+    completion: Optional[ConditionTree] = None
 
 
 @dataclass(frozen=True)
 class EvaluatedStep:
     """A step and its judged prerequisite (None: nothing gates it). It is
     `met` only when the verdict is (R1: `unknown` does not pass);
-    `verdicts` are the judged leaves, in order, for the day's narration."""
+    `verdicts` are the judged leaves, in order; `blocking` the ones that hold
+    the step back for its doer (AMENDMENT-0111-01) -- what a blocked step
+    names to the narration and teaches."""
     step: PlanStep
     verdict: Optional[VerdictNode] = None
 
@@ -99,6 +104,10 @@ class EvaluatedStep:
     @property
     def verdicts(self) -> tuple[Verdict, ...]:
         return () if self.verdict is None else self.verdict.leaf_verdicts()
+
+    @property
+    def blocking(self) -> tuple[Verdict, ...]:
+        return () if self.verdict is None else self.verdict.blocking_verdicts()
 
 
 @dataclass(frozen=True)

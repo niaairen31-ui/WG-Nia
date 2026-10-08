@@ -3,9 +3,12 @@
    one draft being edited. Saving sends the whole offer (PUT replaces its
    steps and requirements, writes/quests.py::write_quest_offer). Since
    TICKET-0109 (BRIEF-0109-D): its costs and rewards, their live indicative
-   value (POST /api/quest-offers/value), and the world's rates. */
+   value (POST /api/quest-offers/value), and the world's rates. Since
+   TICKET-0111 (BRIEF-0111-D): every condition -- the eligibility, each
+   step's prerequisite and completion -- is a condition draft, sent as a
+   tree (conditionBody). */
 import { api } from './sheetRequest.svelte.js';
-import { blankRequirement, requirementBody } from './questRequirements.js';
+import { blankCondition, conditionBody, conditionDraft } from './questRequirements.js';
 import { blankTerm, termBody } from './questTerms.js';
 
 export const questOffersState = $state({
@@ -13,7 +16,7 @@ export const questOffersState = $state({
   choices: null,
   loading: false,
   loadError: '',
-  draft: null, // { id|null, giver_entity_id, contact_entity_id, title, summary, repeatable, status, eligibility, steps }
+  draft: null, // { id|null, giver_entity_id, contact_entity_id, title, summary, repeatable, status, eligibility, steps, terms }
   saving: false,
   saveError: '',
   value: null, // the draft's indicative value (cost, reward, ratio_pct, verdict_label)
@@ -22,14 +25,14 @@ export const questOffersState = $state({
 });
 
 export function blankStep() {
-  return { objective: '', cost: 1, domain: '', requirements: [] };
+  return { objective: '', cost: 1, domain: '', prerequisite: blankCondition(), completion: blankCondition() };
 }
 
 export function newDraft() {
   questOffersState.saveError = '';
   questOffersState.draft = {
     id: null, giver_entity_id: '', contact_entity_id: '', title: '', summary: '', repeatable: false, status: 'open',
-    eligibility: [], steps: [blankStep()], terms: [],
+    eligibility: blankCondition(), steps: [blankStep()], terms: [],
   };
   refreshValue();
 }
@@ -40,10 +43,10 @@ export function editOffer(offer) {
     id: offer.id, giver_entity_id: offer.giver_entity_id, contact_entity_id: offer.contact_entity_id || '',
     title: offer.title, summary: offer.summary || '',
     repeatable: offer.repeatable, status: offer.status,
-    eligibility: offer.eligibility.map((r) => ({ ...r, target_entity_id: r.target_entity_id || '', target_key: r.target_key || '' })),
+    eligibility: conditionDraft(offer.eligibility),
     steps: offer.steps.map((s) => ({
       objective: s.objective, cost: s.cost, domain: s.domain || '',
-      requirements: s.requirements.map((r) => ({ ...r, target_entity_id: r.target_entity_id || '', target_key: r.target_key || '' })),
+      prerequisite: conditionDraft(s.prerequisite), completion: conditionDraft(s.completion),
     })),
     terms: (offer.terms || []).map((t) => ({
       direction: t.direction, currency: t.currency, counterparty_entity_id: t.counterparty_entity_id || '',
@@ -96,10 +99,6 @@ export async function saveEconomy(stored) {
   }
 }
 
-export function addRequirement(list) {
-  list.push(blankRequirement());
-}
-
 export async function loadOffers(worldId) {
   if (!worldId) { questOffersState.offers = []; questOffersState.choices = null; return; }
   questOffersState.loading = true;
@@ -121,10 +120,10 @@ function draftBody(draft) {
     giver_entity_id: draft.giver_entity_id, contact_entity_id: draft.contact_entity_id || null,
     title: draft.title, summary: draft.summary || null,
     repeatable: draft.repeatable, status: draft.status,
-    eligibility: draft.eligibility.map(requirementBody),
+    eligibility: conditionBody(draft.eligibility),
     steps: draft.steps.map((s) => ({
       objective: s.objective, cost: Number(s.cost), domain: s.domain || null,
-      requirements: s.requirements.map(requirementBody),
+      prerequisite: conditionBody(s.prerequisite), completion: conditionBody(s.completion),
     })),
     terms: draft.terms.map(termBody),
   };

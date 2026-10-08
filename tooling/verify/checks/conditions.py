@@ -78,6 +78,39 @@ CC5 -- the retired tables are gone from the code (static, AST). No module
    nor uses `agenda_step_requirement` or `quest_offer_requirement` as a
    whole string.
 
+CD1 -- the editor (BRIEF-0111-D, static). `questRequirements.js`'s
+   `SUBJECT_ROLES` has exactly the keys of `conditions.SUBJECT_ROLES`, in
+   order; `requirementBody` sends `op: 'leaf'`, `subject_role`,
+   `subject_entity_id` and `value`; `conditionBody` sends the locked tree,
+   else `op: 'all'` of the rows, else null. `ConditionEditor.svelte` renders
+   `<QuestRequirementRow` for a list and `cond.lines` for a locked tree;
+   `QuestOffers.svelte` renders `<ConditionEditor` for the eligibility, the
+   prerequisite and the completion; `questOffers.svelte.js` sends
+   `eligibility`, `prerequisite` and `completion` through `conditionBody`.
+CD2 -- the offer API and what Journée reads (fixture and route functions).
+   `create_offer` takes a nested eligibility and a step's completion;
+   `offer_dict` gives the nested one `flat: null` and its French lines, a
+   flat one its rows; a malformed tree answers 422 with no row written.
+   Accepting copies both conditions of each step to the agenda; the active
+   step's `completion` lines in `journee_payload` carry a mark and a
+   progress, `completion_met` its verdict; `settlement_context` shows them
+   too; no payload carries `agenda_id` or `step_id`.
+CD3 -- Journée (static). `QuestPanel.svelte` shows the active step's
+   `step.completion` lines with their mark and progress;
+   `SettlementRecap.svelte` shows every step's `step.completion`.
+CD4 -- what a player may read (AMENDMENT-0111-01, A1 and V2; fixture). A
+   fact the PC does not know -- held by an NPC as a secret -- is never
+   written out on a player surface: not in `verdict_lines` with the PC as
+   viewer (it reads `HIDDEN_FACT_FR`), not in `blocked_details_fr` (it
+   reads `HIDDEN_KNOWLEDGE_DETAIL_FR`), not in `player_detail_fr`; the
+   creator's `verdict_lines` still writes it; once the PC knows it, the
+   player's line writes it too. A leaf about the giver reads `?` with no
+   progress, a `relation_gte` leaf shows no count, and a head line never
+   reads met over a hidden leaf; `_steps_view`'s `completion_met` is the
+   seen verdict's. `blocking_verdicts` keeps only the unmet leaves on the
+   doer outside a `not`: a negated leaf and a leaf on the giver never reach
+   a blocked step's narration or its lead.
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that collects nothing fails.
 """
@@ -816,7 +849,7 @@ def _cc4_consumers(session, ids) -> None:
     armed = _account_rendezvous([applied], session)
     if armed is None or armed["npc_id"] != ids["npc"]:
         fail(f"CC4: the day's NPC is {armed}, expected the relation_gte reached through all")
-    details = blocked_details_fr(evaluated.verdict, session)
+    details = blocked_details_fr(evaluated.verdict, session, ids["pc"])
     if not any(d.startswith("il ne faut pas que") and "Fourrure" in d for d in details):
         fail(f"CC4: the blocked details miss the negated leaf: {details}")
 
@@ -872,6 +905,231 @@ def check_cc5() -> None:
         fail("CC5: walked zero modules")
 
 
+# --- CD1 -----------------------------------------------------------------------
+
+FRONTEND = ROOT / "frontend" / "src"
+
+
+def _front(rel: str) -> str:
+    path = FRONTEND / rel
+    if not path.exists():
+        fail(f"CD: {rel} is missing")
+        return ""
+    return path.read_text(encoding="utf-8")
+
+
+def check_cd1() -> None:
+    import re
+
+    from world_engine.conditions import SUBJECT_ROLES
+
+    req = _front("creation/questRequirements.js")
+    block = re.search(r"export const SUBJECT_ROLES = \{(.*?)\};", req, re.S)
+    keys = tuple(re.findall(r"^\s+(\w+): '", block.group(1), re.M)) if block else ()
+    if keys != SUBJECT_ROLES:
+        fail(f"CD1: SUBJECT_ROLES in questRequirements.js is {keys}")
+    for needle in ("op: 'leaf',", "subject_role: kind === 'role' ? id : null,",
+                   "subject_entity_id: kind === 'entity' ? id : null,", "value: form.values ? (req.value || null) : null,",
+                   "if (cond.locked) return cond.locked;", "return { op: 'all', children: cond.list.map(requirementBody) };"):
+        if needle not in req:
+            fail(f"CD1: questRequirements.js lacks {needle!r}")
+    editor = _front("creation/ConditionEditor.svelte")
+    for needle in ("<QuestRequirementRow", "{#each cond.lines as line", "{#if cond.locked}"):
+        if needle not in editor:
+            fail(f"CD1: ConditionEditor.svelte lacks {needle!r}")
+    offers = _front("creation/QuestOffers.svelte")
+    for needle in ("<ConditionEditor cond={draft.eligibility}", "<ConditionEditor cond={step.prerequisite}",
+                   "<ConditionEditor cond={step.completion}"):
+        if needle not in offers:
+            fail(f"CD1: QuestOffers.svelte lacks {needle!r}")
+    state = _front("creation/questOffers.svelte.js")
+    for needle in ("eligibility: conditionBody(draft.eligibility),",
+                   "prerequisite: conditionBody(s.prerequisite), completion: conditionBody(s.completion),"):
+        if needle not in state:
+            fail(f"CD1: questOffers.svelte.js lacks {needle!r}")
+
+
+# --- CD2 -----------------------------------------------------------------------
+
+def _keys(value) -> set:
+    if isinstance(value, dict):
+        return set(value) | set().union(*(_keys(v) for v in value.values()))
+    if isinstance(value, list):
+        return set().union(*(_keys(v) for v in value)) if value else set()
+    return set()
+
+
+def _cd2_offer(session, ids, routes):
+    from fastapi import HTTPException
+    from sqlmodel import select
+
+    from world_engine.models import QuestOffer, World
+
+    for world in session.exec(select(World).where(World.is_active == True)).all():  # noqa: E712
+        world.is_active = False
+        session.add(world)
+    ours = session.get(World, ids["world"])
+    ours.is_active = True
+    session.add(ours)
+    session.commit()
+    met = {"op": "leaf", "type": "has_met", "subject_role": "doer", "target_entity_id": ids["npc"]}
+    furs = {"op": "leaf", "type": "item_held", "subject_role": "doer", "target_entity_id": ids["fur"], "threshold": 5}
+    body = routes.OfferBody(giver_entity_id=ids["npc"], title="Cinq fourrures",
+                            eligibility={"op": "any", "children": [met, {"op": "not", "children": [furs]}]},
+                            steps=[routes.OfferStepBody(objective="Rapporter", cost=1,
+                                                        completion={"op": "all", "children": [furs]})])
+    view = routes.create_offer(body, db=session)
+    if view["eligibility"]["flat"] is not None or [l["depth"] for l in view["eligibility"]["lines"]] != [0, 1, 1, 2]:
+        fail(f"CD2: a nested eligibility reads {view['eligibility']}")
+    step = view["steps"][0]
+    if step["completion"]["flat"] != [{"type": "item_held", "target_entity_id": ids["fur"], "target_key": None,
+                                        "threshold": 5, "subject_role": "doer", "subject_entity_id": None,
+                                        "value": None}] or step["prerequisite"]["tree"] is not None:
+        fail(f"CD2: a flat completion reads {step['completion']}, the empty prerequisite {step['prerequisite']}")
+    before = _rows(session)
+    bad = routes.OfferBody(giver_entity_id=ids["npc"], title="Mal formée",
+                           eligibility={"op": "not", "children": [met, met]},
+                           steps=[routes.OfferStepBody(objective="o", cost=1)])
+    try:
+        routes.create_offer(bad, db=session)
+        fail("CD2: a malformed tree was saved")
+    except HTTPException as exc:
+        if exc.status_code != 422 or _rows(session) != before:
+            fail(f"CD2: a malformed tree answered {exc.status_code} or wrote rows")
+    return session.get(QuestOffer, view["id"])
+
+
+def check_cd2(engine) -> None:
+    from sqlmodel import Session, select
+
+    from world_engine.cockpit.routes import quests as routes
+    from world_engine.conditions import read_condition
+    from world_engine.models import AgendaStep, Character, Quest, World
+    from world_engine.quest_reads import journee_payload
+    from world_engine.quest_settlement_view import settlement_context
+    from world_engine.writes import accept_quest
+
+    with Session(engine) as session:
+        world = session.exec(select(World).where(World.name == "Conditions CC")).one()
+        ids = _cc_ids(session, world.id)
+        offer = _cd2_offer(session, ids, routes)
+        quest = accept_quest(session, offer=offer, character=session.get(Character, ids["pc"]))
+        session.commit()
+        step = session.exec(select(AgendaStep).where(AgendaStep.agenda_id == quest.agenda_id)).one()
+        if read_condition(session, role="completion", agenda_step_id=step.id) is None:
+            fail("CD2: accepting did not copy the step's completion")
+        payload = journee_payload(session.get(Character, ids["pc"]), session)
+        ours = next((q for q in payload["quests"] if q["quest_id"] == quest.id), None)
+        lines = ours["steps"][0]["completion"] if ours else []
+        if [(l["mark"], l["progress"]) for l in lines] != [("✗", None), ("✗", "3/5")] \
+                or ours["steps"][0]["completion_met"] is not False:
+            fail(f"CD2: the active step's completion reads {lines}")
+        context = settlement_context(session, session.get(Quest, quest.id))
+        if context["steps"][0]["completion"] != lines:
+            fail("CD2: « déclarer accomplie » does not show the completion lines")
+        leaked = {"agenda_id", "step_id"} & (_keys(payload) | _keys(context))
+        if leaked:
+            fail(f"CD2: a payload carries {sorted(leaked)}")
+
+
+# --- CD4 -----------------------------------------------------------------------
+
+SECRET_TEXT = "Le trésor dort sous le puits"
+
+
+def _cd4_fact(session, ids, content: str) -> str:
+    from world_engine.models import Knowledge
+    from world_engine.writes.facts import create_fact
+
+    fact = create_fact(session, world_id=ids["world"], content=content, created_by="check", facet="information")
+    session.flush()
+    session.add(Knowledge(entity_id=ids["npc"], fact_id=fact.id, level="knows", is_secret=True))
+    session.commit()
+    return fact.id
+
+
+def _cd4_reading(session, ids, fact_id) -> None:
+    from world_engine.condition_text import HIDDEN_FACT_FR, verdict_lines
+    from world_engine.conditions import Bindings, ConditionTree, evaluate, leaf
+    from world_engine.day_resolve import HIDDEN_KNOWLEDGE_DETAIL_FR, blocked_details_fr, player_detail_fr
+    from world_engine.models import Character, Knowledge
+
+    pc = session.get(Character, ids["pc"])
+    tree = ConditionTree(op="all", children=(
+        leaf(_spec("knowledge", target_key=fact_id)),
+        leaf(_spec("has_met", subject_role="giver", target_entity_id=ids["npc"])),
+        leaf(_spec("relation_gte", target_entity_id=ids["npc"], threshold=1))))
+    verdict = evaluate(tree, Bindings(doer=pc, giver_id=ids["npc"]), session)
+    lines = verdict_lines(session, verdict, ids["pc"])
+    texts = " | ".join(line["text"] for line in lines)
+    hidden = HIDDEN_FACT_FR.format(who="le personnage")
+    if "trésor" in texts or hidden[1:] not in texts:
+        fail(f"CD4: the player's lines write out an unknown fact: {texts}")
+    if "trésor" not in " | ".join(line["text"] for line in verdict_lines(session, verdict)):
+        fail("CD4: the creator's lines no longer write the fact")
+    if [(line["mark"], line["progress"]) for line in lines[2:]] != [("?", None), ("✗", None)]:
+        fail(f"CD4: the giver's leaf or the regard shows through: {lines[2:]}")
+    details = blocked_details_fr(verdict, session, ids["pc"])
+    if any("trésor" in d for d in details) or HIDDEN_KNOWLEDGE_DETAIL_FR not in details:
+        fail(f"CD4: the blocked details write out an unknown fact: {details}")
+    if "trésor" in player_detail_fr(verdict.children[0].verdict, ids["pc"], session):
+        fail("CD4: player_detail_fr writes out an unknown fact")
+    session.add(Knowledge(entity_id=ids["pc"], fact_id=fact_id, level="knows", is_secret=False))
+    session.commit()
+    known = evaluate(tree, Bindings(doer=pc, giver_id=ids["npc"]), session)
+    if "trésor" not in verdict_lines(session, known, ids["pc"])[1]["text"]:
+        fail("CD4: a fact the PC knows is hidden from him")
+    giver_only = ConditionTree(op="all", children=(
+        leaf(_spec("has_met", subject_role="giver", target_entity_id=ids["npc"])),))
+    seen = evaluate(giver_only, Bindings(doer=pc, giver_id=ids["npc"]), session).seen_by(ids["pc"])
+    if seen.state != "unknown":
+        fail(f"CD4: a head line over a hidden leaf reads {seen.state}")
+
+
+def _cd4_blocking(session, ids, fact_id) -> None:
+    from world_engine.conditions import Bindings, ConditionTree, evaluate, leaf
+    from world_engine.models import Character
+
+    other = _cd4_fact(session, ids, "La clé est rouillée")
+    tree = ConditionTree(op="all", children=(
+        ConditionTree(op="not", children=(leaf(_spec("knowledge", target_key=other)),)),
+        leaf(_spec("knowledge", subject_role="giver", target_key=other)),
+        leaf(_spec("knowledge", target_key=other)),
+        leaf(_spec("knowledge", target_key=fact_id))))
+    pc = session.get(Character, ids["pc"])
+    verdict = evaluate(tree, Bindings(doer=pc, giver_id=ids["other"]), session)
+    blocking = [v.required for v in verdict.blocking_verdicts()]
+    if blocking != [other]:
+        fail(f"CD4: blocking_verdicts keeps {blocking}, expected only the doer's unmet leaf outside the not")
+
+
+def check_cd4(engine) -> None:
+    from sqlmodel import Session, select
+
+    from world_engine.models import Entity, World
+
+    with Session(engine) as session:
+        world = session.exec(select(World).where(World.name == "Conditions CC")).one()
+        names = {e.name: e.id for e in session.exec(select(Entity).where(Entity.world_id == world.id)).all()}
+        ids = {"world": world.id, "pc": names["PC"], "npc": names["NPC"], "other": names["OTHER"]}
+        fact_id = _cd4_fact(session, ids, SECRET_TEXT)
+        _cd4_reading(session, ids, fact_id)
+        _cd4_blocking(session, ids, fact_id)
+
+
+# --- CD3 -----------------------------------------------------------------------
+
+def check_cd3() -> None:
+    panel = _front("journee/QuestPanel.svelte")
+    for needle in ("{#if step.status === 'active' && step.completion?.length}", "{#each step.completion as line",
+                   "{line.mark} {line.text}{#if line.progress} — {line.progress}{/if}"):
+        if needle not in panel:
+            fail(f"CD3: QuestPanel.svelte lacks {needle!r}")
+    recap = _front("journee/SettlementRecap.svelte")
+    if "{#each step.completion || [] as line" not in recap:
+        fail("CD3: SettlementRecap.svelte does not show the steps' completion")
+
+
 def main() -> int:
     _fresh_db()
     check_ca1()
@@ -887,6 +1145,10 @@ def main() -> int:
     check_cc3()
     check_cc4(engine)
     check_cc5()
+    check_cd1()
+    check_cd2(engine)
+    check_cd3()
+    check_cd4(engine)
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -895,7 +1157,10 @@ def main() -> int:
           "condition_forms.py alone; a condition is a tree of four connectors over those forms, "
           "shape-checked, judged in three values on each leaf's subject, and read back in French "
           "without writing anything; v2.20 stores it as rows, one tree per owner and role, converted "
-          "from the two requirement tables it drops; every agenda judges it, binding a quest's giver")
+          "from the two requirement tables it drops; every agenda judges it, binding a quest's giver; "
+          "the offer editor edits a flat one as a list and shows a nested one; Journée and « déclarer "
+          "accomplie » show each step's completion, never acting on it; a player reads neither a fact his "
+          "character does not know nor a leaf about someone else")
     return 0
 
 
