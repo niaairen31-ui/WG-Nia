@@ -22,6 +22,32 @@ NA2 -- one templated JSON call (BRIEF-0112-A; static, AST, and a stub).
    and records one exchange whose raw output is the stub's reply.
    `lore_write_draft.world_fact_ids` is public and `_world_facts` gone.
 
+NB1 -- the journal's table (BRIEF-0112-B, IH1; import). `condition_draft`
+   carries exactly its contract's columns, CHECK names and texts, and its
+   two indexes; no column is `world_id` and no column has a FK;
+   `CONDITION_DRAFT_OUTCOMES` is the outcome CHECK's list, in order, and
+   equals `FIRST_OUTCOMES` with every outcome `CONDITION_DRAFT_MOVES`
+   reaches; the role CHECK quotes `CONDITION_ROLES`; `JSON_COLUMN_ALLOWLIST`
+   names `ConditionDraft.payload` and `ConditionDraft.model_calls`; the
+   code's schema version is v2.21 or later.
+NB2 -- the writer (fixture). `write_condition_draft` records a proposal
+   with its world's name; refused with a `ValueError` and no row: an
+   unknown role, a first outcome `inserted`, a payload missing a key, an
+   empty instruction. `move_condition_draft` takes `needs_choice` to
+   `proposed` with a new payload and `proposed` to `inserted`, stamping
+   `decided_at`; it refuses `proposed` -> `saved`, `refused` -> `inserted`
+   and `inserted` -> `discarded`, changing nothing. `mark_draft_saved`
+   marks an inserted draft `saved` with its offer and `saved_as_proposed`
+   true for the proposed tree and false for another; it returns False and
+   writes nothing for a draft of another world, a `proposed` draft, an
+   unknown id and None. The database refuses a `saved` row without an
+   offer, and an outcome outside the list.
+NB3 -- migration `scripts/migrate_v2_21_condition_draft.py` on a database
+   without the table: at v2.19 it refuses and creates nothing; at v2.20 it
+   creates the table with the model's columns and CHECK names, zero rows,
+   and sets `schema_meta` to the code's version; a second run says nothing
+   to do; a row written through the writer reads back its JSON.
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that collects nothing fails.
 """
@@ -31,11 +57,15 @@ import ast
 import json
 import os
 import pathlib
+import re
+import sqlite3
+import subprocess
 import sys
 import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = ROOT / "src" / "world_engine"
+MIGRATION = ROOT / "scripts" / "migrate_v2_21_condition_draft.py"
 
 FAILURES: list[str] = []
 
@@ -223,18 +253,263 @@ def check_na2(engine) -> None:
     _na2_stub(engine)
 
 
+# --- NB1 -----------------------------------------------------------------------
+
+DRAFT_COLUMNS = ("id", "attempt_id", "world_ref", "world_name", "role", "instruction", "outcome", "retried",
+                 "offer_ref", "saved_as_proposed", "payload", "model_calls", "created_at", "decided_at")
+DRAFT_CHECKS = {
+    "ck_condition_draft_role": "role IN ('eligibility','prerequisite','completion')",
+    "ck_condition_draft_outcome": "outcome IN ('proposed','needs_choice','refused','unavailable','parse_error',"
+                                  "'inserted','discarded','saved')",
+    "ck_condition_draft_saved": "(offer_ref IS NOT NULL) = (outcome = 'saved') "
+                                "AND (saved_as_proposed IS NOT NULL) = (outcome = 'saved')",
+}
+DRAFT_INDEXES = {"idx_condition_draft_attempt": ("attempt_id", "created_at"),
+                 "idx_condition_draft_world": ("world_ref", "created_at")}
+
+
+def _version_key(version: str) -> tuple[int, int]:
+    major, minor = version.lstrip("v").split(".")
+    return int(major), int(minor)
+
+
+def check_nb1() -> None:
+    from sqlalchemy import CheckConstraint
+
+    from world_engine.models import CONDITION_DRAFT_OUTCOMES, CONDITION_ROLES, ConditionDraft
+    from world_engine.schema_version import EXPECTED_STATIC_SCHEMA_VERSION
+    from world_engine.writes.condition_drafts import CONDITION_DRAFT_MOVES, FIRST_OUTCOMES
+
+    table = ConditionDraft.__table__
+    columns = tuple(c.name for c in table.columns)
+    if columns != DRAFT_COLUMNS:
+        fail(f"NB1: condition_draft columns are {columns}")
+    if any(c.foreign_keys for c in table.columns) or "world_id" in columns:
+        fail("NB1: condition_draft carries a FK or a world_id")
+    checks = {c.name: str(c.sqltext) for c in table.constraints if isinstance(c, CheckConstraint)}
+    if checks != DRAFT_CHECKS:
+        fail(f"NB1: condition_draft CHECKs are {checks}")
+    indexes = {i.name: tuple(c.name for c in i.columns) for i in table.indexes}
+    if indexes != DRAFT_INDEXES:
+        fail(f"NB1: condition_draft indexes are {indexes}")
+    quoted = tuple(re.findall(r"'([a-z_]+)'", checks.get("ck_condition_draft_outcome", "")))
+    reached = set(FIRST_OUTCOMES) | {o for moves in CONDITION_DRAFT_MOVES.values() for o in moves}
+    if quoted != CONDITION_DRAFT_OUTCOMES or set(CONDITION_DRAFT_OUTCOMES) != reached:
+        fail(f"NB1: outcomes {CONDITION_DRAFT_OUTCOMES} vs CHECK {quoted} vs moves {sorted(reached)}")
+    roles = tuple(re.findall(r"'([a-z_]+)'", checks.get("ck_condition_draft_role", "")))
+    if roles != CONDITION_ROLES:
+        fail(f"NB1: the role CHECK quotes {roles}, not CONDITION_ROLES")
+    boundary = (ROOT / "tooling" / "verify" / "checks" / "json_ui_boundary.py").read_text(encoding="utf-8")
+    for name in ("ConditionDraft.payload", "ConditionDraft.model_calls"):
+        if f'"{name}"' not in boundary:
+            fail(f"NB1: JSON_COLUMN_ALLOWLIST does not name {name}")
+    if _version_key(EXPECTED_STATIC_SCHEMA_VERSION) < (2, 21):
+        fail(f"NB1: the code's schema version is {EXPECTED_STATIC_SCHEMA_VERSION}")
+
+
+# --- NB2 -----------------------------------------------------------------------
+
+def _payload(**over) -> dict:
+    base = {"current": None, "pending": None, "mentions": [], "bindings": {}, "proposed": None,
+            "notes": [], "errors": []}
+    base.update(over)
+    return base
+
+
+def _nb2_refusals(session, world_id: str) -> None:
+    from sqlmodel import func, select
+
+    from world_engine.models import ConditionDraft
+    from world_engine.writes.condition_drafts import write_condition_draft
+
+    before = session.exec(select(func.count()).select_from(ConditionDraft)).one()
+    bad = {"an unknown role": dict(role="reward"), "a first outcome inserted": dict(outcome="inserted"),
+           "a payload missing a key": dict(payload={"current": None}), "an empty instruction": dict(instruction=" ")}
+    for label, over in bad.items():
+        kwargs = dict(attempt_id="a", world_id=world_id, role="eligibility", instruction="x",
+                      outcome="proposed", payload=_payload(), model_calls=[])
+        kwargs.update(over)
+        try:
+            write_condition_draft(session, **kwargs)
+            fail(f"NB2: the writer accepted {label}")
+        except ValueError:
+            pass
+    session.rollback()
+    if session.exec(select(func.count()).select_from(ConditionDraft)).one() != before:
+        fail("NB2: a refused proposal wrote a row")
+
+
+def _nb2_moves(session, world_id: str) -> None:
+    from world_engine.writes.condition_drafts import move_condition_draft, write_condition_draft
+
+    tree = {"op": "leaf", "type": "vital_status", "subject_role": "doer", "subject_entity_id": None,
+            "target_entity_id": None, "target_key": None, "threshold": None, "value": "alive"}
+    draft = write_condition_draft(session, attempt_id="a", world_id=world_id, role="completion",
+                                  instruction="Le joueur est en vie", outcome="needs_choice",
+                                  payload=_payload(), model_calls=[])
+    session.commit()
+    if draft.world_name != "Interprète NB" or draft.decided_at is not None:
+        fail(f"NB2: a proposal reads world {draft.world_name!r}, decided {draft.decided_at}")
+    move_condition_draft(session, draft, "proposed", _payload(proposed=tree))
+    move_condition_draft(session, draft, "inserted")
+    session.commit()
+    if draft.outcome != "inserted" or draft.payload["proposed"] != tree or draft.decided_at is None:
+        fail(f"NB2: the moves left {draft.outcome}, {draft.payload['proposed']}")
+    refused = write_condition_draft(session, attempt_id="a", world_id=world_id, role="completion",
+                                    instruction="x", outcome="refused", payload=_payload(), model_calls=[])
+    proposed = write_condition_draft(session, attempt_id="a", world_id=world_id, role="completion",
+                                     instruction="x", outcome="proposed", payload=_payload(), model_calls=[])
+    session.commit()
+    for row, outcome in ((proposed, "saved"), (refused, "inserted"), (draft, "discarded")):
+        was = row.outcome
+        try:
+            move_condition_draft(session, row, outcome)
+            fail(f"NB2: {was} -> {outcome} was allowed")
+        except ValueError:
+            if row.outcome != was:
+                fail(f"NB2: a refused move changed {was} to {row.outcome}")
+    return draft, proposed, tree
+
+
+def _nb2_saved(session, world_id: str, other_world: str, draft, proposed, tree) -> None:
+    from world_engine.writes.condition_drafts import mark_draft_saved, move_condition_draft, write_condition_draft
+
+    for label, args in (("another world", (other_world, draft.id)), ("a proposed draft", (world_id, proposed.id)),
+                        ("an unknown id", (world_id, "no-such-draft")), ("None", (world_id, None))):
+        if mark_draft_saved(session, world_id=args[0], draft_id=args[1], offer_id="offer-1", tree=tree):
+            fail(f"NB2: mark_draft_saved marked {label}")
+    if proposed.outcome != "proposed" or draft.outcome != "inserted":
+        fail("NB2: a skipped mark wrote a row")
+    if not mark_draft_saved(session, world_id=world_id, draft_id=draft.id, offer_id="offer-1", tree=dict(tree)):
+        fail("NB2: an inserted draft was not marked")
+    other = write_condition_draft(session, attempt_id="b", world_id=world_id, role="eligibility",
+                                  instruction="y", outcome="proposed", payload=_payload(proposed=tree),
+                                  model_calls=[])
+    move_condition_draft(session, other, "inserted")
+    mark_draft_saved(session, world_id=world_id, draft_id=other.id, offer_id="offer-2",
+                     tree={**tree, "value": "dead"})
+    session.commit()
+    if (draft.outcome, draft.offer_ref, draft.saved_as_proposed) != ("saved", "offer-1", True) \
+            or (other.outcome, other.saved_as_proposed) != ("saved", False):
+        fail(f"NB2: saved drafts read {draft.outcome, draft.offer_ref, draft.saved_as_proposed}, "
+             f"{other.outcome, other.saved_as_proposed}")
+
+
+def _nb2_database(db_path: str) -> None:
+    with sqlite3.connect(db_path) as conn:
+        for label, outcome, offer, saved in (("a saved row without offer", "saved", None, None),
+                                             ("an outcome outside the list", "accepted", None, None)):
+            try:
+                conn.execute(
+                    "INSERT INTO condition_draft (id, attempt_id, world_ref, world_name, role, instruction, "
+                    "outcome, offer_ref, saved_as_proposed, payload) VALUES (?, 'a', 'w', 'n', 'eligibility', "
+                    "'x', ?, ?, ?, '{}')", (f"raw-{outcome}", outcome, offer, saved))
+                fail(f"NB2: the database accepted {label}")
+            except sqlite3.IntegrityError:
+                pass
+
+
+def check_nb2(engine, db_path: str) -> None:
+    from sqlmodel import Session
+
+    from world_engine.models import World
+
+    with Session(engine) as session:
+        world, other = World(name="Interprète NB", is_active=False), World(name="Autre NB", is_active=False)
+        session.add(world)
+        session.add(other)
+        session.commit()
+        _nb2_refusals(session, world.id)
+        draft, proposed, tree = _nb2_moves(session, world.id)
+        _nb2_saved(session, world.id, other.id, draft, proposed, tree)
+    _nb2_database(db_path)
+
+
+# --- NB3 -----------------------------------------------------------------------
+
+def _run_migration(db_path: str) -> subprocess.CompletedProcess:
+    env = dict(os.environ, WORLD_ENGINE_DATABASE_URL=f"sqlite:///{db_path}", WORLD_ENGINE_ENV="test")
+    return subprocess.run([sys.executable, str(MIGRATION)], env=env, capture_output=True,
+                          text=True, cwd=str(ROOT), timeout=120)
+
+
+def _draft_state(db_path: str):
+    with sqlite3.connect(db_path) as conn:
+        sql = conn.execute("SELECT sql FROM sqlite_master WHERE name = 'condition_draft'").fetchone()
+        shape = [r[1] for r in conn.execute("PRAGMA table_info(condition_draft)")]
+        count = conn.execute("SELECT COUNT(*) FROM condition_draft").fetchone()[0] if sql else None
+        version = conn.execute("SELECT static_version FROM schema_meta WHERE id = 1").fetchone()[0]
+    checks = set(re.findall(r"CONSTRAINT (ck_[a-z_]+)", sql[0])) if sql else set()
+    return shape, checks, count, version
+
+
+def _set_version(db_path: str, version: str) -> None:
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("DROP TABLE IF EXISTS condition_draft")
+        conn.execute("UPDATE schema_meta SET static_version = ? WHERE id = 1", (version,))
+
+
+def check_nb3() -> None:
+    from sqlalchemy import create_engine
+    from sqlmodel import Session, SQLModel
+
+    from world_engine.models import ConditionDraft, SchemaMeta, World
+    from world_engine.schema_version import EXPECTED_STATIC_SCHEMA_VERSION
+    from world_engine.writes.condition_drafts import write_condition_draft
+
+    db_path = str(pathlib.Path(tempfile.mkdtemp()) / "migrate.db")
+    eng = create_engine(f"sqlite:///{db_path}")
+    SQLModel.metadata.create_all(eng)
+    with Session(eng) as session:
+        session.add(SchemaMeta(id=1, static_version="v2.20"))
+        session.commit()
+    eng.dispose()
+    _set_version(db_path, "v2.19")
+    result = _run_migration(db_path)
+    if result.returncode == 0 or _draft_state(db_path)[0]:
+        fail(f"NB3: v2.19 was not refused (exit {result.returncode})")
+    _set_version(db_path, "v2.20")
+    result = _run_migration(db_path)
+    shape, checks, count, version = _draft_state(db_path)
+    if result.returncode != 0 or tuple(shape) != DRAFT_COLUMNS or checks != set(DRAFT_CHECKS) or count != 0 \
+            or version != EXPECTED_STATIC_SCHEMA_VERSION:
+        fail(f"NB3: exit {result.returncode}, shape {shape}, checks {sorted(checks)}, count {count}, "
+             f"version {version}: {result.stderr.strip()[-200:]}")
+    again = _run_migration(db_path)
+    if again.returncode != 0 or "nothing to do" not in again.stdout:
+        fail(f"NB3: a second run exit {again.returncode}: {again.stdout.strip()[-200:]}")
+    eng = create_engine(f"sqlite:///{db_path}")
+    with Session(eng) as session:
+        world = World(name="Migrée", is_active=False)
+        session.add(world)
+        session.commit()
+        payload = _payload(notes=["une note"])
+        row = write_condition_draft(session, attempt_id="a", world_id=world.id, role="prerequisite",
+                                    instruction="x", outcome="refused", payload=payload,
+                                    model_calls=[{"usage": "u"}])
+        session.commit()
+        back = session.get(ConditionDraft, row.id)
+        if back.payload != payload or back.model_calls != [{"usage": "u"}] or back.retried is not False:
+            fail("NB3: the migrated table does not read back a written row")
+    eng.dispose()
+
+
 def main() -> int:
-    _fresh_db()
+    db_path = _fresh_db()
     from world_engine.db import create_db_and_tables, engine
     create_db_and_tables()
     check_na1(engine)
     check_na2(engine)
+    check_nb1()
+    check_nb2(engine, db_path)
+    check_nb3()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
         return 1
     print("PASS: condition_interpreter -- one coded list names facts, quest offers and skills by code; "
-          "one templated JSON call serves the creator's authoring tools")
+          "one templated JSON call serves the creator's authoring tools; v2.21 journals every proposal "
+          "of the interpreter, outside any world, its outcome moving one way to « saved »")
     return 0
 
 

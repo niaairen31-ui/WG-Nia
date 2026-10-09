@@ -739,7 +739,9 @@ def _cc3_state(db_path: str) -> dict:
                     trees[(column, owner, role)] = nodes
         return {
             "version": conn.execute("SELECT static_version FROM schema_meta WHERE id = 1").fetchone()[0],
-            "tables": sorted(t for t in tables if t.endswith("requirement") or t.startswith("condition")),
+            # TICKET-0112 (BRIEF-0112-B): `condition_draft` shares the prefix; the
+            # rule is about the two requirement tables and the condition tree's two.
+            "tables": sorted(t for t in tables if t.endswith("requirement") or t in ("condition", "condition_node")),
             "trees": trees,
         }
 

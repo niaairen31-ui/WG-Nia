@@ -13,6 +13,14 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.21** — TICKET-0112, BRIEF-0112-B: the condition interpreter's
+  journal. `condition_draft` (one row per proposal: the creator's
+  instruction for one condition of an offer, what the model answered and
+  code made of it, its outcome -- proposed, needs a name picked, refused,
+  unavailable, unparsable, then inserted, discarded or saved with the offer,
+  and whether it was saved as proposed) is added, without `world_id` and
+  without FK. `migrate_v2_21_condition_draft.py` creates it empty and
+  refuses a database older than v2.20.
 - **v2.20** — TICKET-0111, BRIEF-0111-C: the condition language. `condition`
   (one per owner and role: an offer's eligibility, an offer step's or an
   agenda step's prerequisite or completion) and `condition_node` (a tree of

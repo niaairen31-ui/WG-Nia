@@ -18546,6 +18546,27 @@ object. The client is a parameter, so a check that replaces a caller's
 `chat` still reaches the call. `lore_write_draft._world_facts` becomes the
 public `world_fact_ids`, for the interpreter's context.
 
+## THE INTERPRETER KEEPS A JOURNAL OF ITS PROPOSALS (TICKET-0112) -- `condition_draft`, OUTSIDE ANY WORLD, ITS OUTCOME MOVING ONE WAY TO « SAVED » (BRIEF-0112-b, schema v2.21)
+
+**IH1.** Every proposal of the condition interpreter is one
+`condition_draft` row: the creator's instruction for one condition of a
+quest offer (its role), the tree it started from, what the model answered
+and code made of it, the notes and errors she was shown. Its `outcome`
+moves along `writes/condition_drafts.CONDITION_DRAFT_MOVES` only:
+`proposed` / `needs_choice` / `refused` / `unavailable` / `parse_error` at
+first, then `inserted` or `discarded`, and `saved` once the offer holding
+an inserted proposal is saved -- with `offer_ref` and `saved_as_proposed`
+(whether the saved tree is the proposed one). The conditions series'
+acceptance rate (D1, the dashboard of TICKET-0115) is a query on those two
+relational columns; `payload` and `model_calls` are JSON, never rendered.
+Like `lore_usage_event` (I1 of TICKET-0103), the table has no `world_id`
+and no FK: it outlives a deleted world or offer and stays out of the world
+cascade. `writes/condition_drafts.py` is its one writer.
+
+**Rejected.** IH2 (a new `kind` in `lore_usage_event`): a rebuild of its
+CHECKs, and an acceptance counted inside JSON. IH3 (an export only): D1
+would not be measurable.
+
 ---
 
 *Co-built with Claude, June 2026.*
