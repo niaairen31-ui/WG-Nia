@@ -18612,6 +18612,27 @@ authoring model by default, the creator's per-template override otherwise.
 interpreter writes nothing: `condition_interpreter.py` calls no model
 directly (its `_call` is `prompt_call.call_json`) and no write.
 
+## THE INTERPRETER'S ROUTES (TICKET-0112) -- A PROPOSAL IS JOURNALED, PICKED, INSERTED OR DISCARDED; SAVING THE OFFER MARKS IT SAVED (BRIEF-0112-d, no schema change)
+
+**IG1, IH1, IJ1.** `POST /api/conditions/interpret` turns the creator's
+sentence for one condition into a proposal: its French lines and, when it
+is insertable, the view the offer editor inserts (`quest_reads.condition_view`);
+the names waiting for her pick with their choices; the notes and errors.
+`POST /api/conditions/drafts/{id}/resolve` applies her picks (no model
+call); `POST /api/conditions/drafts/{id}/decision` records `inserted` or
+`discarded`. No route touches an offer: the creator's « Enregistrer »
+writes the condition through `routes/quests.py` as before (A1 of the
+series), and the offer body names, per condition, the proposal she
+inserted there -- saving marks it `saved` in the same transaction, with
+whether the saved condition is the proposed one. A draft that cannot be
+marked is skipped: the journal never fails her save.
+
+Every proposal that reached the model is journaled -- Ollama down (503,
+`INTERPRET_UNAVAILABLE_MESSAGE`, her sentence kept: K1 of TICKET-0098) and
+an unparsable reply (502) included; a request refused before the model is
+not. A proposal's attempt id is the editor's, in canonical form, or a
+fresh one (`lore_usage.attempt_id`).
+
 ---
 
 *Co-built with Claude, June 2026.*

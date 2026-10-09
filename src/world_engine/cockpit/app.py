@@ -54,6 +54,7 @@ from ..models import LinkBatch, LinkBatchRow, NpcBatch, NpcBatchRow, SchemaMeta
 from ..schema_version import EXPECTED_STATIC_SCHEMA_VERSION
 from . import crud as _crud
 from .origin_guard import origin_guard
+from .routes import conditions as _routes_conditions
 from .routes import creator as _routes_creator
 from .routes import day as _routes_day
 from .routes import debts as _routes_debts
@@ -141,6 +142,7 @@ app.include_router(_routes_lore_mentions.router)
 app.include_router(_routes_lore_choices.router)
 app.include_router(_routes_lore_write.router)
 app.include_router(_routes_quests.router)
+app.include_router(_routes_conditions.router)
 app.include_router(_routes_debts.router)
 
 app.mount("/static", _FreshnessAwareStaticFiles(directory=_STATIC_DIR), name="static")

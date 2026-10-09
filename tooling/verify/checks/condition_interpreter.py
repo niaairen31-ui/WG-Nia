@@ -90,6 +90,33 @@ NC4 -- the interpreter writes nothing (fixture). Across NC3, the counts of
    `condition`, `condition_node`, `fact`, `entity`, `knowledge` and
    `condition_draft` do not move.
 
+ND1 -- the routes' shape (BRIEF-0112-D; static, AST). `cockpit/routes/
+   conditions.py` declares POST `/api/conditions/interpret`,
+   `/api/conditions/drafts/{draft_id}/resolve` and `/decision`, calls
+   neither `chat` nor `select`, and its `OllamaError` handler raises a 503
+   whose detail is the named `INTERPRET_UNAVAILABLE_MESSAGE`; `app.py`
+   mounts its router. `routes/quests.py`'s `_save_offer` calls `_mark_drafts`
+   after `write_quest_offer` and before `commit`, and `_mark_drafts` calls
+   `mark_draft_saved`.
+ND2 -- the routes (fixture, route functions, `condition_interpreter.chat`
+   stubbed). a. a sentence -> `proposed`, its view (tree, flat rows, French
+   lines), one `proposed` row whose payload's `proposed` is the view's
+   tree, one model call, a fresh attempt id; no condition row. b. Ollama
+   down -> 503 with the named message, one `unavailable` row whose model
+   call carries the error. c. an unparsable reply -> 502, one `parse_error`
+   row keeping the raw reply. d. an empty sentence, an unknown role, a
+   current tree that does not hold -> 422, no row. e. a name two
+   characters carry -> `needs_choice` with its choices; a pick outside them
+   -> 422, the row unmoved; a pick -> `proposed`, the row moved with its
+   bindings; a second resolve -> 409. f. `inserted` -> the row inserted; a
+   second decision -> 409; an unknown decision -> 422; a draft of another
+   world -> 404.
+ND3 -- saving the offer (fixture). An offer saved with its eligibility as
+   inserted and its id -> the draft `saved`, `offer_ref` the offer,
+   `saved_as_proposed` true; a step's completion inserted then changed ->
+   `saved`, false; an unknown draft id and a `proposed` draft's id leave
+   the save whole and the `proposed` draft unmoved.
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that collects nothing fails.
 """
@@ -861,6 +888,233 @@ def check_nc3_nc4(engine, ids) -> None:
         fail(f"NC4: the interpreter wrote rows: {before} -> {after}")
 
 
+# --- ND1 -----------------------------------------------------------------------
+
+def _decorated_paths(tree: ast.Module) -> dict[str, str]:
+    found = {}
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef):
+            for deco in node.decorator_list:
+                if isinstance(deco, ast.Call) and _callee(deco) == "post" and deco.args \
+                        and isinstance(deco.args[0], ast.Constant):
+                    found[deco.args[0].value] = node.name
+    return found
+
+
+def _nd1_route() -> None:
+    path = SRC / "cockpit" / "routes" / "conditions.py"
+    if not path.exists():
+        fail("ND1: cockpit/routes/conditions.py is missing")
+        return
+    tree = _parse(path)
+    paths = set(_decorated_paths(tree))
+    want = {"/api/conditions/interpret", "/api/conditions/drafts/{draft_id}/resolve",
+            "/api/conditions/drafts/{draft_id}/decision"}
+    if paths != want:
+        fail(f"ND1: the routes are {sorted(paths)}")
+    calls = {_callee(n) for n in ast.walk(tree) if isinstance(n, ast.Call)} & {"chat", "select"}
+    if calls:
+        fail(f"ND1: routes/conditions.py calls {sorted(calls)}")
+    handlers = [h for h in ast.walk(tree) if isinstance(h, ast.ExceptHandler)
+                and isinstance(h.type, ast.Name) and h.type.id == "OllamaError"]
+    named = False
+    for handler in handlers:
+        for node in ast.walk(handler):
+            if isinstance(node, ast.Call) and _callee(node) == "HTTPException":
+                kw = {k.arg: k.value for k in node.keywords}
+                named = (isinstance(kw.get("status_code"), ast.Constant) and kw["status_code"].value == 503
+                         and isinstance(kw.get("detail"), ast.Attribute)
+                         and kw["detail"].attr == "INTERPRET_UNAVAILABLE_MESSAGE")
+    if not handlers or not named:
+        fail("ND1: the OllamaError handler does not raise 503 with INTERPRET_UNAVAILABLE_MESSAGE")
+    app = (SRC / "cockpit" / "app.py").read_text(encoding="utf-8")
+    if "app.include_router(_routes_conditions.router)" not in app:
+        fail("ND1: app.py does not mount the conditions router")
+
+
+def _nd1_save() -> None:
+    tree = _parse(SRC / "cockpit" / "routes" / "quests.py")
+    fns = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+    save, mark = fns.get("_save_offer"), fns.get("_mark_drafts")
+    if save is None or mark is None:
+        fail("ND1: routes/quests.py lacks _save_offer or _mark_drafts")
+        return
+    order = [(n.lineno, _callee(n)) for n in ast.walk(save) if isinstance(n, ast.Call)
+             and _callee(n) in ("write_quest_offer", "_mark_drafts", "commit")]
+    names = [name for _, name in sorted(order)]
+    if names != ["write_quest_offer", "_mark_drafts", "commit"]:
+        fail(f"ND1: _save_offer calls {names}, not write_quest_offer -> _mark_drafts -> commit")
+    if "mark_draft_saved" not in {_callee(n) for n in ast.walk(mark) if isinstance(n, ast.Call)}:
+        fail("ND1: _mark_drafts does not call mark_draft_saved")
+
+
+def check_nd1() -> None:
+    _nd1_route()
+    _nd1_save()
+
+
+# --- ND2 / ND3 -----------------------------------------------------------------
+
+def _activate(session, world_id: str) -> None:
+    from sqlmodel import select
+
+    from world_engine.models import World
+
+    for world in session.exec(select(World).where(World.is_active == True)).all():  # noqa: E712
+        world.is_active = False
+        session.add(world)
+    ours = session.get(World, world_id)
+    ours.is_active = True
+    session.add(ours)
+    session.commit()
+
+
+def _drafts(session) -> list:
+    from sqlmodel import select
+
+    from world_engine.models import ConditionDraft
+
+    session.expire_all()
+    return list(session.exec(select(ConditionDraft).order_by(ConditionDraft.created_at)).all())
+
+
+def _post(routes, fn, *args, **kw):
+    """Call a route function; (answer, None) or (None, status_code)."""
+    from fastapi import HTTPException
+
+    try:
+        return fn(*args, **kw), None
+    except HTTPException as exc:
+        return None, (exc.status_code, exc.detail)
+
+
+def _with_stub(ci, replies, fn):
+    stub, original = _Stub(replies), ci.chat
+    ci.chat = stub
+    try:
+        return fn()
+    finally:
+        ci.chat = original
+
+
+def _nd2_interpret(session, ids, routes, ci) -> dict:
+    from sqlmodel import select
+
+    from world_engine.models import Condition
+    from world_engine.ollama_client import OllamaError
+
+    before = len(_drafts(session))
+    body = routes.InterpretBody(instruction="Le joueur a 15 fourrures ou est de la Guilde", role="eligibility")
+    answer, err = _with_stub(ci, [_answer({"op": "any", "children": [FURS, GUILD]})],
+                             lambda: _post(routes, routes.interpret, body, db=session))
+    rows = _drafts(session)
+    row = rows[-1] if len(rows) == before + 1 else None
+    if err or answer["outcome"] != "proposed" or answer["view"]["flat"] is not None \
+            or not answer["view"]["lines"] or row is None or row.outcome != "proposed" \
+            or row.payload["proposed"] != answer["view"]["tree"] or len(row.model_calls) != 1 \
+            or len(row.attempt_id) != 36 or session.exec(select(Condition)).first():
+        fail(f"ND2a: answer {answer}, error {err}, row {row and row.outcome}")
+    for label, reply, status, outcome in (("Ollama down", OllamaError("down"), 503, "unavailable"),
+                                          ("an unparsable reply", "pas du json", 502, "parse_error")):
+        _, err = _with_stub(ci, [reply], lambda: _post(routes, routes.interpret, body, db=session))
+        last = _drafts(session)[-1]
+        call = last.model_calls[0] if last.model_calls else {}
+        kept = call.get("error") if outcome == "unavailable" else call.get("raw_output") == "pas du json"
+        if not err or err[0] != status or last.outcome != outcome or not kept \
+                or (status == 503 and err[1] != ci.INTERPRET_UNAVAILABLE_MESSAGE):
+            fail(f"ND2{'b' if status == 503 else 'c'}: {label} gave {err}, row {last.outcome}, call {call}")
+    count = len(_drafts(session))
+    for label, bad in (("an empty sentence", dict(instruction=" ", role="eligibility")),
+                       ("an unknown role", dict(instruction="x", role="reward")),
+                       ("a current tree that does not hold",
+                        dict(instruction="x", role="eligibility", current={"op": "not", "children": []}))):
+        _, err = _post(routes, routes.interpret, routes.InterpretBody(**bad), db=session)
+        if not err or err[0] != 422 or len(_drafts(session)) != count:
+            fail(f"ND2d: {label} gave {err}")
+    return answer
+
+
+def _nd2_choice(session, ids, routes, ci) -> None:
+    mira = _ml("has_met", target={"name": "Mira", "kind": "person"})
+    body = routes.InterpretBody(instruction="Le joueur a rencontré Mira", role="completion")
+    answer, _ = _with_stub(ci, [_answer(mira)], lambda: _post(routes, routes.interpret, body, db=session))
+    if not answer or answer["outcome"] != "needs_choice" or len(answer["mentions"]) != 1:
+        fail(f"ND2e: an ambiguous name answered {answer}")
+        return
+    ref, draft_id = answer["mentions"][0]["ref"], answer["draft_id"]
+    _, err = _post(routes, routes.resolve, draft_id, routes.ResolveBody(bindings={ref: ids["garde"]}), db=session)
+    if not err or err[0] != 422 or _drafts(session)[-1].outcome != "needs_choice":
+        fail(f"ND2e: a pick outside the choices gave {err}")
+    done, err = _post(routes, routes.resolve, draft_id, routes.ResolveBody(bindings={ref: ids["mira1"]}), db=session)
+    row = _drafts(session)[-1]
+    if err or done["outcome"] != "proposed" or row.outcome != "proposed" or row.payload["bindings"] != {ref: ids["mira1"]}:
+        fail(f"ND2e: a pick gave {done or err}, row {row.outcome}")
+    _, err = _post(routes, routes.resolve, draft_id, routes.ResolveBody(bindings={ref: ids["mira1"]}), db=session)
+    if not err or err[0] != 409:
+        fail(f"ND2e: a second resolve gave {err}")
+
+
+def _nd2_decision(session, ids, routes, ci, draft_id: str, other_world: str) -> None:
+    from world_engine.writes.condition_drafts import write_condition_draft
+
+    done, err = _post(routes, routes.decide, draft_id, routes.DecisionBody(decision="inserted"), db=session)
+    if err or done["outcome"] != "inserted":
+        fail(f"ND2f: inserted gave {done or err}")
+    for label, decision, status in (("a second decision", "discarded", 409), ("an unknown decision", "kept", 422)):
+        _, err = _post(routes, routes.decide, draft_id, routes.DecisionBody(decision=decision), db=session)
+        if not err or err[0] != status:
+            fail(f"ND2f: {label} gave {err}")
+    foreign = write_condition_draft(session, attempt_id="a", world_id=other_world, role="eligibility",
+                                    instruction="x", outcome="proposed", payload=_payload(), model_calls=[])
+    session.commit()
+    _, err = _post(routes, routes.decide, foreign.id, routes.DecisionBody(decision="inserted"), db=session)
+    if not err or err[0] != 404:
+        fail(f"ND2f: another world's draft gave {err}")
+
+
+def _nd3_save(session, ids, routes, quests, ci, eligibility: dict, draft_id: str) -> None:
+    from world_engine.models import ConditionDraft
+
+    body = routes.InterpretBody(instruction="L'objectif : 15 fourrures", role="completion")
+    answer, _ = _with_stub(ci, [_answer(FURS)], lambda: _post(routes, routes.interpret, body, db=session))
+    changed_id = answer["draft_id"]
+    routes.decide(changed_id, routes.DecisionBody(decision="inserted"), db=session)
+    proposed, _ = _with_stub(ci, [_answer(GUILD)], lambda: _post(routes, routes.interpret, body, db=session))
+    changed = {"op": "all", "children": [_leafd("item_held", target_entity_id=ids["fur"], threshold=20)]}
+    offer = quests.OfferBody(
+        giver_entity_id=ids["garde"], title="Interprétée", eligibility=eligibility, eligibility_draft_id=draft_id,
+        steps=[quests.OfferStepBody(objective="Rapporter", cost=1, completion=changed,
+                                    completion_draft_id=changed_id, prerequisite_draft_id="no-such-draft"),
+               quests.OfferStepBody(objective="Encore", cost=1, completion=changed,
+                                    completion_draft_id=proposed["draft_id"])])
+    saved, err = _post(quests, quests.create_offer, offer, db=session)
+    session.expire_all()
+    one, two, three = (session.get(ConditionDraft, i) for i in (draft_id, changed_id, proposed["draft_id"]))
+    if err or (one.outcome, one.offer_ref, one.saved_as_proposed) != ("saved", saved["id"], True):
+        fail(f"ND3: the inserted eligibility reads {one.outcome, one.offer_ref, one.saved_as_proposed}, {err}")
+    if (two.outcome, two.saved_as_proposed) != ("saved", False) or three.outcome != "proposed":
+        fail(f"ND3: the changed completion reads {two.outcome, two.saved_as_proposed}, the proposed {three.outcome}")
+
+
+def check_nd2_nd3(engine, ids) -> None:
+    from sqlmodel import Session
+
+    from world_engine import condition_interpreter as ci
+    from world_engine.cockpit.routes import conditions as routes
+    from world_engine.cockpit.routes import quests
+    from world_engine.models import World
+
+    with Session(engine) as session:
+        _activate(session, ids["world"])
+        other = World(name="Autre ND", is_active=False)
+        session.add(other)
+        session.commit()
+        answer = _nd2_interpret(session, ids, routes, ci)
+        _nd2_choice(session, ids, routes, ci)
+        _nd2_decision(session, ids, routes, ci, answer["draft_id"], other.id)
+        _nd3_save(session, ids, routes, quests, ci, answer["view"]["tree"], answer["draft_id"])
+
+
 def main() -> int:
     db_path = _fresh_db()
     from world_engine.db import create_db_and_tables, engine
@@ -876,6 +1130,8 @@ def main() -> int:
         nc_ids = _nc_world(session)
     check_nc2(engine, nc_ids)
     check_nc3_nc4(engine, nc_ids)
+    check_nd1()
+    check_nd2_nd3(engine, nc_ids)
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -885,7 +1141,9 @@ def main() -> int:
           "of the interpreter, outside any world, its outcome moving one way to « saved »; the "
           "interpreter shows the model the language and coded lists, reads its answer back through codes "
           "and the name index, validates every leaf, asks once more with the errors, leaves a name to "
-          "the creator, never writes a condition, and sends a cost back to the offer's terms")
+          "the creator, never writes a condition, and sends a cost back to the offer's terms; its routes "
+          "journal every proposal that reached the model, move it on the creator's pick and decision, and "
+          "saving the offer marks what she inserted saved, as proposed or changed")
     return 0
 
 
