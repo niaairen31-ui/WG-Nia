@@ -48,6 +48,48 @@ NB3 -- migration `scripts/migrate_v2_21_condition_draft.py` on a database
    and sets `schema_meta` to the code's version; a second run says nothing
    to do; a row written through the writer reads back its JSON.
 
+NC1 -- the interpreter's shape (BRIEF-0112-C; static and import).
+   `TARGET_HINTS_FR` has one hint per form of `REQUIREMENT_TYPES`, in
+   order; every form of `CODE_LISTS` is outside `ENTITY_TARGET_TYPES`;
+   `UNSUPPORTED_NOTES_FR` covers exactly state, event, time, cost, reward
+   and other -- cost names « Coûts », reward « Récompenses », state
+   TICKET-0113, event TICKET-0114; `ROLE_LABELS_FR` covers
+   `CONDITION_ROLES`; `RESOURCE_KEY` equals the editor's `MONEY_KEY`.
+   `condition_interpreter.py` calls `chat` nowhere: `_call` is one return
+   of `prompt_call.call_json(..., chat)`; it calls none of `add`, `commit`,
+   `delete`, `execute`, `flush`, and imports neither `cockpit` nor
+   `writes.condition_drafts` nor `write_condition`. `PROMPT_REGISTRY`'s
+   `condition_interpret` is an authoring usage called at
+   `condition_interpreter.py:_call`; `CONDITION_INTERPRET_PROMPT_HEADS` is
+   one head of that usage whose variables are exactly its template's and
+   `prompt_values`' keys; the delivery script reads that tuple and embeds
+   no text.
+NC2 -- context and form (fixture). `build_context` codes the current
+   tree's fact first, then a fact of an entity the instruction names (a
+   creator-only one included, IE1), then a world-level fact; every offer
+   (`q`); the four base domains then the world's skill (`s`); the current
+   tree's entities (`e`); and lists the named entity. A clean tree using
+   every connector, a fixed subject, a code target of each list, an entity
+   target, `resource` and `vital_status` encodes to the model's form and
+   reads back, bound and validated, to the same tree. `form_lines` has one
+   line per form carrying its phrase.
+NC3 -- interpretation (fixture, `condition_interpreter.chat` stubbed).
+   a. a nested answer -> `proposed`, the expected tree, one exchange; a
+      lone leaf -> `all` of it (what the list editor sends back);
+   b. an unknown code, then a good answer -> `proposed`, `retried`, two
+      exchanges, the second message carrying the error;
+   c. two bad answers -> `refused` with errors, `retried`;
+   d. an unknown name with no near name -> `refused`, one exchange;
+   e. a name two characters carry -> `needs_choice` with both; `resolve`
+      with one -> `proposed` on it; with a third id -> `ValueError`;
+   f. a cost only -> `refused`, the « Coûts » note, no error; a condition
+      and an event -> `proposed` with the TICKET-0114 note;
+   g. `OllamaError` and an unparsable reply propagate;
+   h. a current tree reaches the message in the model's form.
+NC4 -- the interpreter writes nothing (fixture). Across NC3, the counts of
+   `condition`, `condition_node`, `fact`, `entity`, `knowledge` and
+   `condition_draft` do not move.
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that collects nothing fails.
 """
@@ -494,6 +536,331 @@ def check_nb3() -> None:
     eng.dispose()
 
 
+# --- NC1 -----------------------------------------------------------------------
+
+def _nc1_tables() -> None:
+    from world_engine import condition_interpreter as ci
+    from world_engine.condition_forms import ENTITY_TARGET_TYPES, REQUIREMENT_TYPES
+    from world_engine.models import CONDITION_ROLES
+
+    if tuple(ci.TARGET_HINTS_FR) != REQUIREMENT_TYPES:
+        fail(f"NC1: TARGET_HINTS_FR covers {tuple(ci.TARGET_HINTS_FR)}")
+    if not ci.CODE_LISTS or set(ci.CODE_LISTS) & set(ENTITY_TARGET_TYPES) \
+            or not set(ci.CODE_LISTS) <= set(REQUIREMENT_TYPES):
+        fail(f"NC1: CODE_LISTS is {ci.CODE_LISTS}")
+    notes = ci.UNSUPPORTED_NOTES_FR
+    if set(notes) != {"state", "event", "time", "cost", "reward", "other"} or "« Coûts »" not in notes["cost"] \
+            or "« Récompenses »" not in notes["reward"] or "TICKET-0113" not in notes["state"] \
+            or "TICKET-0114" not in notes["event"]:
+        fail(f"NC1: UNSUPPORTED_NOTES_FR reads {notes}")
+    if set(ci.ROLE_LABELS_FR) != set(CONDITION_ROLES):
+        fail("NC1: ROLE_LABELS_FR does not cover CONDITION_ROLES")
+    js = (ROOT / "frontend" / "src" / "creation" / "questRequirements.js").read_text(encoding="utf-8")
+    found = re.findall(r"export const MONEY_KEY = '([^']+)';", js)
+    if found != [ci.RESOURCE_KEY]:
+        fail(f"NC1: RESOURCE_KEY {ci.RESOURCE_KEY!r} vs the editor's MONEY_KEY {found}")
+
+
+def _nc1_module() -> None:
+    tree = _parse(SRC / "condition_interpreter.py")
+    chats = [n.lineno for n in ast.walk(tree) if isinstance(n, ast.Call) and _callee(n) == "chat"]
+    if chats:
+        fail(f"NC1: condition_interpreter.py calls chat( at {chats}")
+    call = next((n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_call"), None)
+    body = [n for n in call.body if not (isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant))] if call else []
+    if not (len(body) == 1 and isinstance(body[0], ast.Return) and isinstance(body[0].value, ast.Call)
+            and _callee(body[0].value) == "call_json" and isinstance(body[0].value.args[-1], ast.Name)
+            and body[0].value.args[-1].id == "chat"):
+        fail("NC1: condition_interpreter._call is not one return of prompt_call.call_json(..., chat)")
+    writes = {_callee(n) for n in ast.walk(tree) if isinstance(n, ast.Call)} & _WRITE_CALLS
+    if writes:
+        fail(f"NC1: condition_interpreter.py calls {sorted(writes)}")
+    imported = _imported(tree)
+    bad = {m for m in imported if "cockpit" in m or "condition_drafts" in m} | ({"write_condition"} & imported)
+    if bad:
+        fail(f"NC1: condition_interpreter.py imports {sorted(bad)}")
+
+
+def _nc1_prompt() -> None:
+    from world_engine import condition_interpreter as ci
+    from world_engine.prompt_registry import PROMPT_REGISTRY
+
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import seed_pilot
+
+    spec = PROMPT_REGISTRY.get(ci.INTERPRET_USAGE)
+    if spec is None or spec.surface != "authoring" \
+            or spec.call_sites != ("src/world_engine/condition_interpreter.py:_call",):
+        fail(f"NC1: PROMPT_REGISTRY[{ci.INTERPRET_USAGE!r}] is {spec}")
+    heads = seed_pilot.CONDITION_INTERPRET_PROMPT_HEADS
+    if [h["usage"] for h in heads] != [ci.INTERPRET_USAGE]:
+        fail(f"NC1: CONDITION_INTERPRET_PROMPT_HEADS carries {[h['usage'] for h in heads]}")
+        return
+    used = set(re.findall(r"\{([a-z_]+)\}", heads[0]["user_template"]))
+    if used != set(heads[0]["variables"]) or used != _value_keys():
+        fail(f"NC1: the head declares {sorted(heads[0]['variables'])}, its template uses {sorted(used)}, "
+             f"prompt_values gives {sorted(_value_keys())}")
+    script = (ROOT / "scripts" / "apply_ticket_0112_condition_prompt.py").read_text(encoding="utf-8")
+    if "CONDITION_INTERPRET_PROMPT_HEADS" not in script or "Tu " in script:
+        fail("NC1: the delivery script does not read the single source, or embeds text")
+
+
+def _value_keys() -> set[str]:
+    from world_engine import condition_interpreter as ci
+    from world_engine.fact_refs import CodedRefs
+
+    empty = CodedRefs(codes={}, lines=())
+    ctx = ci.InterpreterContext(entity_lines=(), lists={k: empty for k in "efqs"}, current=None)
+    return set(ci.prompt_values(ctx, "eligibility", "x", []))
+
+
+def check_nc1() -> None:
+    _nc1_tables()
+    _nc1_module()
+    _nc1_prompt()
+
+
+# --- NC2-NC4 fixture -----------------------------------------------------------
+
+def _entity(session, world_id: str, kind: str, name: str) -> str:
+    from world_engine.models import Character, Entity, Faction, Item, Location
+
+    row = Entity(world_id=world_id, type=kind, name=name)
+    session.add(row)
+    session.flush()
+    extra = {"character": lambda: Character(id=row.id, world_id=world_id, character_type="npc"),
+             "faction": lambda: Faction(id=row.id), "item": lambda: Item(id=row.id),
+             "location": lambda: Location(id=row.id)}[kind]()
+    session.add(extra)
+    session.flush()
+    return row.id
+
+
+def _nc_world(session) -> dict:
+    from world_engine.models import Knowledge, QuestOffer, SkillDefinition, World
+    from world_engine.writes.facts import attach_participants, create_fact
+
+    world = World(name="Interprète NC", is_active=False)
+    session.add(world)
+    session.flush()
+    ids = {"world": world.id}
+    for key, kind, name in (("pc", "character", "Aube"), ("garde", "character", "Garde Brennar"),
+                            ("mira1", "character", "Mira"), ("mira2", "character", "Mira"),
+                            ("guild", "faction", "Guilde des chasseurs"), ("fur", "item", "Fourrure de loup"),
+                            ("tower", "location", "Tour Nord")):
+        ids[key] = _entity(session, world.id, kind, name)
+    for key, content, owner in (("f_garde", "Garde Brennar a perdu son frère", "garde"),
+                                ("f_secret", "Garde Brennar vole la Guilde", "garde"),
+                                ("f_world", "Les loups descendent l'hiver", None),
+                                ("f_tree", "La Tour Nord est hantée", "tower")):
+        fact = create_fact(session, world_id=world.id, content=content, created_by="check", facet="information")
+        session.flush()
+        if owner:
+            attach_participants(session, fact=fact, entity_ids=[ids[owner]])
+        ids[key] = fact.id
+    session.add(Knowledge(entity_id=ids["garde"], fact_id=ids["f_secret"], level="unaware", is_secret=True))
+    offer = QuestOffer(world_id=world.id, giver_entity_id=ids["garde"], title="Les fourrures", change_history=[])
+    skill = SkillDefinition(world_id=world.id, name="Pistage", base_domain="perception")
+    session.add(offer)
+    session.add(skill)
+    session.commit()
+    ids.update(offer=offer.id, skill=skill.id)
+    return ids
+
+
+def _seed_interpret_prompt(session) -> None:
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import seed_pilot
+    from world_engine.models import PromptTemplate
+
+    for head in seed_pilot.CONDITION_INTERPRET_PROMPT_HEADS:
+        if session.get(PromptTemplate, head["id"]) is None:
+            seed_pilot.upsert_prompt_template(session, **dict(head))
+    session.commit()
+
+
+def _leafd(form, **kw) -> dict:
+    base = {"op": "leaf", "type": form, "subject_role": "doer", "subject_entity_id": None,
+            "target_entity_id": None, "target_key": None, "threshold": None, "value": None}
+    base.update(kw)
+    return base
+
+
+def _full_tree(ids) -> dict:
+    return {"op": "all", "children": [
+        _leafd("knowledge", target_key=ids["f_tree"]),
+        {"op": "any", "children": [
+            _leafd("quest_state", target_key=ids["offer"], value="completed"),
+            _leafd("skill_rank_gte", target_key=ids["skill"], threshold=2)]},
+        {"op": "not", "children": [_leafd("faction_member", target_entity_id=ids["guild"])]},
+        {"op": "at_least", "n": 1, "children": [
+            _leafd("resource", target_key="monnaie", threshold=30),
+            _leafd("vital_status", subject_role=None, subject_entity_id=ids["garde"], value="alive"),
+            _leafd("location_reachable", target_entity_id=ids["tower"])]},
+    ]}
+
+
+# --- NC2 -----------------------------------------------------------------------
+
+def check_nc2(engine, ids) -> None:
+    from sqlmodel import Session
+
+    from world_engine import condition_interpreter as ci
+    from world_engine.condition_forms import REQUIREMENT_TYPES
+    from world_engine.condition_text import FORM_PHRASES_FR
+    from world_engine.conditions import node_from_dict, node_to_dict
+
+    with Session(engine) as session:
+        tree = node_from_dict(_full_tree(ids))
+        ctx = ci.build_context(session, ids["world"], "Garde Brennar doit être en vie", tree)
+        facts = list(ctx.lists["f"].codes.values())
+        if facts[:1] != [ids["f_tree"]] or not {ids["f_garde"], ids["f_secret"], ids["f_world"]} <= set(facts) \
+                or facts.index(ids["f_garde"]) > facts.index(ids["f_world"]):
+            fail(f"NC2: the coded facts are {facts}")
+        skills = list(ctx.lists["s"].codes.values())
+        if skills != ["physical", "agility", "perception", "composure", ids["skill"]] \
+                or list(ctx.lists["q"].codes.values()) != [ids["offer"]]:
+            fail(f"NC2: skills {skills}, offers {ctx.lists['q'].codes}")
+        if set(ctx.lists["e"].codes.values()) != {ids["guild"], ids["garde"], ids["tower"]} \
+                or ctx.entity_lines != ("- Garde Brennar (character)",):
+            fail(f"NC2: tree entities {ctx.lists['e'].lines}, named {ctx.entity_lines}")
+        reading = ci.read_answer(session, ids["world"], ctx.current, ctx)
+        back, errors = ci.validate(session, ids["world"], reading.pending) if reading.pending else (None, ["none"])
+        if errors or reading.errors or node_to_dict(back) != node_to_dict(tree):
+            fail(f"NC2: the round trip gave {node_to_dict(back)} with {errors or reading.errors}")
+    lines = ci.form_lines().splitlines()
+    if len(lines) != len(REQUIREMENT_TYPES) or any(FORM_PHRASES_FR[f] not in l for f, l in zip(REQUIREMENT_TYPES, lines)):
+        fail("NC2: form_lines is not one line per form with its phrase")
+
+
+# --- NC3 -----------------------------------------------------------------------
+
+def _answer(condition, unsupported=()) -> str:
+    return json.dumps({"condition": condition, "unsupported": list(unsupported)}, ensure_ascii=False)
+
+
+def _ml(form, subject="doer", target=None, threshold=None, value=None) -> dict:
+    return {"op": "leaf", "form": form, "subject": subject, "target": target, "threshold": threshold,
+            "value": value}
+
+
+FURS = _ml("item_held", target={"name": "fourrure de loup", "kind": "object"}, threshold=15)
+GUILD = _ml("faction_member", target={"name": "Guilde des chasseurs", "kind": "faction"})
+
+
+def _run(ci, session, ids, replies, current=None, instruction="Le joueur a 15 fourrures ou est de la Guilde"):
+    stub, original = _Stub(replies), ci.chat
+    ci.chat = stub
+    try:
+        exchanges: list = []
+        result = ci.interpret(session, ids["world"], "eligibility", instruction, current, exchanges)
+        return result, exchanges, stub
+    finally:
+        ci.chat = original
+
+
+def _nc3_proposed(ci, session, ids) -> None:
+    from world_engine.conditions import node_to_dict
+
+    result, exchanges, _ = _run(ci, session, ids, [_answer({"op": "any", "children": [FURS, GUILD]})])
+    want = {"op": "any", "children": [_leafd("item_held", target_entity_id=ids["fur"], threshold=15),
+                                      _leafd("faction_member", target_entity_id=ids["guild"])]}
+    if result.outcome != "proposed" or node_to_dict(result.tree) != want or len(exchanges) != 1 or result.retried:
+        fail(f"NC3a: {result.outcome}, {node_to_dict(result.tree)}, {len(exchanges)} exchange(s)")
+    result, _, _ = _run(ci, session, ids, [_answer(FURS)])
+    if node_to_dict(result.tree) != {"op": "all", "children": [want["children"][0]]}:
+        fail(f"NC3a: a lone leaf is proposed as {node_to_dict(result.tree)}, not `all` of it")
+    bad = _ml("knowledge", target={"code": "f99"})
+    result, exchanges, stub = _run(ci, session, ids, [_answer({"op": "all", "children": [bad]}),
+                                                      _answer({"op": "all", "children": [FURS]})])
+    second = stub.messages[1][1]["content"] if len(stub.messages) == 2 else ""
+    if result.outcome != "proposed" or not result.retried or len(exchanges) != 2 or "f99" not in second:
+        fail(f"NC3b: {result.outcome}, retried {result.retried}, {len(exchanges)} exchange(s)")
+    result, exchanges, _ = _run(ci, session, ids, [_answer(bad), _answer(bad)])
+    if result.outcome != "refused" or not result.errors or not result.retried or len(exchanges) != 2:
+        fail(f"NC3c: {result.outcome}, {result.errors}, {len(exchanges)} exchange(s)")
+    unknown = _ml("has_met", target={"name": "Zorglub", "kind": "person"})
+    result, exchanges, _ = _run(ci, session, ids, [_answer(unknown)])
+    if result.outcome != "refused" or len(exchanges) != 1 or not any("Zorglub" in e for e in result.errors):
+        fail(f"NC3d: {result.outcome}, {result.errors}, {len(exchanges)} exchange(s)")
+
+
+def _nc3_choice(ci, session, ids) -> None:
+    from world_engine.conditions import node_to_dict
+
+    mira = _ml("has_met", target={"name": "Mira", "kind": "person"})
+    result, _, _ = _run(ci, session, ids, [_answer({"op": "all", "children": [mira, FURS]})])
+    choices = sorted(c["entity_id"] for m in result.mentions for c in m["choices"])
+    if result.outcome != "needs_choice" or choices != sorted([ids["mira1"], ids["mira2"]]):
+        fail(f"NC3e: {result.outcome}, choices {choices}")
+        return
+    ref = next(m["ref"] for m in result.mentions if m["status"] == "ambiguous")
+    done = ci.resolve(session, ids["world"], result.pending, result.mentions, result.notes, {ref: ids["mira2"]})
+    leaf = node_to_dict(done.tree)["children"][0] if done.tree else {}
+    if done.outcome != "proposed" or leaf.get("target_entity_id") != ids["mira2"]:
+        fail(f"NC3e: resolve gave {done.outcome}, {leaf}")
+    try:
+        ci.resolve(session, ids["world"], result.pending, result.mentions, result.notes, {ref: ids["garde"]})
+        fail("NC3e: resolve accepted a pick outside the choices")
+    except ValueError:
+        pass
+
+
+def _nc3_unsupported(ci, session, ids) -> None:
+    result, _, _ = _run(ci, session, ids, [_answer(None, [{"text": "apporte 15 fourrures", "kind": "cost"}])])
+    if result.outcome != "refused" or result.errors or not any("« Coûts »" in n for n in result.notes):
+        fail(f"NC3f: a cost only gave {result.outcome}, {result.errors}, {result.notes}")
+    result, _, _ = _run(ci, session, ids, [_answer(FURS, [{"text": "sans être repéré", "kind": "event"}])])
+    if result.outcome != "proposed" or not any("TICKET-0114" in n for n in result.notes):
+        fail(f"NC3f: a condition and an event gave {result.outcome}, {result.notes}")
+
+
+def _nc3_failures(ci, session, ids) -> None:
+    from world_engine.conditions import node_from_dict
+    from world_engine.llm_parse import LlmParseError
+    from world_engine.ollama_client import OllamaError
+
+    for label, reply, error in (("Ollama down", OllamaError("down"), OllamaError),
+                                ("an unparsable reply", "pas du json", LlmParseError)):
+        try:
+            _run(ci, session, ids, [reply])
+            fail(f"NC3g: {label} did not propagate")
+        except error:
+            pass
+    current = node_from_dict({"op": "all", "children": [_leafd("faction_member", target_entity_id=ids["guild"])]})
+    _, _, stub = _run(ci, session, ids, [_answer(GUILD)], current=current, instruction="ajoute : ou 15 fourrures")
+    message = stub.messages[0][1]["content"] if stub.messages else ""
+    if '"code": "e1"' not in message or "Guilde des chasseurs (faction)" not in message:
+        fail("NC3h: the current tree did not reach the message in the model's form")
+
+
+def _counts(session) -> dict:
+    from sqlmodel import func, select
+
+    from world_engine.models import Condition, ConditionDraft, ConditionNode, Entity, Fact, Knowledge
+
+    return {m.__name__: session.exec(select(func.count()).select_from(m)).one()
+            for m in (Condition, ConditionNode, Fact, Entity, Knowledge, ConditionDraft)}
+
+
+def check_nc3_nc4(engine, ids) -> None:
+    from sqlmodel import Session
+
+    from world_engine import condition_interpreter as ci
+
+    with Session(engine) as session:
+        _seed_interpret_prompt(session)
+        before = _counts(session)
+        _nc3_proposed(ci, session, ids)
+        _nc3_choice(ci, session, ids)
+        _nc3_unsupported(ci, session, ids)
+        _nc3_failures(ci, session, ids)
+        session.commit()
+        after = _counts(session)
+    if after != before:
+        fail(f"NC4: the interpreter wrote rows: {before} -> {after}")
+
+
 def main() -> int:
     db_path = _fresh_db()
     from world_engine.db import create_db_and_tables, engine
@@ -503,13 +870,22 @@ def main() -> int:
     check_nb1()
     check_nb2(engine, db_path)
     check_nb3()
+    check_nc1()
+    from sqlmodel import Session
+    with Session(engine) as session:
+        nc_ids = _nc_world(session)
+    check_nc2(engine, nc_ids)
+    check_nc3_nc4(engine, nc_ids)
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
         return 1
     print("PASS: condition_interpreter -- one coded list names facts, quest offers and skills by code; "
           "one templated JSON call serves the creator's authoring tools; v2.21 journals every proposal "
-          "of the interpreter, outside any world, its outcome moving one way to « saved »")
+          "of the interpreter, outside any world, its outcome moving one way to « saved »; the "
+          "interpreter shows the model the language and coded lists, reads its answer back through codes "
+          "and the name index, validates every leaf, asks once more with the errors, leaves a name to "
+          "the creator, never writes a condition, and sends a cost back to the offer's terms")
     return 0
 
 

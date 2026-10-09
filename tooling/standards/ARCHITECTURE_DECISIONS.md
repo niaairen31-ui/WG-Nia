@@ -18567,6 +18567,51 @@ cascade. `writes/condition_drafts.py` is its one writer.
 CHECKs, and an acceptance counted inside JSON. IH3 (an export only): D1
 would not be measurable.
 
+## THE CONDITION INTERPRETER: A SENTENCE BECOMES A TREE THE CREATOR CONFIRMS (TICKET-0112) -- THE MODEL PROPOSES, CODE READS IT BACK AND VALIDATES EVERY LEAF (BRIEF-0112-c, no schema change)
+
+**IA1.** The interpreter writes conditions only -- an offer's eligibility,
+a step's prerequisite or completion. A cost (« apporte 15 fourrures ») or a
+reward is never translated into a condition: the model lists it as
+unsupported and the creator reads « ajoute-le dans Coûts ». Rejected: IA2
+(terms too: a second judge, `TermSpec`; reactivation: the journal shows
+the creator typing costs into the interpreter) and IA3 (a whole offer from
+one sentence, after IA2).
+
+**IC1.** Editing a condition, the model receives the current tree in its
+own form -- entities by an `e` code, facts, offers and skills by code --
+with the instruction, and answers the whole tree. Rejected: IC2 (always
+rewrite from a full sentence).
+
+**ID1a, IE1.** The model sees the language (one line per form: its French
+phrase, its target, its values), the entities the instruction names, and
+coded lists: the current tree's facts, then the named entities' facts
+(creator-only facts included: a condition on a secret is legitimate),
+then the world-level facts, capped like the Lore writing panel; every
+quest offer (`q`); the base domains and the world's skills (`s`). Code
+reads the answer back: codes through their list, names through
+`lore_resolve.resolve_named` under the creator regime. An ambiguous name,
+or an unknown one with near names, waits for the creator's pick
+(`needs_choice`); an unknown name with none is an error. Rejected: IE2
+(creator-only facts hidden: no condition on a secret).
+
+**II1.** Every leaf is validated on its own by `writes.conditions.clean_leaf`,
+every error kept. When code refuses the model's answer for anything but an
+unknown name, the model is asked once more with the errors; a second
+refusal is `refused`, the errors shown, nothing insertable. Rejected: II2
+(no second call). Distinct from Y8a (TICKET-0094): nothing is written here,
+and the creator remains the judge.
+
+**IF1.** What the forms cannot say yet -- a state, an event, time, other --
+is listed by the model and shown as a note naming where it will come from
+(TICKET-0113, TICKET-0114); the rest is proposed. Rejected: IF2 (all or
+nothing).
+
+**IJ1.** One prompt, `condition_interpret`, an authoring usage: the
+authoring model by default, the creator's per-template override otherwise.
+`OllamaError` and a reply that does not parse propagate to the route. The
+interpreter writes nothing: `condition_interpreter.py` calls no model
+directly (its `_call` is `prompt_call.call_json`) and no write.
+
 ---
 
 *Co-built with Claude, June 2026.*

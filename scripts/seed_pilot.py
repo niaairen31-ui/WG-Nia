@@ -1942,6 +1942,117 @@ LORE_WRITE_PROMPT_HEADS = (
 )
 
 
+# ----- prompt template: the condition interpreter (TICKET-0112, BRIEF-0112-C) --
+# usage = "condition_interpret". world_id = NULL. One call (and one more,
+# carrying code's errors, II1): turns the creator's sentence into a
+# condition tree for one condition of a quest offer. The model names
+# entities by name (or by an e code of the current tree) and facts, quests
+# and skills by code only; code resolves every reference, validates every
+# leaf, and the creator confirms before anything reaches the offer
+# (condition_interpreter.interpret). A cost or a reward is never a condition
+# (IA1); what the language cannot say yet is listed, never forced (IF1).
+CONDITION_INTERPRET_SYSTEM_PROMPT = """\
+Tu traduis en condition la phrase qu'écrit la créatrice d'un monde de jeu \
+de rôle pour une offre de quête. Une condition est un arbre.
+
+FEUILLES. Une feuille est une forme du langage, prise dans la liste des \
+formes, avec :
+- "form" : le nom de la forme ;
+- "subject" : sur qui elle porte -- "doer" (le personnage qui agit, par \
+défaut), "giver" (le donneur de l'offre), "contact" (le contact d'une \
+faction donneuse), ou un personnage précis {"name": "...", "kind": \
+"person"} ;
+- "target" : sa cible, comme la forme l'indique -- une entité par son nom \
+{"name": "...", "kind": "person" | "place" | "faction" | "object" | \
+"other"}, une entité de la condition actuelle par son code {"code": "e1"}, \
+un fait {"code": "f3"}, une quête {"code": "q2"}, une compétence \
+{"code": "s1"} ; null si la forme n'a pas de cible ;
+- "threshold" : un entier quand la forme a un seuil, sinon null ;
+- "value" : une des valeurs de la forme quand elle en a, sinon null.
+N'invente jamais un code : un fait, une quête ou une compétence absent des \
+listes ne peut pas être une cible.
+
+CONNECTEURS. {"op": "all", "children": [...]} (toutes), {"op": "any", \
+"children": [...]} (au moins une), {"op": "not", "children": [une seule]} \
+(pas ceci), {"op": "at_least", "n": 2, "children": [...]} (au moins n). \
+Une feuille s'écrit {"op": "leaf", "form": ..., "subject": ..., \
+"target": ..., "threshold": ..., "value": ...}.
+
+CE QUI N'EST PAS UNE CONDITION. Ce que le personnage apporte, paie ou \
+donne est un coût ("cost") ; ce qu'il reçoit est une récompense \
+("reward") : ne les traduis jamais en condition. « Le joueur apporte 15 \
+fourrures » est un coût ; « le joueur possède 15 fourrures » est une \
+condition item_held. Ce que les formes ne savent pas dire -- l'état d'une \
+chose ("state" : la porte est ouverte), ce qui s'est passé ("event" : \
+tuer, être repéré), le temps ("time" : avant le jour 5), ou autre chose \
+("other") -- va dans "unsupported", avec le passage de la phrase. Traduis \
+le reste.
+
+CONDITION ACTUELLE. Si une condition actuelle est donnée, la phrase la \
+modifie : rends la condition entière, modifiée. Sinon, rends la condition \
+que la phrase décrit.
+
+ERREURS. Si des erreurs sont données, ta réponse précédente a été refusée \
+pour ces raisons : corrige-la.
+
+Réponds UNIQUEMENT avec ce JSON :
+{"condition": {"op": "all", "children": [{"op": "leaf", "form": \
+"item_held", "subject": "doer", "target": {"name": "fourrure de loup", \
+"kind": "object"}, "threshold": 15, "value": null}]},
+ "unsupported": [{"text": "...", "kind": "event"}]}
+"condition" vaut null si rien de la phrase n'est une condition.\
+"""
+
+CONDITION_INTERPRET_USER_TEMPLATE = """\
+La condition dit : {role}.
+
+Formes :
+{forms}
+
+Entités que la phrase nomme :
+{entities}
+
+Entités de la condition actuelle (code — nom) :
+{tree_entities}
+
+Faits (code — texte) :
+{facts}
+
+Quêtes (code — titre) :
+{offers}
+
+Compétences (code — nom) :
+{skills}
+
+Condition actuelle :
+{current}
+
+Phrase de la créatrice :
+{instruction}
+
+Erreurs de ta réponse précédente :
+{errors}\
+"""
+
+
+# The interpreter's head, one tuple read by the seed and by
+# scripts/apply_ticket_0112_condition_prompt.py (single source, the
+# LORE_WRITE_PROMPT_HEADS precedent).
+CONDITION_INTERPRET_PROMPT_HEADS = (
+    dict(
+        id="pt-condition-interpret",
+        name="Interprète de conditions — phrase vers condition",
+        usage="condition_interpret",
+        world_id=None,
+        system_prompt=CONDITION_INTERPRET_SYSTEM_PROMPT,
+        user_template=CONDITION_INTERPRET_USER_TEMPLATE,
+        variables=["role", "forms", "entities", "tree_entities", "facts", "offers", "skills", "current",
+                   "instruction", "errors"],
+        destination="local",
+    ),
+)
+
+
 # ----- day chain prompt text (TICKET-0075; hoisted to module level, TICKET-0076) -----
 # ----- prompt template: day plan emission (TICKET-0075, BRIEF-0075-b) ---
 # usage = "day_plan". world_id = NULL. ONE call (F1): the model proposes
@@ -2932,6 +3043,8 @@ def seed(session: Session) -> None:
 
     # ----- prompt templates: lore writing (TICKET-0098, BRIEF-0098-D) --
     for entry in LORE_WRITE_PROMPT_HEADS:
+        upsert_prompt_template(session, **entry)
+    for entry in CONDITION_INTERPRET_PROMPT_HEADS:
         upsert_prompt_template(session, **entry)
 
     # ----- prompt template: world tick — off-screen NPC advancement ----------

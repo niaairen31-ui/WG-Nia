@@ -150,7 +150,8 @@ Law only. Rationale, chantier history, and deferred alternatives live in
   fact whose entity holds an `unaware` `is_secret` row on it) is excluded from
   `facet_reads` by query construction; only the Lore dossier opts in, plus the
   `creator` regime of `name_index` for name resolution (Lore question, names
-  panel, writing panel). Token posing never indexes a creator-only or unscoped appellation.
+  panel, writing panel, condition interpreter).
+  Token posing never indexes a creator-only or unscoped appellation.
   What an NPC knows-but-conceals lives in `knowledge` rows with
   `is_secret = TRUE`,
   excluded by query construction at every assembler AND every propagation
@@ -458,7 +459,7 @@ WG-Nia/
 │   ├── observation_*.py     # observed-lane socle/engine/runner/reads/writes; per-NPC window
 │   ├── resolution.py, ledger.py  # physical-action dice resolution (2d6 bands); ledger read helpers
 │   ├── skill_lexicon.py     # action lexicon: judge/record; Play calls it, never clamps inline
-│   ├── day_plan.py, condition*.py  # day-plan emission + budget cut; conditions: forms, tree, text
+│   ├── day_plan.py, condition*.py  # day plan + cut; condition forms, tree, text, interpreter
 │   ├── day_extract.py       # day extraction: 3 passes (place/person/faction), never sees registry
 │   ├── day_concordance.py   # day mention resolution: matching rungs, germ emission; never authors
 │   ├── day_rewrite.py       # declaration rewrite: render/resolutions/load_latest, no model call

@@ -113,6 +113,9 @@ _SUBJECT_CENSUS: dict[str, int] = {
     # TICKET-0101, BRIEF-0101-C: `discoverable_detail.subject`, the label a
     # promotion lists for a detail it moves -- never a knowledge key.
     "src/world_engine/writes/zone_promotion.py": 3,
+    # TICKET-0112, BRIEF-0112-C: a condition leaf's `subject` in the model's
+    # form (C-03) -- whom the leaf judges, never a knowledge key.
+    "src/world_engine/condition_interpreter.py": 3,
 }
 
 A = "11111111-1111-1111-1111-111111111111"

@@ -19,7 +19,9 @@ R5 (creator confinement) -- across `src/world_engine/**/*.py`, `CREATOR`
    `NameScope(` call whose regime is the literal `"creator"` occur only in
    `name_index.py`, `lore_query.py`, `lore_mentions_read.py`,
    `writes/facets.py`, `lore_write_draft.py` (the writing panel resolves the
-   names of the creator's own statement, TICKET-0098, BRIEF-0098-D).
+   names of the creator's own statement, TICKET-0098, BRIEF-0098-D),
+   `condition_interpreter.py` (the names of her condition, TICKET-0112,
+   BRIEF-0112-C).
    Vacuity guard: at least one file parsed.
 R6 (explicit scope, BRIEF-0092-b) -- across `src/world_engine/**/*.py`, every
    call whose callee name (a Name, or the last part of an Attribute) is
@@ -58,6 +60,9 @@ CREATOR_ALLOWED = {
     "src/world_engine/lore_mentions_read.py",
     "src/world_engine/writes/facets.py",
     "src/world_engine/lore_write_draft.py",
+    # TICKET-0112 (BRIEF-0112-C, ID1a): the condition interpreter resolves the
+    # names of the creator's own sentence, a surface of the creator's.
+    "src/world_engine/condition_interpreter.py",
 }
 
 FAILURES: list[str] = []
