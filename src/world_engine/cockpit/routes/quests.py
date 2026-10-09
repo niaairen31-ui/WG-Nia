@@ -31,7 +31,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ... import quest_reads
-from ...conditions import node_from_dict
+from ...conditions import node_from_dict, node_to_dict
 from ...day_plan import PlanStep
 from ...db import get_session
 from ...models import Quest, QuestEconomy, QuestOffer
@@ -41,6 +41,8 @@ from ...writes import (
     TermSpec, abandon_quest, accept_quest, settle_quest, settle_quest_on_credit, upsert_quest_economy,
     write_quest_offer,
 )
+from ...writes.condition_drafts import mark_draft_saved
+from ...writes.conditions import clean_condition
 from ...writes.quest_terms import ECONOMY_COLUMNS
 from .. import crud as _crud
 from .day import _resolve_player_character
@@ -56,6 +58,10 @@ class OfferStepBody(BaseModel):
     # `conditions.node_to_dict`; null is none.
     prerequisite: Optional[dict] = None
     completion: Optional[dict] = None
+    # TICKET-0112 (IH1): the interpreter's proposal the creator inserted into
+    # each condition, if any; saving marks it `saved` (`mark_draft_saved`).
+    prerequisite_draft_id: Optional[str] = None
+    completion_draft_id: Optional[str] = None
 
 
 class TermBody(BaseModel):
@@ -82,6 +88,8 @@ class OfferBody(BaseModel):
     # TICKET-0109 (B1): the offer's costs and rewards, replaced whole; absent
     # (None) keeps the stored ones.
     terms: Optional[list[TermBody]] = None
+    # TICKET-0112 (IH1): the interpreter's proposal inserted into the eligibility.
+    eligibility_draft_id: Optional[str] = None
 
 
 class ValueBody(BaseModel):
@@ -128,9 +136,24 @@ def _save_offer(body: OfferBody, offer: Optional[QuestOffer], world_id: str, db:
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    _mark_drafts(body, offer.id, world_id, db)
     db.commit()
     db.refresh(offer)
     return quest_reads.offer_dict(offer, db)
+
+
+def _mark_drafts(body: OfferBody, offer_id: str, world_id: str, db: Session) -> None:
+    """IH1: each inserted proposal is `saved` with the offer, in its
+    transaction, compared with the condition as written (its clean dict
+    form). A draft that cannot be marked is skipped: the journal never fails
+    the creator's save."""
+    pairs = [(body.eligibility_draft_id, body.eligibility)] + [
+        pair for step in body.steps
+        for pair in ((step.prerequisite_draft_id, step.prerequisite), (step.completion_draft_id, step.completion))]
+    for draft_id, raw in pairs:
+        if draft_id:
+            tree = node_to_dict(clean_condition(db, world_id, node_from_dict(raw)))
+            mark_draft_saved(db, world_id=world_id, draft_id=draft_id, offer_id=offer_id, tree=tree)
 
 
 @router.get("/api/quest-offers")

@@ -134,7 +134,7 @@
         </div>
 
         <h4>Proposée à qui remplit</h4>
-        <ConditionEditor cond={draft.eligibility} {choices} emptyLabel="Tout le monde." addLabel="+ condition" />
+        <ConditionEditor cond={draft.eligibility} {choices} role="eligibility" emptyLabel="Tout le monde." addLabel="+ condition" />
 
         <h4>Étapes</h4>
         {#each draft.steps as step, i (i)}
@@ -157,9 +157,9 @@
                       onclick={() => draft.steps.splice(i, 1)}>✕</button>
             </div>
             <div class="muted">Prérequis</div>
-            <ConditionEditor cond={step.prerequisite} {choices} addLabel="+ prérequis de l'étape" />
+            <ConditionEditor cond={step.prerequisite} {choices} role="prerequisite" addLabel="+ prérequis de l'étape" />
             <div class="muted">Objectif atteint quand</div>
-            <ConditionEditor cond={step.completion} {choices}
+            <ConditionEditor cond={step.completion} {choices} role="completion"
                              emptyLabel="Rien de vérifiable : c'est vous qui le déclarez." addLabel="+ condition d'objectif" />
           </div>
         {/each}

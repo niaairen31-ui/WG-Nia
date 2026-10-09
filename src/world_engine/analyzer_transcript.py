@@ -62,7 +62,7 @@ from . import llm_parse, ollama_client
 from .models import Character, Entity, Fact, Knowledge, ProposedMutation, PromptTemplate
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
-from .fact_refs import CodedFacts, code_facts, find_held, knowledge_key
+from .fact_refs import CodedRefs, code_facts, find_held, knowledge_key
 from .prose_render import fact_text, knowledge_text
 from .writes import knowledge_level_rank
 
@@ -663,7 +663,7 @@ def analyze_transcript(
     )
 
 
-def _overhearing_fact_codes(attribution: AttributionContext, db: Session) -> CodedFacts:
+def _overhearing_fact_codes(attribution: AttributionContext, db: Session) -> CodedRefs:
     """c. The closed, coded fact list (L1, TICKET-0097): the facts the
     possible speakers hold on a non-secret row -- the NPC's first, then the
     counterparty's, each in `Knowledge.id` order. Only these can source a
@@ -682,7 +682,7 @@ def _overhearing_fact_codes(attribution: AttributionContext, db: Session) -> Cod
 
 def _overhearing_classify(
     db: Session, world_id: str, speaker_line: str, listener_line: str,
-    facts: CodedFacts, model: str, host: str,
+    facts: CodedRefs, model: str, host: str,
 ) -> list | None:
     """d. Model call."""
     template = load_analysis_prompt(
@@ -705,7 +705,7 @@ def _overhearing_classify(
     return llm_parse.extract_array_or_none(raw)
 
 
-def _overhearing_parse_classifications(items: list, facts: CodedFacts) -> list[tuple[str, str]]:
+def _overhearing_parse_classifications(items: list, facts: CodedRefs) -> list[tuple[str, str]]:
     """e. Normalization — a code the list showed, resolved to its fact id;
     anything else is dropped. No fuzzy matching."""
     classified: list[tuple[str, str]] = []

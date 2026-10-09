@@ -421,6 +421,73 @@ class LoreUsageEvent(SQLModel, table=True):
     created_at: datetime = _created_ts()
 
 
+# -----------------------------------------------------------------------------
+# condition_draft  (the condition interpreter's journal, schema v2.21,
+# TICKET-0112, BRIEF-0112-B, decisions IH1 + D1 of the conditions series)
+#
+# One row per proposal of the interpreter: the creator's instruction for one
+# condition of a quest offer (`role`), the tree it started from, what the
+# model answered, what code made of it, and what became of it. `outcome`
+# moves along `CONDITION_DRAFT_MOVES` only (`writes/condition_drafts.py`, the
+# one writer): a proposal is `proposed` (insertable), `needs_choice` (a name
+# to pick first), `refused` (nothing insertable), `unavailable` (Ollama down)
+# or `parse_error`; the creator then inserts or discards it, and saving the
+# offer that holds an inserted one makes it `saved`, `offer_ref` naming the
+# offer and `saved_as_proposed` whether the saved tree is the proposed one.
+# The acceptance rate of the conditions series' dashboard (D1, TICKET-0115)
+# is a query on `outcome` and `saved_as_proposed`.
+#
+# Not a world's table (the I1 posture of `lore_usage_event`): `world_ref` and
+# `world_name` record the world without a FK, so the journal outlives a
+# deleted world and stays out of `delete_world_cascade` by construction;
+# `offer_ref` names its offer without a FK. `payload` and `model_calls` are
+# never rendered in any UI surface. Non-canon.
+# -----------------------------------------------------------------------------
+CONDITION_DRAFT_OUTCOMES: tuple[str, ...] = (
+    "proposed", "needs_choice", "refused", "unavailable", "parse_error", "inserted", "discarded", "saved",
+)
+
+
+class ConditionDraft(SQLModel, table=True):
+    __tablename__ = "condition_draft"
+    __table_args__ = (
+        Index("idx_condition_draft_attempt", "attempt_id", "created_at"),
+        Index("idx_condition_draft_world", "world_ref", "created_at"),
+        CheckConstraint(
+            "role IN ('eligibility','prerequisite','completion')",
+            name="ck_condition_draft_role",
+        ),
+        CheckConstraint(
+            "outcome IN ('proposed','needs_choice','refused','unavailable','parse_error',"
+            "'inserted','discarded','saved')",
+            name="ck_condition_draft_outcome",
+        ),
+        CheckConstraint(
+            "(offer_ref IS NOT NULL) = (outcome = 'saved') "
+            "AND (saved_as_proposed IS NOT NULL) = (outcome = 'saved')",
+            name="ck_condition_draft_saved",
+        ),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    attempt_id: str
+    world_ref: str
+    world_name: str
+    role: str
+    instruction: str
+    outcome: str
+    retried: bool = Field(default=False, sa_column_kwargs={"server_default": text("0")})
+    offer_ref: Optional[str] = None
+    saved_as_proposed: Optional[bool] = None
+    payload: Any = Field(sa_column=Column(JSON, nullable=False))
+    model_calls: Any = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False, server_default=text("'[]'")),
+    )
+    created_at: datetime = _created_ts()
+    decided_at: Optional[datetime] = None
+
+
 # -------------------------------------------------------------------------
 # skill_resolution  (one row per arbiter classification — the action
 # lexicon's audit trail; schema v2.02, TICKET-0084)

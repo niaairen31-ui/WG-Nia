@@ -24,7 +24,7 @@ from typing import Any
 from sqlmodel import Session, select
 
 from .analyzer import _GOAL_ACTION_MAP, _MUTATION_TYPE_MAP
-from .fact_refs import CodedFacts
+from .fact_refs import CodedRefs
 from .models import Agenda, AgendaStep, Character, Entity, Faction, Relation
 from .tick_context import _perceived_target
 
@@ -702,7 +702,7 @@ def _tick_normalize_npc_move(
 
 
 def _tick_normalize_new_knowledge(
-    payload_in: dict, *, npc_id: str, roster: dict[str, str], fact_codes: CodedFacts,
+    payload_in: dict, *, npc_id: str, roster: dict[str, str], fact_codes: CodedRefs,
     secret_fact_ids: set[str], secret_texts: set[str],
 ) -> tuple[dict, str] | None:
     """`source_fact` is the briefing code of what the NPC passes on (Z2,
@@ -750,7 +750,7 @@ def _normalize_tick_item(
     npc_id: str,
     world_id: str,
     roster: dict[str, str],
-    fact_codes: CodedFacts,
+    fact_codes: CodedRefs,
     secret_fact_ids: set[str], secret_texts: set[str],
     destinations: dict[str, str],
     from_location_id: str | None,

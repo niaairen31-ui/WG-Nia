@@ -111,6 +111,14 @@ JSON_COLUMN_ALLOWLIST = {
     # UI consumer must relationalize (the D2 reactivation condition).
     "LoreUsageEvent.payload",
     "LoreUsageEvent.model_calls",
+    # The condition interpreter's journal (TICKET-0112, BRIEF-0112-B, IH1):
+    # what each proposal started from and became, and every model exchange,
+    # kept for the acceptance rate and an offline analysis. Never rendered in
+    # any UI surface: the editor shows a proposal from the route's answer, and
+    # the rate reads the relational `outcome` and `saved_as_proposed`. The
+    # FIRST UI consumer of these two columns must relationalize.
+    "ConditionDraft.payload",
+    "ConditionDraft.model_calls",
 }
 
 

@@ -289,6 +289,15 @@ PROMPT_REGISTRY: dict[str, PromptSpec] = {
         call_sites=("src/world_engine/lore_write_draft.py:_call",),
         default_model=_author_model,
     ),
+    # TICKET-0112 (BRIEF-0112-C): the condition interpreter, a creator tool
+    # (IJ1: the authoring model by default, overridable per template).
+    "condition_interpret": PromptSpec(
+        surface="authoring",
+        world_scoped=False,
+        dry_run_capable=True,
+        call_sites=("src/world_engine/condition_interpreter.py:_call",),
+        default_model=_author_model,
+    ),
     "world_tick": PromptSpec(
         surface="play",
         world_scoped=False,

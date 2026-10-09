@@ -18521,6 +18521,133 @@ the character may not have seen it; reactivation: the event journal of
 TICKET-0114 says who witnessed what -- « tue le loup géant » is tracked
 from then).
 
+## ONE CODED LIST, ONE TEMPLATED JSON CALL (TICKET-0112) -- `CodedRefs` NAMES ANY TARGET BY CODE, `prompt_call.call_json` SERVES THE AUTHORING TOOLS (BRIEF-0112-a, no schema change)
+
+**ID1a.** A model that must name a target from a closed set is shown a
+coded list and answers a code; code turns the code back into an id or
+refuses it. `fact_refs.CodedFacts` becomes `fact_refs.CodedRefs`, built by
+`code_refs(prefix, pairs)` for any `(id, label)` pairs; `code_facts` is its
+fact list (`f`), unchanged in behaviour. The condition interpreter adds
+quest offers (`q`) and skills (`s`). Entities stay named by name and
+resolved by `name_index` (creator regime).
+
+**Rejected.** ID1b (offers and skills in `name_index`): a name surface is
+an entity's, carrying an `entity_id` the tokenizer turns into an identity
+token and the day concordance matches a player's words against -- both
+would meet offers and skills. ID1c (a `quest_index` and a `skill_index`): a
+second structure for a job that is not name resolution -- the sets are
+small and shown whole. Reactivation of ID1b for offers: a quest offer
+becomes an entity.
+
+**One templated JSON call.** `lore_write_draft._call`'s body moves
+verbatim to `prompt_call.call_json(db, usage, values, exchanges, chat)`:
+load the prompt, fill its variables, record the exchange, call, parse one
+object. The client is a parameter, so a check that replaces a caller's
+`chat` still reaches the call. `lore_write_draft._world_facts` becomes the
+public `world_fact_ids`, for the interpreter's context.
+
+## THE INTERPRETER KEEPS A JOURNAL OF ITS PROPOSALS (TICKET-0112) -- `condition_draft`, OUTSIDE ANY WORLD, ITS OUTCOME MOVING ONE WAY TO « SAVED » (BRIEF-0112-b, schema v2.21)
+
+**IH1.** Every proposal of the condition interpreter is one
+`condition_draft` row: the creator's instruction for one condition of a
+quest offer (its role), the tree it started from, what the model answered
+and code made of it, the notes and errors she was shown. Its `outcome`
+moves along `writes/condition_drafts.CONDITION_DRAFT_MOVES` only:
+`proposed` / `needs_choice` / `refused` / `unavailable` / `parse_error` at
+first, then `inserted` or `discarded`, and `saved` once the offer holding
+an inserted proposal is saved -- with `offer_ref` and `saved_as_proposed`
+(whether the saved tree is the proposed one). The conditions series'
+acceptance rate (D1, the dashboard of TICKET-0115) is a query on those two
+relational columns; `payload` and `model_calls` are JSON, never rendered.
+Like `lore_usage_event` (I1 of TICKET-0103), the table has no `world_id`
+and no FK: it outlives a deleted world or offer and stays out of the world
+cascade. `writes/condition_drafts.py` is its one writer.
+
+**Rejected.** IH2 (a new `kind` in `lore_usage_event`): a rebuild of its
+CHECKs, and an acceptance counted inside JSON. IH3 (an export only): D1
+would not be measurable.
+
+## THE CONDITION INTERPRETER: A SENTENCE BECOMES A TREE THE CREATOR CONFIRMS (TICKET-0112) -- THE MODEL PROPOSES, CODE READS IT BACK AND VALIDATES EVERY LEAF (BRIEF-0112-c, no schema change)
+
+**IA1.** The interpreter writes conditions only -- an offer's eligibility,
+a step's prerequisite or completion. A cost (« apporte 15 fourrures ») or a
+reward is never translated into a condition: the model lists it as
+unsupported and the creator reads « ajoute-le dans Coûts ». Rejected: IA2
+(terms too: a second judge, `TermSpec`; reactivation: the journal shows
+the creator typing costs into the interpreter) and IA3 (a whole offer from
+one sentence, after IA2).
+
+**IC1.** Editing a condition, the model receives the current tree in its
+own form -- entities by an `e` code, facts, offers and skills by code --
+with the instruction, and answers the whole tree. Rejected: IC2 (always
+rewrite from a full sentence).
+
+**ID1a, IE1.** The model sees the language (one line per form: its French
+phrase, its target, its values), the entities the instruction names, and
+coded lists: the current tree's facts, then the named entities' facts
+(creator-only facts included: a condition on a secret is legitimate),
+then the world-level facts, capped like the Lore writing panel; every
+quest offer (`q`); the base domains and the world's skills (`s`). Code
+reads the answer back: codes through their list, names through
+`lore_resolve.resolve_named` under the creator regime. An ambiguous name,
+or an unknown one with near names, waits for the creator's pick
+(`needs_choice`); an unknown name with none is an error. Rejected: IE2
+(creator-only facts hidden: no condition on a secret).
+
+**II1.** Every leaf is validated on its own by `writes.conditions.clean_leaf`,
+every error kept. When code refuses the model's answer for anything but an
+unknown name, the model is asked once more with the errors; a second
+refusal is `refused`, the errors shown, nothing insertable. Rejected: II2
+(no second call). Distinct from Y8a (TICKET-0094): nothing is written here,
+and the creator remains the judge.
+
+**IF1.** What the forms cannot say yet -- a state, an event, time, other --
+is listed by the model and shown as a note naming where it will come from
+(TICKET-0113, TICKET-0114); the rest is proposed. Rejected: IF2 (all or
+nothing).
+
+**IJ1.** One prompt, `condition_interpret`, an authoring usage: the
+authoring model by default, the creator's per-template override otherwise.
+`OllamaError` and a reply that does not parse propagate to the route. The
+interpreter writes nothing: `condition_interpreter.py` calls no model
+directly (its `_call` is `prompt_call.call_json`) and no write.
+
+## THE INTERPRETER'S ROUTES (TICKET-0112) -- A PROPOSAL IS JOURNALED, PICKED, INSERTED OR DISCARDED; SAVING THE OFFER MARKS IT SAVED (BRIEF-0112-d, no schema change)
+
+**IG1, IH1, IJ1.** `POST /api/conditions/interpret` turns the creator's
+sentence for one condition into a proposal: its French lines and, when it
+is insertable, the view the offer editor inserts (`quest_reads.condition_view`);
+the names waiting for her pick with their choices; the notes and errors.
+`POST /api/conditions/drafts/{id}/resolve` applies her picks (no model
+call); `POST /api/conditions/drafts/{id}/decision` records `inserted` or
+`discarded`. No route touches an offer: the creator's « Enregistrer »
+writes the condition through `routes/quests.py` as before (A1 of the
+series), and the offer body names, per condition, the proposal she
+inserted there -- saving marks it `saved` in the same transaction, with
+whether the saved condition is the proposed one. A draft that cannot be
+marked is skipped: the journal never fails her save.
+
+Every proposal that reached the model is journaled -- Ollama down (503,
+`INTERPRET_UNAVAILABLE_MESSAGE`, her sentence kept: K1 of TICKET-0098) and
+an unparsable reply (502) included; a request refused before the model is
+not. A proposal's attempt id is the editor's, in canonical form, or a
+fresh one (`lore_usage.attempt_id`).
+
+## « ÉCRIRE EN LANGAGE NATUREL » UNDER EVERY CONDITION OF THE OFFER EDITOR (TICKET-0112) -- THE CREATOR INSERTS OR DISCARDS, HER SAVE WRITES (BRIEF-0112-e, no schema change)
+
+**IB1, IG1.** Under each condition of the offer editor -- the
+eligibility, each step's prerequisite and completion -- « Écrire en langage
+naturel » opens a sentence box. The proposal comes back as its French
+lines, its notes and errors; an ambiguous name is picked from its choices;
+the creator then inserts it into her draft or discards it and
+reformulates. An inserted flat condition becomes the editable rows, a
+nested one the read-only lines (T1): every nested condition is now written
+and edited in French. The editor sends the current condition with the
+sentence (IC1). Nothing reaches the offer before « Enregistrer », which
+sends, per condition, the id of the proposal inserted there (IH1).
+Rejected: IB2 (a panel in the Lore shell: detached from the offer it
+changes, and a third reopening of 0085's read-only lock).
+
 ---
 
 *Co-built with Claude, June 2026.*

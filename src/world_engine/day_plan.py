@@ -35,7 +35,7 @@ from .conditions import (
     map_leaves,
     read_condition,
 )
-from .fact_refs import CodedFacts, code_facts
+from .fact_refs import CodedRefs, code_facts
 from .models import (
     BASE_SKILL_DOMAINS,
     SCHEDULE_PHASES,
@@ -300,7 +300,7 @@ def _validate_step(raw: object) -> PlanStep:
     return PlanStep(objective=objective.strip(), cost=cost, domain=domain, prerequisite=all_of(requirements))
 
 
-def learnable_facts(character: Character, db: Session) -> CodedFacts:
+def learnable_facts(character: Character, db: Session) -> CodedRefs:
     """D1'a (TICKET-0097): the coded list of facts a `knowledge` gate may
     name — anchorable (B3) and not already held (A1b), ordered by their
     rendered text, at most `MAX_LEARNABLE_FACTS_SHOWN` (the rest is counted
@@ -316,7 +316,7 @@ def learnable_facts(character: Character, db: Session) -> CodedFacts:
     return code_facts(db, [fact.id for fact in ordered[:MAX_LEARNABLE_FACTS_SHOWN]])
 
 
-def learnable_facts_summary(character_name: str, learnable: CodedFacts) -> str:
+def learnable_facts_summary(character_name: str, learnable: CodedRefs) -> str:
     """The French text `emit_plan` appends for `learnable` (BRIEF-0078-a's
     appended-text shape, never a template placeholder). Positive form only —
     the gameplay model is abliterated. "" when the list is empty."""
@@ -329,7 +329,7 @@ def learnable_facts_summary(character_name: str, learnable: CodedFacts) -> str:
     )
 
 
-def _resolve_knowledge_codes(steps: list[PlanStep], learnable: CodedFacts) -> list[PlanStep]:
+def _resolve_knowledge_codes(steps: list[PlanStep], learnable: CodedRefs) -> list[PlanStep]:
     """Each `knowledge` requirement's code becomes its fact id; a code the
     list did not show is kept as emitted, for `anchor_requirements` to drop
     and report."""

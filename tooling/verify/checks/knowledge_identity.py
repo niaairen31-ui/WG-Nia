@@ -47,7 +47,7 @@ K4 -- the mutation pipeline keys knowledge by fact (C-01, C-02):
    g. window normalization drops a model-emitted `knowledge_change` (N1)
       and strips `subject` / `fact_id` from a model `new_knowledge`.
 K5 -- models name facts by code (C-03, C-04, C-05):
-   a. `code_facts` / `CodedFacts` on the `_CODE_CASES` table;
+   a. `code_facts` / `CodedRefs` on the `_CODE_CASES` table;
    b. overhearing (L1): the classifier's list shows the speaker's
       non-secret fact and never the text of its secret one; the code the
       model answers resolves to that fact -- an unaware bystander gets a
@@ -113,6 +113,9 @@ _SUBJECT_CENSUS: dict[str, int] = {
     # TICKET-0101, BRIEF-0101-C: `discoverable_detail.subject`, the label a
     # promotion lists for a detail it moves -- never a knowledge key.
     "src/world_engine/writes/zone_promotion.py": 3,
+    # TICKET-0112, BRIEF-0112-C: a condition leaf's `subject` in the model's
+    # form (C-03) -- whom the leaf judges, never a knowledge key.
+    "src/world_engine/condition_interpreter.py": 3,
 }
 
 A = "11111111-1111-1111-1111-111111111111"

@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.20
+Current schema version: v2.21
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -1244,6 +1244,65 @@ CREATE TABLE lore_usage_event (
 );
 CREATE INDEX idx_lore_usage_event_attempt ON lore_usage_event(attempt_id, created_at);
 CREATE INDEX idx_lore_usage_event_world ON lore_usage_event(world_ref, created_at);
+```
+
+-----
+
+### `condition_draft`
+
+The condition interpreter's journal (schema v2.21, TICKET-0112, BRIEF-0112-B,
+decision IH1): one row per proposal of the interpreter -- the creator's
+`instruction` for one condition of a quest offer (`role`: `eligibility`,
+`prerequisite` or `completion`), grouped by `attempt_id`, the id the editor
+holds for one use. `payload` is what the proposal started from and became
+(`current`, `pending`, `mentions`, `bindings`, `proposed`, `notes`,
+`errors`); `model_calls` is every model exchange of it (prompt version,
+model, rendered messages, raw output, error); `retried` says the model was
+asked once more after code refused its first answer (II1).
+
+`outcome` moves along `writes/condition_drafts.CONDITION_DRAFT_MOVES` only.
+A proposal starts `proposed` (insertable), `needs_choice` (a name to pick
+first), `refused` (nothing insertable), `unavailable` (Ollama down) or
+`parse_error`; `needs_choice` becomes `proposed`, `refused` or `discarded`
+once the creator picks; `proposed` becomes `inserted` or `discarded`; an
+`inserted` proposal becomes `saved` when the offer holding it is saved --
+`offer_ref` names that offer and `saved_as_proposed` says whether the saved
+tree is the proposed one; both are set on exactly that outcome. `decided_at`
+is the time of the last move. The conditions series' acceptance rate (D1)
+reads `outcome` and `saved_as_proposed`.
+
+Not a world's table (the I1 posture of `lore_usage_event`): `world_ref` and
+`world_name` record the world without a FK, so the journal outlives a
+deleted world and stays out of `delete_world_cascade` by construction;
+`offer_ref` names its offer without a FK. Never deleted. Non-canon.
+
+```sql
+CREATE TABLE condition_draft (
+  id                 TEXT PRIMARY KEY NOT NULL,
+  attempt_id         TEXT NOT NULL,
+  world_ref          TEXT NOT NULL,
+  world_name         TEXT NOT NULL,
+  role               TEXT NOT NULL,
+  instruction        TEXT NOT NULL,
+  outcome            TEXT NOT NULL,
+  retried            BOOLEAN NOT NULL DEFAULT 0,
+  offer_ref          TEXT,
+  saved_as_proposed  BOOLEAN,
+  payload            JSON NOT NULL,
+  model_calls        JSON NOT NULL DEFAULT '[]',
+  created_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  decided_at         DATETIME,
+  CONSTRAINT ck_condition_draft_role CHECK (
+    role IN ('eligibility','prerequisite','completion')),
+  CONSTRAINT ck_condition_draft_outcome CHECK (
+    outcome IN ('proposed','needs_choice','refused','unavailable','parse_error',
+                'inserted','discarded','saved')),
+  CONSTRAINT ck_condition_draft_saved CHECK (
+    (offer_ref IS NOT NULL) = (outcome = 'saved')
+    AND (saved_as_proposed IS NOT NULL) = (outcome = 'saved'))
+);
+CREATE INDEX idx_condition_draft_attempt ON condition_draft(attempt_id, created_at);
+CREATE INDEX idx_condition_draft_world ON condition_draft(world_ref, created_at);
 ```
 
 -----

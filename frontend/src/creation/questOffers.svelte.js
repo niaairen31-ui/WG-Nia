@@ -6,7 +6,8 @@
    value (POST /api/quest-offers/value), and the world's rates. Since
    TICKET-0111 (BRIEF-0111-D): every condition -- the eligibility, each
    step's prerequisite and completion -- is a condition draft, sent as a
-   tree (conditionBody). */
+   tree (conditionBody). Since TICKET-0112 (BRIEF-0112-E, IH1): with the id
+   of the interpreter's proposal inserted into it, which the save marks. */
 import { api } from './sheetRequest.svelte.js';
 import { blankCondition, conditionBody, conditionDraft } from './questRequirements.js';
 import { blankTerm, termBody } from './questTerms.js';
@@ -121,9 +122,11 @@ function draftBody(draft) {
     title: draft.title, summary: draft.summary || null,
     repeatable: draft.repeatable, status: draft.status,
     eligibility: conditionBody(draft.eligibility),
+    eligibility_draft_id: draft.eligibility.draftId || null,
     steps: draft.steps.map((s) => ({
       objective: s.objective, cost: Number(s.cost), domain: s.domain || null,
       prerequisite: conditionBody(s.prerequisite), completion: conditionBody(s.completion),
+      prerequisite_draft_id: s.prerequisite.draftId || null, completion_draft_id: s.completion.draftId || null,
     })),
     terms: draft.terms.map(termBody),
   };
