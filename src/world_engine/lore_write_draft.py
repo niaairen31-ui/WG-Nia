@@ -25,10 +25,10 @@ from typing import Any, Optional
 
 from sqlmodel import Session, select
 
-from . import llm_parse, model_exchange, prompt_load
+from . import model_exchange, prompt_call
 from .facet_reads import creator_only_fact_ids
 from .facets import FACETS
-from .fact_refs import CodedFacts, code_facts
+from .fact_refs import CodedRefs, code_facts
 from .lore_resolve import near_candidates, resolve_named
 from .models import Entity, Fact, FactParticipant
 from .name_index import CREATOR
@@ -62,7 +62,7 @@ class DraftContext:
     """What the model may see: the named entities and the coded facts."""
 
     entity_lines: tuple[str, ...]
-    coded: CodedFacts
+    coded: CodedRefs
 
 
 def named_entity_ids(db: Session, world_id: str, statement: str) -> list[str]:
@@ -76,7 +76,7 @@ def named_entity_ids(db: Session, world_id: str, statement: str) -> list[str]:
     return ordered
 
 
-def _world_facts(db: Session, world_id: str) -> list[str]:
+def world_fact_ids(db: Session, world_id: str) -> list[str]:
     """Free facts of the world with no participant (world-level lore)."""
     bound = select(FactParticipant.fact_id)
     return list(db.exec(select(Fact.id).where(
@@ -96,7 +96,7 @@ def draft_context(db: Session, world_id: str, statement: str) -> DraftContext:
         entity_lines.append(f"- {entity.name} ({entity.type})")
         fact_ids += db.exec(select(FactParticipant.fact_id).where(
             FactParticipant.entity_id == entity_id).order_by(FactParticipant.fact_id)).all()
-    fact_ids += _world_facts(db, world_id)
+    fact_ids += world_fact_ids(db, world_id)
     hidden = creator_only_fact_ids(db, fact_ids)
     kept = [fid for fid in dict.fromkeys(fact_ids) if fid not in hidden][:MAX_CODED_FACTS]
     return DraftContext(entity_lines=tuple(entity_lines), coded=code_facts(db, kept))
@@ -115,20 +115,10 @@ Exchanges = Optional[list[model_exchange.ModelExchange]]
 def _call(db: Session, usage: str, values: dict[str, str], exchanges: Exchanges) -> dict:
     """One model call. When `exchanges` is a list (TICKET-0103, BRIEF-0103-B,
     C-03), the call is appended to it as a `ModelExchange`, its raw reply
-    kept before parsing, so a reply that does not parse is still recorded."""
-    spec = prompt_load.load(db, usage)
-    user_message = spec.user_template
-    for key, value in values.items():
-        user_message = user_message.replace("{" + key + "}", value)
-    exchange = model_exchange.begin(exchanges, usage, spec, spec.system_prompt, user_message)
-    raw = chat(
-        [{"role": "system", "content": spec.system_prompt},
-         {"role": "user", "content": user_message}],
-        model=spec.model, format="json",
-    )
-    if exchange is not None:
-        exchange.raw_output = raw
-    return llm_parse.extract_object(raw)
+    kept before parsing, so a reply that does not parse is still recorded.
+    The call itself is `prompt_call.call_json` (TICKET-0112, BRIEF-0112-A),
+    handed this module's `chat`."""
+    return prompt_call.call_json(db, usage, values, exchanges, chat)
 
 
 def _values(context: DraftContext, statement: str, answers: str = "") -> dict[str, str]:
@@ -207,7 +197,7 @@ def _knowers(raw: Any, known: set[str]) -> list[dict]:
     return out
 
 
-def _fact(raw: Any, coded: CodedFacts, known: set[str], notes: list[str]) -> Optional[dict]:
+def _fact(raw: Any, coded: CodedRefs, known: set[str], notes: list[str]) -> Optional[dict]:
     if not isinstance(raw, dict):
         return None
     action = raw.get("action")

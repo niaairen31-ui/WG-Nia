@@ -37,7 +37,7 @@ from .knowledge_resolve import (
     resolve_public_levels,
 )
 from .facet_reads import facts_of, joined, known_fact_texts
-from .fact_refs import CodedFacts, code_facts
+from .fact_refs import CodedRefs, code_facts
 from .prose_render import knowledge_texts
 from .ledger import get_balance
 from .models import (
@@ -273,7 +273,7 @@ def tick_knowledge_rows(npc_id: str, session: Session) -> list[Knowledge]:
     return knowledge + resolve_default_rows(session, npc_id, {k.fact_id for k in knowledge})
 
 
-def tick_fact_codes(npc_id: str, session: Session) -> CodedFacts:
+def tick_fact_codes(npc_id: str, session: Session) -> CodedRefs:
     """The briefing's fact codes (Z2): one per `tick_knowledge_rows` row."""
     return code_facts(session, [k.fact_id for k in tick_knowledge_rows(npc_id, session)])
 

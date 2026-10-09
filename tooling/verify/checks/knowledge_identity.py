@@ -47,7 +47,7 @@ K4 -- the mutation pipeline keys knowledge by fact (C-01, C-02):
    g. window normalization drops a model-emitted `knowledge_change` (N1)
       and strips `subject` / `fact_id` from a model `new_knowledge`.
 K5 -- models name facts by code (C-03, C-04, C-05):
-   a. `code_facts` / `CodedFacts` on the `_CODE_CASES` table;
+   a. `code_facts` / `CodedRefs` on the `_CODE_CASES` table;
    b. overhearing (L1): the classifier's list shows the speaker's
       non-secret fact and never the text of its secret one; the code the
       model answers resolves to that fact -- an unaware bystander gets a

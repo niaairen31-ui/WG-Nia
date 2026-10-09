@@ -18521,6 +18521,31 @@ the character may not have seen it; reactivation: the event journal of
 TICKET-0114 says who witnessed what -- « tue le loup géant » is tracked
 from then).
 
+## ONE CODED LIST, ONE TEMPLATED JSON CALL (TICKET-0112) -- `CodedRefs` NAMES ANY TARGET BY CODE, `prompt_call.call_json` SERVES THE AUTHORING TOOLS (BRIEF-0112-a, no schema change)
+
+**ID1a.** A model that must name a target from a closed set is shown a
+coded list and answers a code; code turns the code back into an id or
+refuses it. `fact_refs.CodedFacts` becomes `fact_refs.CodedRefs`, built by
+`code_refs(prefix, pairs)` for any `(id, label)` pairs; `code_facts` is its
+fact list (`f`), unchanged in behaviour. The condition interpreter adds
+quest offers (`q`) and skills (`s`). Entities stay named by name and
+resolved by `name_index` (creator regime).
+
+**Rejected.** ID1b (offers and skills in `name_index`): a name surface is
+an entity's, carrying an `entity_id` the tokenizer turns into an identity
+token and the day concordance matches a player's words against -- both
+would meet offers and skills. ID1c (a `quest_index` and a `skill_index`): a
+second structure for a job that is not name resolution -- the sets are
+small and shown whole. Reactivation of ID1b for offers: a quest offer
+becomes an entity.
+
+**One templated JSON call.** `lore_write_draft._call`'s body moves
+verbatim to `prompt_call.call_json(db, usage, values, exchanges, chat)`:
+load the prompt, fill its variables, record the exchange, call, parse one
+object. The client is a parameter, so a check that replaces a caller's
+`chat` still reaches the call. `lore_write_draft._world_facts` becomes the
+public `world_fact_ids`, for the interpreter's context.
+
 ---
 
 *Co-built with Claude, June 2026.*

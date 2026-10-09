@@ -6,10 +6,13 @@ consequences live here, and only here:
 
 - **Codes (D1'a, L1, Z2).** A model never emits a fact id and never copies a
   free-text key. It is shown a coded list (`f1 — <the fact's text>`), emits
-  a code, and `CodedFacts.resolve` turns it back into a fact id -- or None
+  a code, and `CodedRefs.resolve` turns it back into a fact id -- or None
   for any code the list did not show. Codes are positional: the same fact
   ids in the same order give the same codes, so a list rebuilt from the same
-  rows resolves the codes a prompt carried.
+  rows resolves the codes a prompt carried. Since TICKET-0112 (BRIEF-0112-A,
+  ID1a) the list is general: `code_refs` codes any `(id, label)` pairs under
+  one prefix (the condition interpreter's quest offers `q`, skills `s`),
+  and `code_facts` is its fact list.
 - **Identity key (M1).** `knowledge_key(payload)` is the dedup identity of a
   `new_knowledge` payload or a `resource_change` knowledge leg:
   `("fact", fact_id)` when the payload names an existing fact,
@@ -75,25 +78,39 @@ def find_held(db: Session, entity_id: Optional[str], payload: dict) -> Optional[
 
 
 @dataclass(frozen=True)
-class CodedFacts:
-    """A coded fact list: `lines[i]` shows the fact coded `f{i+1}`."""
+class CodedRefs:
+    """A coded list: `lines[i]` shows the target coded `<prefix>{i+1}`."""
 
     codes: dict[str, str]
     lines: tuple[str, ...]
 
     def resolve(self, code: object) -> Optional[str]:
-        """The fact id behind `code`, or None when the list did not show it.
+        """The id behind `code`, or None when the list did not show it.
         Surrounding whitespace and brackets are tolerated (`[f3]`, ` F3 `)."""
         if not isinstance(code, str):
             return None
         return self.codes.get(code.strip().strip("[]").strip().lower())
 
-    def code_of(self, fact_id: str) -> Optional[str]:
-        """The code the list gives `fact_id`, or None."""
-        return next((code for code, fid in self.codes.items() if fid == fact_id), None)
+    def code_of(self, target_id: str) -> Optional[str]:
+        """The code the list gives `target_id`, or None."""
+        return next((code for code, tid in self.codes.items() if tid == target_id), None)
 
 
-def code_facts(db: Session, fact_ids: Iterable[str]) -> CodedFacts:
+def code_refs(prefix: str, pairs: Iterable[tuple[str, str]]) -> CodedRefs:
+    """Code `(id, label)` pairs in order under `prefix`, first occurrence of
+    an id wins. Each line is `<prefix><n> — <label>`."""
+    codes: dict[str, str] = {}
+    lines: list[str] = []
+    for target_id, label in pairs:
+        if not target_id or target_id in codes.values():
+            continue
+        code = f"{prefix}{len(codes) + 1}"
+        codes[code] = target_id
+        lines.append(f"{code} — {label}")
+    return CodedRefs(codes=codes, lines=tuple(lines))
+
+
+def code_facts(db: Session, fact_ids: Iterable[str]) -> CodedRefs:
     """Code `fact_ids` in order, first occurrence wins; an id with no `fact`
     row is skipped. Each line is `f<n> — <the fact's rendered text>`."""
     ordered: list[str] = []
@@ -101,10 +118,4 @@ def code_facts(db: Session, fact_ids: Iterable[str]) -> CodedFacts:
         if fact_id and fact_id not in ordered:
             ordered.append(fact_id)
     facts = [fact for fact in (db.get(Fact, fid) for fid in ordered) if fact is not None]
-    codes: dict[str, str] = {}
-    lines: list[str] = []
-    for index, (fact, text) in enumerate(zip(facts, fact_texts(db, facts)), start=1):
-        code = f"{CODE_PREFIX}{index}"
-        codes[code] = fact.id
-        lines.append(f"{code} — {text}")
-    return CodedFacts(codes=codes, lines=tuple(lines))
+    return code_refs(CODE_PREFIX, ((fact.id, text) for fact, text in zip(facts, fact_texts(db, facts))))

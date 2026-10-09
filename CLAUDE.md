@@ -470,7 +470,7 @@ WG-Nia/
 │   ├── lore_*.py, unbound_facts.py, fact_refs.py  # Lore read/write; unbound facts; fact codes
 │   ├── writes/               # canon-write helpers by domain; schema.py is the DDL authority
 │   ├── prompt_registry.py   # prompt wiring registry; effective_model resolver
-│   ├── prompt_store.py, prompt_load.py  # prompt_version accessor; Lore-shell prompt loader
+│   ├── prompt_store.py, prompt_load.py, prompt_call.py  # version accessor; loader; JSON call
 │   ├── entity_author.py     # AI authoring assistant (entities, PC, skills, agendas, events)
 │   ├── region_author.py     # region generation orchestrator (proposes names, no canon)
 │   ├── spatial_author.py    # Creation-side door materialization from live connects_to

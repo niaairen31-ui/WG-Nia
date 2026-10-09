@@ -23,7 +23,7 @@ from sqlmodel import Session, select
 
 from . import llm_parse, ollama_client
 from .analyzer import load_analysis_prompt
-from .fact_refs import CodedFacts, knowledge_key
+from .fact_refs import CodedRefs, knowledge_key
 from .prose_render import fact_texts
 from .models import Agenda, Character, Entity, Fact, FactionMembership, Knowledge, ProposedMutation
 from .prompt_registry import effective_model
@@ -175,7 +175,7 @@ def _tick_npc_dedup_note(mutation_type: str, payload: dict, state: dict[str, Any
 
 
 def _tick_normalize_npc_items(
-    items: list, *, npc_id: str, world_id: str, roster: dict[str, str], fact_codes: CodedFacts,
+    items: list, *, npc_id: str, world_id: str, roster: dict[str, str], fact_codes: CodedRefs,
     secret_fact_ids: set[str], secret_texts: set[str],
     destinations: dict[str, str], from_location_id: str | None, from_name: str | None,
     agendas_index: dict[str, str], effects_roster: dict[str, str], db: Session,
