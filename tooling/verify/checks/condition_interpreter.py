@@ -117,6 +117,19 @@ ND3 -- saving the offer (fixture). An offer saved with its eligibility as
    `saved`, false; an unknown draft id and a `proposed` draft's id leave
    the save whole and the `proposed` draft unmoved.
 
+NE1 -- the editor (BRIEF-0112-E; static). `ConditionEditor.svelte` renders
+   `<ConditionInterpreter {cond} {role} />`; `QuestOffers.svelte` passes
+   `role="eligibility"`, `"prerequisite"` and `"completion"`, one each.
+   `conditionInterpreter.svelte.js` POSTs `/api/conditions/interpret` with
+   `current: conditionBody(cond)` and `attempt_id: state.attemptId`,
+   `/resolve` with the picks and `/decision` with `'inserted'` and
+   `'discarded'`; `insertProposal` records `inserted` before it assigns
+   `conditionDraft(proposal.view)` and `draftId: proposal.draft_id` to the
+   condition. `conditionDraft` and `blankCondition` set `draftId: null`;
+   `questOffers.svelte.js` sends `eligibility_draft_id`,
+   `prerequisite_draft_id` and `completion_draft_id`. The built bundle
+   under `cockpit/static/assets` carries `/api/conditions/interpret`.
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that collects nothing fails.
 """
@@ -1115,6 +1128,50 @@ def check_nd2_nd3(engine, ids) -> None:
         _nd3_save(session, ids, routes, quests, ci, answer["view"]["tree"], answer["draft_id"])
 
 
+# --- NE1 -----------------------------------------------------------------------
+
+FRONT = ROOT / "frontend" / "src" / "creation"
+
+
+def _front(name: str) -> str:
+    path = FRONT / name
+    if not path.exists():
+        fail(f"NE1: frontend/src/creation/{name} is missing")
+        return ""
+    return path.read_text(encoding="utf-8")
+
+
+def check_ne1() -> None:
+    editor = _front("ConditionEditor.svelte")
+    if "<ConditionInterpreter {cond} {role} />" not in editor:
+        fail("NE1: ConditionEditor.svelte does not render the interpreter with its role")
+    offers = _front("QuestOffers.svelte")
+    for role in ("eligibility", "prerequisite", "completion"):
+        if len(re.findall(r'<ConditionEditor[^>]*role="' + role + '"', offers)) != 1:
+            fail(f"NE1: QuestOffers.svelte does not pass role={role!r} to one ConditionEditor")
+    state = _front("conditionInterpreter.svelte.js")
+    for needle in ("'/api/conditions/interpret'", "current: conditionBody(cond)", "attempt_id: state.attemptId",
+                   "'/resolve'", "bindings: state.picks", "'/decision'", "decide(state, 'discarded')"):
+        if needle not in state:
+            fail(f"NE1: conditionInterpreter.svelte.js lacks {needle!r}")
+    body = state[state.find("export async function insertProposal"):]
+    inserted, assigned = body.find("decide(state, 'inserted')"), body.find(
+        "Object.assign(cond, conditionDraft(proposal.view), { draftId: proposal.draft_id })")
+    if inserted < 0 or assigned < 0 or assigned < inserted:
+        fail("NE1: insertProposal does not record `inserted` before it fills the condition")
+    requirements = _front("questRequirements.js")
+    if requirements.count("draftId: null") < 3:
+        fail("NE1: conditionDraft and blankCondition do not all set draftId: null")
+    offers_js = _front("questOffers.svelte.js")
+    for key in ("eligibility_draft_id: draft.eligibility.draftId", "prerequisite_draft_id: s.prerequisite.draftId",
+                "completion_draft_id: s.completion.draftId"):
+        if key not in offers_js:
+            fail(f"NE1: questOffers.svelte.js does not send {key.split(':')[0]}")
+    assets = list((SRC / "cockpit" / "static" / "assets").glob("*.js"))
+    if not assets or not any("/api/conditions/interpret" in a.read_text(encoding="utf-8") for a in assets):
+        fail("NE1: the built bundle does not carry /api/conditions/interpret")
+
+
 def main() -> int:
     db_path = _fresh_db()
     from world_engine.db import create_db_and_tables, engine
@@ -1132,6 +1189,7 @@ def main() -> int:
     check_nc3_nc4(engine, nc_ids)
     check_nd1()
     check_nd2_nd3(engine, nc_ids)
+    check_ne1()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -1143,7 +1201,8 @@ def main() -> int:
           "and the name index, validates every leaf, asks once more with the errors, leaves a name to "
           "the creator, never writes a condition, and sends a cost back to the offer's terms; its routes "
           "journal every proposal that reached the model, move it on the creator's pick and decision, and "
-          "saving the offer marks what she inserted saved, as proposed or changed")
+          "saving the offer marks what she inserted saved, as proposed or changed; under every condition "
+          "of the offer editor, a sentence becomes a proposal she inserts or discards")
     return 0
 
 

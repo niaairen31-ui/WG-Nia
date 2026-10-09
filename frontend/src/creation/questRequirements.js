@@ -94,9 +94,10 @@ export function requirementBody(req) {
    tree shown read-only by its French `lines` and sent back unchanged --
    only the interpreter will edit those. */
 
-/** The editor's draft of one condition, from the server's view (`quest_reads.condition_view`). */
+/** The editor's draft of one condition, from the server's view (`quest_reads.condition_view`).
+    TICKET-0112 (IH1): `draftId`, the interpreter's proposal inserted here, if any. */
 export function conditionDraft(view) {
-  if (view && !view.flat) return { list: [], locked: view.tree, lines: view.lines || [] };
+  if (view && !view.flat) return { list: [], locked: view.tree, lines: view.lines || [], draftId: null };
   return {
     list: (view?.flat || []).map((r) => ({
       ...r,
@@ -105,11 +106,12 @@ export function conditionDraft(view) {
     })),
     locked: null,
     lines: [],
+    draftId: null,
   };
 }
 
 export function blankCondition() {
-  return { list: [], locked: null, lines: [] };
+  return { list: [], locked: null, lines: [], draftId: null };
 }
 
 /** The tree a condition draft sends: the locked tree, `all` of the rows, or null. */

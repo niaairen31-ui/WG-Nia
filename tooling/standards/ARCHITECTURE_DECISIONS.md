@@ -18633,6 +18633,21 @@ an unparsable reply (502) included; a request refused before the model is
 not. A proposal's attempt id is the editor's, in canonical form, or a
 fresh one (`lore_usage.attempt_id`).
 
+## « ÉCRIRE EN LANGAGE NATUREL » UNDER EVERY CONDITION OF THE OFFER EDITOR (TICKET-0112) -- THE CREATOR INSERTS OR DISCARDS, HER SAVE WRITES (BRIEF-0112-e, no schema change)
+
+**IB1, IG1.** Under each condition of the offer editor -- the
+eligibility, each step's prerequisite and completion -- « Écrire en langage
+naturel » opens a sentence box. The proposal comes back as its French
+lines, its notes and errors; an ambiguous name is picked from its choices;
+the creator then inserts it into her draft or discards it and
+reformulates. An inserted flat condition becomes the editable rows, a
+nested one the read-only lines (T1): every nested condition is now written
+and edited in French. The editor sends the current condition with the
+sentence (IC1). Nothing reaches the offer before « Enregistrer », which
+sends, per condition, the id of the proposal inserted there (IH1).
+Rejected: IB2 (a panel in the Lore shell: detached from the offer it
+changes, and a third reopening of 0085's read-only lock).
+
 ---
 
 *Co-built with Claude, June 2026.*
