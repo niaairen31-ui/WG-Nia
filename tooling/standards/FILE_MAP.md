@@ -335,7 +335,7 @@
 - `agenda_assist.py` — G1 check for TICKET-0021/BRIEF-0021-b — AI agenda-draft assistant.
 - `analyzer_seam.py` — G1 check for TICKET-0051 (BRIEF-0051-c, decision R1) — the analyzer transcript seam.
 - `choice_review.py` — G1 check for TICKET-0095 (K1).
-- `claude_md_contract.py` — G1 check for TICKET-0010 (BRIEF-0010-a) — CLAUDE.md structural contract.
+- `claude_md_contract.py` — G1 check for TICKET-0010 (BRIEF-0010-a), extended by TICKET-0117 -- the instruction corpus: the root CLAUDE.md and every `.claude/rules/*.md`.
 - `condition_interpreter.py` — G1 check for TICKET-0112 -- the condition interpreter.
 - `conditions.py` — G1 check for TICKET-0111 -- the condition language.
 - `context_disclosure_floor.py` — G1 check for TICKET-0051 (BRIEF-0051-b, decision E2) — the worst-case- listener disclosure floor in `assemble_npc_context`.

@@ -22,6 +22,10 @@ SC4 -- /pipeline. `pipeline.md` pushes only `ticket/NNNN`, escalates
    mode nor a recon stage.
 SC5 -- retired. `.claude/commands/recon.md` and the skills `recon`,
    `brief` and `verify-authoring` do not exist (L4-L6).
+SC6 -- the whole law (BRIEF-0117-e). `review-step.md` and `close-step.md`
+   each read every `.claude/rules/*.md` besides the root CLAUDE.md, and
+   `review-step.md` sends a reviewer to the docstring of an invariant's
+   enforcing check.
 """
 from __future__ import annotations
 
@@ -142,12 +146,23 @@ def check_retired() -> None:
             fail(f"SC5: {path.relative_to(ROOT).as_posix()} exists; it was retired")
 
 
+def check_whole_law() -> None:
+    for name in ("review-step.md", "close-step.md"):
+        text = flat(read(COMMANDS / name))
+        if text and "`.claude/rules/*.md`" not in text:
+            fail(f"SC6: {name} does not read every .claude/rules/*.md")
+    review = flat(read(COMMANDS / "review-step.md"))
+    if review and "the full law is that check's docstring" not in review:
+        fail("SC6: review-step.md does not send the reviewer to the check's docstring")
+
+
 def main() -> int:
     check_settings()
     check_commit_hook()
     check_chain()
     check_pipeline()
     check_retired()
+    check_whole_law()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")

@@ -63,7 +63,8 @@ B3 -- learning (fixture, C1). `GET /api/skills/learnable` lists, for a
    or the learner as his own master, 422; a second time, 409; without a
    master, the row with `taught_by_id` None; an NPC base domain at rank 4.
    `GET /api/skills` serves `requires_master` and `taught_by_id`.
-B4 -- documentation (static). CLAUDE.md names `requires_master` and
+B4 -- documentation (static). The skills rule file
+   (`.claude/rules/skills.md`, TICKET-0117) names `requires_master` and
    `skill_access`'s lock.
 
 C1 -- the routes the fiche reads (BRIEF-0107-C, fixture).
@@ -527,9 +528,10 @@ def check_b3(engine) -> None:
 
 
 def check_b4() -> None:
-    text = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    rule = ROOT / ".claude" / "rules" / "skills.md"
+    text = rule.read_text(encoding="utf-8") if rule.exists() else ""
     if "requires_master" not in text or "skill_access" not in text:
-        fail("B4: CLAUDE.md does not name requires_master and skill_access")
+        fail("B4: .claude/rules/skills.md does not name requires_master and skill_access")
 
 
 # --- C1-C2 ---------------------------------------------------------------------
