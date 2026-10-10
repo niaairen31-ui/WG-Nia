@@ -18705,6 +18705,25 @@ owns the session configuration. Rejected: M2 (ATTENTION also stops; more
 stops for the same safety, reactivation: an ATTENTION commit turns out to
 have been a violation).
 
+## A TICKET'S NUMBER IS NIA'S (TICKET-0117) -- `next_id.py`, THE BUG LOG AND THE PROJECT CHANGELOG ARE RETIRED (BRIEF-0117-c, no schema change)
+
+**L7.** « IDs are computed, never chosen » had stopped being true: Nia
+reserves numbers for a series (TICKET-0112 to 0116 for the conditions
+series) and a deferral goes to a higher number. `tooling/glue/next_id.py`
+computed the maximum over the artifact folders and is deleted; CLAUDE.md
+now says whose the number is.
+
+**L8.** `tooling/improvement/bug_log.jsonl` had no reader in code and held
+three entries, two of them still open (the `[object Object]` day-resolve
+error, and the repair pass the live model does not follow). Nothing is
+lost: the file is archived verbatim in TICKET-0117's « Carried forward /
+open » section, where the two open entries are named as candidates for
+their own tickets, and `code_standards.md` points there.
+
+**L9.** `CHANGELOG.md` had not moved since 2026-08-20; the decision
+registry and the schema changelog carry what it was meant to. It is
+deleted; its text stays in git history.
+
 ---
 
 *Co-built with Claude, June 2026.*

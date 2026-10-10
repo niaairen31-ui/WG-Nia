@@ -104,11 +104,10 @@ and `world-engine-schema-changelog.md` — never here.
 
 ## Numbering & decisions governance
 
-- IDs are computed, never chosen: next ID = `python tooling/glue/next_id.py`
-  (max over tickets/recon/briefs, 4 digits). A ticket, its recon, and its
-  brief(s) share one number: TICKET-NNNN / RECON-NNNN / BRIEF-NNNN-a, -b.
-  Artifacts are authored with the final ID already in place (filename is
-  law, above).
+- A ticket's number is Nia's: she reserves numbers for a series, and a
+  deferral or a sequel always goes to a higher number, never a lower one.
+  A ticket, its lot, its briefs and its amendments share that number, and
+  every artifact is authored with it already in place (filename is law).
 - Legacy two-digit BRIEF-NN identifiers are a closed, grandfathered
   namespace: never reused, never renumbered.
 - New decision records in `tooling/standards/ARCHITECTURE_DECISIONS.md` use
@@ -486,13 +485,11 @@ WG-Nia/
 │   └── migrate_*.py         # one idempotent migration per schema step
 ├── tooling/
 │   ├── tickets/, lots/, briefs/  # pipeline artifacts (filename is law); recon/ archived
-│   ├── glue/                # next_id.py, gen_decisions_index.py, escalation.py
+│   ├── glue/                # gen_decisions_index.py, escalation.py
 │   ├── standards/           # decision registry, generated index, code_standards.md
-│   ├── verify/              # run.py, checks/, baselines/, results/
-│   └── improvement/         # bug_log.jsonl
+│   └── verify/              # run.py, checks/, baselines/, results/
 ├── world-engine-schema.md   # single authoritative schema; header = current version
 ├── world-engine-schema-changelog.md  # append-only schema log
-├── CHANGELOG.md             # project changelog
 ├── CLAUDE.md                # this file (contract-checked)
 ├── pyproject.toml           # src-layout package metadata
 ├── requirements.txt
