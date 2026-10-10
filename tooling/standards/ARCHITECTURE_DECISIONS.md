@@ -18724,6 +18724,19 @@ their own tickets, and `code_standards.md` points there.
 registry and the schema changelog carry what it was meant to. It is
 deleted; its text stays in git history.
 
+## THE MODULE MAP IS GENERATED FROM DOCSTRINGS (TICKET-0117) -- `FILE_MAP.md`, NEVER EDITED BY HAND, RED WHEN STALE (BRIEF-0117-d, no schema change)
+
+**B1.** CLAUDE.md's hand-kept tree held one line per module in 80 lines out
+of 80, loaded into every session. `tooling/glue/gen_file_map.py` now
+writes `tooling/standards/FILE_MAP.md`: every Python module of
+`src/world_engine`, `scripts`, `tooling/glue` and `tooling/verify`, grouped
+by directory, with the first sentence of its docstring. `file_map.py`
+fails when a non-empty module has no docstring or the committed map differs
+from a fresh render; `/close-step` regenerates it like the decisions index.
+The map is read on demand, never loaded at launch. Nobody maintains it but
+the docstrings: a module that cannot say what it is in one sentence is red.
+`cockpit/__init__.py`, the one module without a docstring, gets one.
+
 ---
 
 *Co-built with Claude, June 2026.*

@@ -12,6 +12,10 @@ Run the step-closure checklist for the work just completed:
 tooling/standards/ARCHITECTURE_DECISIONS.md, run
 python tooling/glue/gen_decisions_index.py and commit the regenerated
 DECISIONS_INDEX.md.
+
+**File map** — if a Python module was added, moved, deleted, or its
+docstring's first sentence changed, run python tooling/glue/gen_file_map.py
+and commit the regenerated tooling/standards/FILE_MAP.md.
 3. **Docs sync** diff what tooling/standards/ARCHITECTURE_DECISIONS.md, the root CLAUDE.md and
    every `.claude/rules/*.md` claim against what the code now does. Update any stale statement.
    Quote each correction made.

@@ -486,7 +486,7 @@ WG-Nia/
 ├── tooling/
 │   ├── tickets/, lots/, briefs/  # pipeline artifacts (filename is law); recon/ archived
 │   ├── glue/                # gen_decisions_index.py, escalation.py
-│   ├── standards/           # decision registry, generated index, code_standards.md
+│   ├── standards/           # decision registry; generated DECISIONS_INDEX.md, FILE_MAP.md
 │   └── verify/              # run.py, checks/, baselines/, results/
 ├── world-engine-schema.md   # single authoritative schema; header = current version
 ├── world-engine-schema-changelog.md  # append-only schema log
@@ -547,6 +547,9 @@ WG-Nia/
   committed output under `src/world_engine/cockpit/static/`. The output is
   versioned on purpose; rebuild and commit after any `frontend/` edit.
   Node is needed to BUILD only -- a prod launch requires none.
+- **Module map:** `python tooling/glue/gen_file_map.py` regenerates
+  `tooling/standards/FILE_MAP.md` from module docstrings; `file_map.py`
+  fails while it is stale or a module has no docstring.
 - **Verify:** `python tooling/verify/run.py --ticket TICKET-NNNN` runs the
   checks that ticket links in its Machine-checkable section;
   `tooling/verify/checks/corpus_gate.py` runs every check in the directory,
