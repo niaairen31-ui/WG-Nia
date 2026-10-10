@@ -21,10 +21,8 @@ front-matter, in this precedence order:
    (`tooling/glue/escalation.py`'s `open_entries`) -> `escalated`.
 4. Brief file(s) `tooling/briefs/BRIEF-NNNN*.md` exist -> eligible for
    `exec`.
-5. A recon result (`tooling/recon/RECON-NNNN*.result.md`) exists ->
-   `brief`.
-6. A recon spec (`tooling/recon/RECON-NNNN*.md`) exists -> `recon`.
-7. Otherwise -> `intake`.
+5. A lot header `tooling/lots/LOT-NNNN-*.md` exists -> `brief`.
+6. Otherwise -> `intake`.
 
 Also reconcile `brief_ids` from the brief files actually observed on
 disk.
@@ -39,28 +37,17 @@ observes and records.
 - `live-gate` -> if the PR's mergeable state is `CONFLICTING`, run the
   PR-conflict procedure (F1/O1) below instead of stopping. Otherwise say
   it awaits Nia's play-test and merge, stop.
-- `recon` -> execute the recon protocol (as defined in
-  `.claude/commands/recon.md`) against the ticket's spec, in this
-  session. Create `ticket/NNNN` from `main` if it does not exist yet.
-  Commit the result file on `ticket/NNNN`, then
-  `git push origin ticket/NNNN` so the result is readable from the
-  chat-side raw-URL channel. Then STOP and say so: the brief phase is
-  chat-side (P1). A ticket with NO recon spec on disk is not an error:
-  the recon phase is inapplicable by construction (intake judged it
-  unnecessary) and status derivation already proceeds past it.
-  `recon.md` itself is unchanged and remains available standalone for
-  any chat-side ad-hoc use.
-- `brief` / `intake` -> name the missing artifact (brief, or recon
-  result), stop. Those stages are chat-side per P1 — this command does
-  not author them.
+- `brief` / `intake` -> name the missing artifact (the lot, or its
+  briefs), stop. The lot RECON, the lot and its briefs are written in the
+  chat session — this command never authors them.
 - `escalated` -> display the open entry's Question and Options and take
   Nia's answer in this session (see Escalation below), then continue the
   chain from where it left off.
 - Eligible for `exec` -> run the `/brief-exec` protocol for each brief in
-  suffix order (e.g. `-a` before `-b`), then run `/verify` for this
-  ticket. When invoking `/review-step` and `/close-step` from within this
-  chain, state explicitly that the invocation is unattended (CA1), so
-  `close-step` skips its approval wait.
+  the order of the ticket's `brief_ids` (A before B), then run `/verify`
+  for this ticket. Every commit goes `/review-step` then `/close-step` in
+  the same turn, exactly as `/brief-exec` states; commits are
+  pre-authorized.
 
 ## Step 2 — verify outcome (V1)
 
@@ -133,7 +120,7 @@ An escalation lives in the ticket it stops, in its `## Escalations`
 section. `tooling/glue/escalation.py` is the only writer of that section;
 never edit it by hand.
 
-1. Write a JSON file with three strings — `context` (what was attempted;
+1. Write, outside the repository, a JSON file with three strings — `context` (what was attempted;
    verdicts quoted verbatim if D1-d), `question` (exactly one precise
    question), `options` (lettered options, or "none proposed") — and run
    `python tooling/glue/escalation.py open TICKET-NNNN <D1-a|b|c|d> <brief letter>`
@@ -147,11 +134,3 @@ never edit it by hand.
 Entries are never edited or deleted once written; an answered entry stays
 in the ticket as its trace. If the session ends first, a later
 `/pipeline TICKET-NNNN` finds the open entry at Step 0 and asks again.
-
-## CA1 — unattended invocations
-
-When this command invokes `/review-step` or `/close-step` as part of the
-chain, it states explicitly that the invocation is unattended (from
-`/pipeline`), so `close-step` knows to skip its normal approval wait and
-commit directly. All other steps of `close-step` (changelog, decisions
-index, message quality) are unchanged.

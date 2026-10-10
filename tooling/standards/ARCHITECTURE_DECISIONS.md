@@ -18676,6 +18676,35 @@ arrow to a retired check instead of a rewritten ticket. Rejected: J2-b (no
 trace; a relaunch could not know a question was pending), J1 (keep the
 files and only describe them).
 
+## A COMMIT IS PRE-AUTHORIZED AND REVIEW CHAINS TO CLOSE IN ONE TURN (TICKET-0117) -- A HOOK REFUSES A COMMIT ON `main`; THE RECON STAGE AND ITS SKILLS ARE RETIRED (BRIEF-0117-b, no schema change)
+
+**M1.** `/close-step` commits without waiting for approval, whoever invoked
+it: the « unattended mode » that `/pipeline` announced and `/brief-exec`
+did not is gone, and with it the difference Nia saw between the two.
+`/review-step` ends its verdict by continuing to `/close-step` in the same
+turn on CLEAN or ATTENTION -- ATTENTION items are carried into the close
+report -- and stops only on VIOLATION; a verdict was the place a session
+used to hand the turn back. `settings.json` allows `git switch`, `git add`
+and `git commit`.
+
+Approving every commit was the net that kept a commit off `main`.
+`block-main-push.ps1` refuses only a command that names `main`, so a commit
+on `main` followed by a bare `git push` passed it. The new
+`block-commit-on-main.ps1` reads the branch and refuses a commit on `main`
+or `master`, and on a branch it cannot read (fail-closed).
+
+**L4-L6.** The lot RECON is chat-side and no ticket since TICKET-0090 wrote
+a `tooling/recon/` file: `/recon`, the `recon` skill and `/pipeline`'s
+recon stage are deleted; `/pipeline` derives `brief` from a lot header. The
+`brief` skill described the pre-lot format and promised a backup hook that
+does not exist; the `verify-authoring` skill told a check to open the
+production database. Both are deleted. `tooling/recon/` keeps its files as
+the archive of earlier tickets. The command-file sentinels move from
+`pipeline_state.py`, which judges tickets, to `session_config.py`, which
+owns the session configuration. Rejected: M2 (ATTENTION also stops; more
+stops for the same safety, reactivation: an ATTENTION commit turns out to
+have been a violation).
+
 ---
 
 *Co-built with Claude, June 2026.*

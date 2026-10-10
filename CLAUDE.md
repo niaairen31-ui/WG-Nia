@@ -59,8 +59,9 @@ and `world-engine-schema-changelog.md` — never here.
 
 ## Ticket pipeline (governance)
 
-- **Git (C1):** never push to `main`. Work on a `ticket/NNNN` branch and open
-  a PR. Merge only after a green `/verify` AND Nia's live gate.
+- **Git:** never push to `main`, never commit on it (the `block-main-push`
+  and `block-commit-on-main` hooks refuse both). Work on `ticket/NNNN`, open
+  a PR, merge only after a green `/verify` AND Nia's live gate.
 - **Danger classes (D1):** destructive_data | migration | permanent deletion
   -> human gate, no auto-merge (Nia decides). No automated backup exists;
   `scripts/backup.py` is a manual, deliberate step. db_write alone triggers
@@ -68,38 +69,35 @@ and `world-engine-schema-changelog.md` — never here.
 - **Escalate to Nia only on:** (a) an unspecified user-visible behavior
   change, (b) a destructive/irreversible data operation, (c) an architecture
   change above the ticket's stated `blast_radius`, (d) two consecutive
-  `/verify` failures.
-- **Model lanes (E1):** Opus for intake and escalated architecture decisions;
-  Sonnet for RECON, execution, and verify. `/model opusplan` = plan on Opus,
-  execute on Sonnet.
-- **Protocol gate:** RECON before every brief (report-only, never acts on a
-  finding); every commit touching the engine runs `/review-step` then
-  `/close-step`; a ticket ends with `/verify`. Schema version: `vMAJOR.MINOR`,
-  MINOR two digits, 00-99. Next version: MINOR < 99 -> `vMAJOR.(MINOR+1)`
-  zero-padded; MINOR = 99 -> `v(MAJOR+1).00`. MAJOR counts MINOR overflows
-  and carries no semantic meaning. Published changelog versions are never
-  renumbered. RECON lesson: "RECON: trace every UI-visible field to its
-  storage, including `entity.metadata` JSON keys — grepping columns is not
-  sufficient." Every ticket's Machine-checkable section links
-  `verify/checks/corpus_gate.py`.
-- **Artifact convention — the filename is law.** Tickets, RECONs, and briefs
-  arrive as `.md` files carrying their final real IDs in both filename and
-  content (`TICKET-0010.md`, `RECON-0010.md`, `BRIEF-0010-a.md`); no
-  placeholder resolution step. Nia deposits artifacts into
-  `tooling/tickets|recon|briefs` manually. Tickets keep a `slug:`
-  front-matter field; recon specs and briefs keep a line-1
-  `<!-- slug: ... -->` comment.
-- **Where things live:** `tooling/tickets`, `tooling/recon`,
-  `tooling/briefs`, `tooling/lots`,
-  `tooling/glue` (`next_id.py`, `gen_decisions_index.py`,
-  `escalation.py`), `tooling/verify` (`run.py`, `checks/`,
-  `baselines/`, `results/`), `tooling/standards`
-  (`ARCHITECTURE_DECISIONS.md`, generated `DECISIONS_INDEX.md`,
-  `code_standards.md`), `tooling/improvement/bug_log.jsonl`.
-- **Orchestration:** `/pipeline TICKET-NNNN` chains exec -> verify -> PR to
-  the next human gate; it escalates (D1) into the ticket's own
-  `## Escalations` section, through `escalation.py`. Recon results are
-  pushed at recon time; everything else publishes at Step 3.
+  `/verify` failures. An escalation is an entry of the ticket's own
+  `## Escalations` section, written only by `tooling/glue/escalation.py`.
+- **Planning is chat-side, execution is here.** Decisions, the lot RECON and
+  the lot are made with Nia in the chat (Opus): a lot header in
+  `tooling/lots`, authoritative, plus one brief per commit set in
+  `tooling/briefs`, each embedding the findings and contracts it uses.
+  Claude Code (Sonnet) executes one brief per session, starting with its
+  Mini-RECON; an anchor that does not hold is a STOP.
+- **Commands:** `/brief-exec` runs one brief; `/pipeline TICKET-NNNN` runs
+  every brief, `/verify`, then opens the PR. Every commit goes `/review-step`
+  then `/close-step` in the same turn; commits are pre-authorized and only a
+  VIOLATION verdict stops the chain. Every ticket's Machine-checkable section
+  links `verify/checks/corpus_gate.py`.
+- **Schema version:** `vMAJOR.MINOR`, MINOR two digits, 00-99. Next version:
+  MINOR < 99 -> `vMAJOR.(MINOR+1)` zero-padded; MINOR = 99 -> `v(MAJOR+1).00`.
+  MAJOR counts MINOR overflows and carries no semantic meaning. Published
+  changelog versions are never renumbered.
+- **The filename is law.** Tickets, lots, briefs and amendments carry their
+  final real ID and slug in filename and content (`TICKET-0117-slug.md`,
+  `LOT-0117-slug.md`, `BRIEF-0117-A-slug.md`, `AMENDMENT-0117-01.md`). Nia
+  deposits them in `tooling/tickets|lots|briefs` by hand. Tickets keep a
+  `slug:` front-matter field; briefs a line-1 `<!-- slug: ... -->` comment.
+  An amendment is never named `TICKET-*`, which `pipeline_state.py` globs.
+- **Where things live:** `tooling/tickets`, `tooling/lots`, `tooling/briefs`;
+  `tooling/recon` (archived RECONs of earlier tickets, none written now);
+  `tooling/glue` (`gen_decisions_index.py`, `escalation.py`);
+  `tooling/verify` (`run.py`, `checks/`, `baselines/`, `results/`);
+  `tooling/standards` (`ARCHITECTURE_DECISIONS.md`, generated
+  `DECISIONS_INDEX.md`, `code_standards.md`).
 - This section governs the ticket pipeline itself (process, gating,
   escalation). It does not replace or relax any invariant below — those
   still apply to every change regardless of how it was ticketed.
@@ -433,9 +431,8 @@ schema changelog, never in this tree.
 ```
 WG-Nia/
 ├── .claude/                 # Claude Code session config
-│   ├── commands/            # /pipeline /recon /brief-exec /verify /review-step /close-step
-│   ├── hooks/               # session-start, block-main-push, block-db-in-git (PowerShell)
-│   ├── skills/              # recon, brief, verify-authoring skills
+│   ├── commands/            # /pipeline /brief-exec /verify /review-step /close-step
+│   ├── hooks/               # session-start, block-main-push, block-commit-on-main, block-db-in-git
 │   └── settings.json        # permissions allowlist
 ├── frontend/                 # Svelte + Vite sources; build writes the committed static/ output
 │   ├── src/legacy/           # enumerated legacy-mount registry + sole bridge into legacy
@@ -488,7 +485,7 @@ WG-Nia/
 │   ├── rollback_quarantine.py  # quarantine/restore for runtime entity types (destructive, manual)
 │   └── migrate_*.py         # one idempotent migration per schema step
 ├── tooling/
-│   ├── tickets/, recon/, briefs/  # pipeline artifacts (filename is law)
+│   ├── tickets/, lots/, briefs/  # pipeline artifacts (filename is law); recon/ archived
 │   ├── glue/                # next_id.py, gen_decisions_index.py, escalation.py
 │   ├── standards/           # decision registry, generated index, code_standards.md
 │   ├── verify/              # run.py, checks/, baselines/, results/

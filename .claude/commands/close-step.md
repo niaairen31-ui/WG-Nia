@@ -12,17 +12,17 @@ Run the step-closure checklist for the work just completed:
 tooling/standards/ARCHITECTURE_DECISIONS.md, run
 python tooling/glue/gen_decisions_index.py and commit the regenerated
 DECISIONS_INDEX.md.
-3. **Docs sync** diff what tooling/standards/ARCHITECTURE_DECISIONS.md and the root CLAUDE.md claim against what the code now does. Update any stale statement.
+3. **Docs sync** diff what tooling/standards/ARCHITECTURE_DECISIONS.md, the root CLAUDE.md and
+   every `.claude/rules/*.md` claim against what the code now does. Update any stale statement.
    Quote each correction made.
 4. **Debts** — list any shortcuts, deferred decisions, or new debts
    introduced in this step. Propose a changelog or backlog note for each.
-5. **Invariants** — re-read the Invariants section of CLAUDE.md and confirm
-   none was weakened. Flag anything ambiguous.
-6. **Commit** — propose a commit message summarizing the step. Wait for
-   approval before committing.
+5. **Invariants** — re-read the invariants (the root CLAUDE.md and every
+   `.claude/rules/*.md`) and confirm none was weakened. Flag anything
+   ambiguous.
+6. **Commit** — check that the current branch is `ticket/NNNN`, never
+   `main`; stage the step's files and commit with a message summarizing
+   the step. Commits are pre-authorized: do not wait for approval.
 
-Unattended mode: when invoked from /pipeline (the invoker will say
-so), skip the approval wait and commit directly. All other steps
-(changelog, decisions index, message quality) unchanged.
-
-Report as a numbered checklist with PASS / FIXED / ATTENTION per item.
+Report as a numbered checklist with PASS / FIXED / ATTENTION per item,
+including the ATTENTION items /review-step carried over.

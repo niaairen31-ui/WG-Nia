@@ -1,9 +1,7 @@
 """Structural gate for ticket front-matter conformity (pipeline glue, BRIEF-0004),
-extended by BRIEF-0006-b (TICKET-0006) with two grep-grade sentinel checks:
-`.claude/commands/pipeline.md` must contain both the no-recon-spec
-derivation clause and the post-recon push clause within its Step 1 recon
-branch text, and `.claude/commands/brief-exec.md` must contain the CA1
-relay wiring.
+extended by BRIEF-0006-b (TICKET-0006) with sentinel checks on the
+command files -- moved to `session_config.py` by TICKET-0117 (BRIEF-0117-b),
+which owns the Claude Code session configuration.
 
 No DB. Every tooling/tickets/TICKET-*.md (TEMPLATE.md excluded, its glob
 pattern doesn't match) must carry a parseable YAML front-matter block
@@ -46,9 +44,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 TICKETS = ROOT / "tooling" / "tickets"
-PIPELINE_MD = ROOT / ".claude" / "commands" / "pipeline.md"
 RETIRED_CHECKS = ROOT / "tooling" / "verify" / "baselines" / "checks.retired"
-BRIEF_EXEC_MD = ROOT / ".claude" / "commands" / "brief-exec.md"
 
 sys.path.insert(0, str(ROOT / "tooling" / "verify"))
 import run  # noqa: E402 -- reuse run.py's machine_checks/LINK, never a second copy
@@ -59,12 +55,6 @@ ARROW_FLOOR_STATUSES = {"brief", "exec", "verify", "live-gate", "done"}
 MACHINE_HEADER_RE = re.compile(r"^###\s*machine")
 LIVE_HEADER_RE = re.compile(r"^###\s*live")
 
-PIPELINE_MD_SENTINELS = [
-    "A ticket with NO recon spec on disk is not an error",
-    "git push origin ticket/NNNN",
-    "python tooling/glue/escalation.py open TICKET-NNNN",
-]
-BRIEF_EXEC_MD_SENTINEL = "unattended mode (CA1)"
 
 REQUIRED_FIELDS = [
     "id", "title", "type", "status", "created", "model_lane",
@@ -197,25 +187,6 @@ def check_escalations(path: pathlib.Path, text: str) -> None:
              f"'{escalation.RESPONSE_MARKER}' marker(s)")
 
 
-def check_pipeline_md_sentinels() -> None:
-    if not PIPELINE_MD.exists():
-        fail(f"{PIPELINE_MD} not found")
-        return
-    text = PIPELINE_MD.read_text(encoding="utf-8")
-    for sentinel in PIPELINE_MD_SENTINELS:
-        if sentinel not in text:
-            fail(f"{PIPELINE_MD.relative_to(ROOT).as_posix()}: missing sentinel phrase {sentinel!r}")
-
-
-def check_brief_exec_md_sentinel() -> None:
-    if not BRIEF_EXEC_MD.exists():
-        fail(f"{BRIEF_EXEC_MD} not found")
-        return
-    text = BRIEF_EXEC_MD.read_text(encoding="utf-8")
-    if BRIEF_EXEC_MD_SENTINEL not in text:
-        fail(f"{BRIEF_EXEC_MD.relative_to(ROOT).as_posix()}: missing sentinel phrase {BRIEF_EXEC_MD_SENTINEL!r}")
-
-
 def main() -> None:
     if not TICKETS.exists():
         fail(f"{TICKETS} not found")
@@ -227,8 +198,6 @@ def main() -> None:
             check_ticket(path)
 
     check_retired_absent()
-    check_pipeline_md_sentinels()
-    check_brief_exec_md_sentinel()
 
     if FAILURES:
         for msg in FAILURES:
