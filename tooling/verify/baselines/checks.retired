@@ -1,0 +1,7 @@
+# TICKET-0117 (L1). Append-only record of every verify check ever retired
+# from tooling/verify/checks/: one line per check, `<file>|<ticket>`, the
+# ticket being the one whose commit deleted it. A check enters this file in
+# the same commit that deletes it, and is never removed or edited afterward.
+# tooling/verify/checks/pipeline_state.py accepts an older ticket's arrow to
+# a check named here, and fails if a check named here exists again.
+pipeline_cockpit.py|TICKET-0117

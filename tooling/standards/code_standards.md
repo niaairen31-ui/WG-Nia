@@ -66,7 +66,8 @@ Each rule targets a concrete failure mode observed in the ticket history.
   Check: `llm_parse_chokepoint.py`.
   Failure mode addressed: 7 independent parse sites in `entity_author.py`;
   model output shape drift produced the subculture blob bug
-  (bug_log 2026-07-03, corrected by BRIEF-0025-d) — the exact class a single
+  (bug-log entry 2026-07-03, corrected by BRIEF-0025-d; the log is archived
+  in TICKET-0117) — the exact class a single
   normalizing chokepoint contains.
 
 - **R3 (enforced) No `print()` in `src/`.**
@@ -200,6 +201,6 @@ surface (a `/say` round-trip for b, d; one mutation approval for c).
 
 ## 5. Housekeeping recorded at seeding
 
-- `tooling/improvement/bug_log.jsonl` entry 2026-07-03 (subculture values)
-  is still `status: "open"`; flip to `fixed (BRIEF-0025-d, v1.78)` at the
-  next commit touching the file.
+- The bug-log entry 2026-07-03 (subculture values) was flipped to
+  `fixed (BRIEF-0025-d, v1.78)`; the log itself is archived verbatim in
+  TICKET-0117's « Carried forward / open » section.

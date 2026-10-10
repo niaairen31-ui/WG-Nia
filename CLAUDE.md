@@ -6,21 +6,21 @@ A locally-hosted AI-powered tabletop RPG world engine (Verkhaal is the pilot
 world). A creator cockpit (world-building + play surface) drives local models
 through structured prompts; every AI-proposed change to world canon passes a
 creator checkpoint before it is applied. This file is the standing contract
-for Claude Code sessions: conventions, invariants, and how to run things.
-History and rationale live in `tooling/standards/ARCHITECTURE_DECISIONS.md`
-and `world-engine-schema-changelog.md` — never here.
+for Claude Code sessions: conventions, the invariants that hold everywhere,
+and how to run things. Invariants that hold for one part of the code live in
+`.claude/rules/` (see Path-scoped rules). History and rationale live in
+`tooling/standards/ARCHITECTURE_DECISIONS.md` and
+`world-engine-schema-changelog.md` — never here.
 
 ## Stack
 
 - Python, FastAPI, SQLModel, SQLite (Supabase/PostgreSQL migration path
   preserved via the env-var DB URL).
-- Frontend: a built Svelte shell (`frontend/`) serves the cockpit at `/`. Creation, Observation,
-  Journée and Lore are shell-native Svelte components, mounted directly by `App.svelte`; Play
-  alone stays legacy (`/legacy`, one governed iframe, `cockpit/legacy.html`), sealed rather than
-  migrated by TICKET-0061, until its own ticket (TICKET-0069). No new dependency without a
-  decision.
-  Creation's Compétences tab reads `skill_system`: a list grouped by system beside one fiche;
-  `Sans système` is a rendered group, never a stored row (TICKET-0084).
+- Frontend: a built Svelte shell (`frontend/`) serves the cockpit at `/`.
+  Creation, Observation, Journée and Lore are shell-native Svelte
+  components, mounted directly by `App.svelte`; Play alone stays legacy
+  (`/legacy`, one governed iframe, `cockpit/legacy.html`) until its own
+  ticket. No new dependency without a decision.
 - Local models via Ollama; Claude API reserved for heavy lore-coherence work.
 - Runtime: Windows / PowerShell — `.venv\Scripts\Activate.ps1`,
   `$env:PYTHONPATH = "src"`.
@@ -50,17 +50,18 @@ and `world-engine-schema-changelog.md` — never here.
 - **Language convention:** design conversation happens in French; all code,
   schema, comments, commit messages, and documentation are in English.
 - **Step closure:** every closed step updates the schema changelog (if
-  schema-touching) and keeps `tooling/standards/ARCHITECTURE_DECISIONS.md`
-  and this file consistent with the code. Use the `/close-step` command.
-  This file is contract-checked: `tooling/verify/checks/claude_md_contract.py`
-  enforces its section whitelist, a 38 000-character file budget, a
-  100-character per-line ceiling, and archaeology bans in File structure
-  and Invariants.
+  schema-touching) and keeps `tooling/standards/ARCHITECTURE_DECISIONS.md`,
+  this file and `.claude/rules/` consistent with the code. Use `/close-step`.
+  This file and every rule file are contract-checked by
+  `tooling/verify/checks/claude_md_contract.py`: section whitelist,
+  character budgets, 100-character lines, archaeology bans, invariant ids
+  and markers, and every rule's `paths:` still matching a file.
 
 ## Ticket pipeline (governance)
 
-- **Git (C1):** never push to `main`. Work on a `ticket/NNNN` branch and open
-  a PR. Merge only after a green `/verify` AND Nia's live gate.
+- **Git:** never push to `main`, never commit on it (the `block-main-push`
+  and `block-commit-on-main` hooks refuse both). Work on `ticket/NNNN`, open
+  a PR, merge only after a green `/verify` AND Nia's live gate.
 - **Danger classes (D1):** destructive_data | migration | permanent deletion
   -> human gate, no auto-merge (Nia decides). No automated backup exists;
   `scripts/backup.py` is a manual, deliberate step. db_write alone triggers
@@ -68,445 +69,205 @@ and `world-engine-schema-changelog.md` — never here.
 - **Escalate to Nia only on:** (a) an unspecified user-visible behavior
   change, (b) a destructive/irreversible data operation, (c) an architecture
   change above the ticket's stated `blast_radius`, (d) two consecutive
-  `/verify` failures.
-- **Model lanes (E1):** Opus for intake and escalated architecture decisions;
-  Sonnet for RECON, execution, and verify. `/model opusplan` = plan on Opus,
-  execute on Sonnet.
-- **Protocol gate:** RECON before every brief (report-only, never acts on a
-  finding); every commit touching the engine runs `/review-step` then
-  `/close-step`; a ticket ends with `/verify`. Schema version: `vMAJOR.MINOR`,
-  MINOR two digits, 00-99. Next version: MINOR < 99 -> `vMAJOR.(MINOR+1)`
-  zero-padded; MINOR = 99 -> `v(MAJOR+1).00`. MAJOR counts MINOR overflows
-  and carries no semantic meaning. Published changelog versions are never
-  renumbered. RECON lesson: "RECON: trace every UI-visible field to its
-  storage, including `entity.metadata` JSON keys — grepping columns is not
-  sufficient." Every ticket's Machine-checkable section links
-  `verify/checks/corpus_gate.py`.
-- **Artifact convention — the filename is law.** Tickets, RECONs, and briefs
-  arrive as `.md` files carrying their final real IDs in both filename and
-  content (`TICKET-0010.md`, `RECON-0010.md`, `BRIEF-0010-a.md`); no
-  placeholder resolution step. Nia deposits artifacts into
-  `tooling/tickets|recon|briefs` manually. Tickets keep a `slug:`
-  front-matter field; recon specs and briefs keep a line-1
-  `<!-- slug: ... -->` comment. The pipeline cockpit's deposit flow is
-  dormant (see ARCHITECTURE_DECISIONS.md) — never route artifacts through
-  it.
-- **Where things live:** `tooling/tickets`, `tooling/recon`,
-  `tooling/briefs`, `tooling/questions` (pipeline escalations),
-  `tooling/glue` (`next_id.py`, `gen_decisions_index.py`,
-  `question_response.py`), `tooling/verify` (`run.py`, `checks/`,
-  `baselines/`, `results/`), `tooling/standards`
-  (`ARCHITECTURE_DECISIONS.md`, generated `DECISIONS_INDEX.md`,
-  `code_standards.md`), `tooling/improvement/bug_log.jsonl`,
-  `tooling/pipeline_cockpit/` (separate app, port 8100, never imports
-  `src/world_engine/`; deposit flow dormant).
-- **Orchestration:** `/pipeline TICKET-NNNN` chains exec -> verify -> PR to
-  the next human gate; `tooling/questions/` is where it escalates (D1) for
-  Nia's response. Recon results are pushed at recon time; everything else
-  publishes at Step 3.
+  `/verify` failures. An escalation is an entry of the ticket's own
+  `## Escalations` section, written only by `tooling/glue/escalation.py`.
+- **Planning is chat-side, execution is here.** Decisions, the lot RECON and
+  the lot are made with Nia in the chat (Opus): a lot header in
+  `tooling/lots`, authoritative, plus one brief per commit set in
+  `tooling/briefs`, each embedding the findings and contracts it uses.
+  Claude Code (Sonnet) executes one brief per session, starting with its
+  Mini-RECON; an anchor that does not hold is a STOP.
+- **Commands:** `/brief-exec` runs one brief; `/pipeline TICKET-NNNN` runs
+  every brief, `/verify`, then opens the PR. Every commit goes `/review-step`
+  then `/close-step` in the same turn; commits are pre-authorized and only a
+  VIOLATION verdict stops the chain. Every ticket's Machine-checkable section
+  links `verify/checks/corpus_gate.py`.
+- **Schema version:** `vMAJOR.MINOR`, MINOR two digits, 00-99. Next version:
+  MINOR < 99 -> `vMAJOR.(MINOR+1)` zero-padded; MINOR = 99 -> `v(MAJOR+1).00`.
+  MAJOR counts MINOR overflows and carries no semantic meaning. Published
+  changelog versions are never renumbered.
+- **The filename is law.** Tickets, lots, briefs and amendments carry their
+  final real ID and slug in filename and content (`TICKET-0117-slug.md`,
+  `LOT-0117-slug.md`, `BRIEF-0117-A-slug.md`, `AMENDMENT-0117-01.md`). Nia
+  deposits them in `tooling/tickets|lots|briefs` by hand. Tickets keep a
+  `slug:` front-matter field; briefs a line-1 `<!-- slug: ... -->` comment.
+  An amendment is never named `TICKET-*`, which `pipeline_state.py` globs.
+- **Where things live:** `tooling/tickets`, `tooling/lots`, `tooling/briefs`;
+  `tooling/recon` (archived RECONs of earlier tickets, none written now);
+  `tooling/glue` (`gen_decisions_index.py`, `gen_file_map.py`,
+  `escalation.py`); `tooling/verify` (`run.py`, `checks/`, `baselines/`,
+  `results/`); `tooling/standards` (`ARCHITECTURE_DECISIONS.md`, generated
+  `DECISIONS_INDEX.md` and `FILE_MAP.md`, `code_standards.md`).
 - This section governs the ticket pipeline itself (process, gating,
   escalation). It does not replace or relax any invariant below — those
   still apply to every change regardless of how it was ticketed.
 
 ## Numbering & decisions governance
 
-- IDs are computed, never chosen: next ID = `python tooling/glue/next_id.py`
-  (max over tickets/recon/briefs, 4 digits). A ticket, its recon, and its
-  brief(s) share one number: TICKET-NNNN / RECON-NNNN / BRIEF-NNNN-a, -b.
-  Artifacts are authored with the final ID already in place (filename is
-  law, above).
+- A ticket's number is Nia's: she reserves numbers for a series, and a
+  deferral or a sequel always goes to a higher number, never a lower one.
+  A ticket, its lot, its briefs and its amendments share that number, and
+  every artifact is authored with it already in place (filename is law).
 - Legacy two-digit BRIEF-NN identifiers are a closed, grandfathered
   namespace: never reused, never renumbered.
 - New decision records in `tooling/standards/ARCHITECTURE_DECISIONS.md` use
   the header form
   `## TITLE (BRIEF-NNNN[-x][, ...], schema vX.YY | no schema change)` —
   enforced by `tooling/verify/checks/decisions_index.py` against baseline.
-- `tooling/standards/DECISIONS_INDEX.md` is generated; never edit by hand.
-  Generated files are never hand-resolved in a merge conflict: regenerate
-  (`python tooling/glue/gen_decisions_index.py`) and stage the result. A
-  conflict outside a branch's diagnosed set is an escalation, not an improvisation.
+- `tooling/standards/DECISIONS_INDEX.md` and `FILE_MAP.md` are generated;
+  never edit them by hand. A generated file is never hand-resolved in a
+  merge conflict: regenerate it (`gen_decisions_index.py`,
+  `gen_file_map.py`) and stage the result. A conflict outside a branch's
+  diagnosed set is an escalation, not an improvisation.
 
 ## Invariants (verified at every review)
 
-Law only. Rationale, chantier history, and deferred alternatives live in
-`tooling/standards/ARCHITECTURE_DECISIONS.md`.
+Law only; rationale lives in `tooling/standards/ARCHITECTURE_DECISIONS.md`.
+Each invariant has a permanent id `INV-NN`, never reused; a retired id is
+listed in `tooling/verify/baselines/invariant_ids.retired`. Each ends with
+`-- enforced by <check>.py`, whose docstring holds the full law, or with
+`[no check]`: no enforcing check has been established for it yet.
 
-- **Per-NPC uniqueness:** each present NPC belongs to exactly ONE open
-  gathering. Per-NPC, NOT per-location (multiple open gatherings in one
-  location are legal). Defended on every join/migrate path.
-- **Dissolve-before-create lives in the caller** (`enter_location`), never
-  inside `generate_gatherings`.
-- **`relation_change` is owned by window analysis** (`analyze_window`,
-  `proposed_by='local_ai_window'`): at most one `relation_change` per NPC
-  pair per window, proportionate to that window. Never deduplicated against
-  prior windows (not covered by `_mutation_match_key`).
-- **`new_knowledge` / `status_change` are idempotent facts:** identity-based
-  dedup (`entity_id` + `fact_refs.knowledge_key`; `entity_id`) via
-  `_mutation_match_key`, same conversation required.
-- **A `knowledge` row is identified by its fact:** `(entity_id, fact_id)` is unique. A model
-  names a fact only by a code from a `fact_refs.code_facts` list; code resolves it.
-- **Secrets are structurally excluded** from every assembled context — never
-  "guarded by instruction". The creator's note on an entity (a `histoire`
-  fact whose entity holds an `unaware` `is_secret` row on it) is excluded from
-  `facet_reads` by query construction; only the Lore dossier opts in, plus the
-  `creator` regime of `name_index` for name resolution (Lore question, names
-  panel, writing panel, condition interpreter).
-  Token posing never indexes a creator-only or unscoped appellation.
-  What an NPC knows-but-conceals lives in `knowledge` rows with
-  `is_secret = TRUE`,
-  excluded by query construction at every assembler AND every propagation
-  path (`analyze_overhearing` never sources a proposal from an `is_secret`
-  row).
-- **`relation_change`'s `entity_a_id`/`entity_b_id` come from the model's
-  payload.** Missing -> skip and log (`_normalize_to_schema` returns
-  `None`); never attributed via a conversation-level default. Per-item
-  roster resolution is a named deferral.
-- Two canon-write paths for rows: `_apply_mutation`, creator CRUD. A third covers canon STRUCTURE
-  -- closed by `single_canon_write.py` + `runtime_ddl_guard.py`.
-- **History is sacred on BOTH write paths:** any edit to `relation` or `knowledge` appends the
-  previous state to `change_history`; states are preserved, never silently overwritten.
-  `entity_type_history` extends this to the schema grain: append-only by construction, no
-  `change_history` column — the rows ARE the history.
-- **Commit before touching any canon-writing path** (`_apply_mutation`, the creator CRUD, the
-  analyzers, and everything they call) — hard. Recommended: also commit before touching the `/say`
-  flow or the interpretation phase (playability-critical). On SQLite, DDL participates in the
-  surrounding transaction — a structural guarantee of the shared engine (`db.py`), never a per-
-  site precaution.
-- **The MJ context assembler is scoped to the player's perception
-  boundary:** only what the player may perceive or already knows. Never
+- **INV-01** Secrets are structurally excluded from every assembled context,
+  by query construction, never by instruction. What an NPC knows but conceals
+  is a `knowledge` row with `is_secret = TRUE`, excluded at every assembler
+  AND every propagation path (`analyze_overhearing` never sources a proposal
+  from one). The creator's note on an entity (a `histoire` fact whose entity
+  holds an `unaware` `is_secret` row on it) is excluded from `facet_reads`;
+  only the Lore dossier opts in, plus the `creator` regime of `name_index`
+  (Lore question, names panel, writing panel, condition interpreter). Token
+  posing never indexes a creator-only or unscoped appellation. [no check]
+- **INV-02** The MJ context assembler is scoped to the player's perception
+  boundary: only what the player may perceive or already knows. Never
   NPC-private knowledge, secrets, internal names, non-public entities, or
-  invisible relations. Enforced by query construction, never by instruction.
-- **Knowledge levels never decrease through the mutation pipeline:**
-  `unaware < rumor < suspicious < partial < knows < fully_understands` is
-  monotone for every `knowledge_change` apply (`_apply_mutation`'s
-  "level already >= proposed" guard). `analyze_overhearing` additionally
-  caps acquired/upgraded levels at `knows` in code; `analyze_window` has no
-  structural cap (named deferral). Downgrades, forgetting, and
-  `is_incorrect` correction are creator CRUD only.
-- **A `fact_participant` row is the aboutness claim for every `knowledge`
-  row on that fact.** `role` is descriptive only, never a filter or a
-  discriminator; `(fact_id, entity_id)` is unique, so every writer reads
-  before it writes.
-- **`new_knowledge`'s `subject_entity_id` is untrusted payload input,**
-  re-validated against an active entity of the mutation's own world at
-  apply, and it is never part of a dedup key.
-- **`scene_state` is a third, explicitly ephemeral write path.**
+  invisible relations. [no check]
+- **INV-03** Membership reaches a model prompt only via
+  `read_public_memberships`; `is_secret` rows never enter any prompt,
+  including the holder's own, with no override parameter. The true `role`
+  behind a `cover_role` never enters a prompt: the accessor resolves
+  `cover_role ?? role`. Espionage rides on `goals` prose, never a confessable
+  affiliation label. Declared faction roles live in `faction_role`
+  (relational, never JSON). [no check]
+- **INV-04** `npc_price` rows are seller configuration, injected ONLY into
+  that seller's own dialogue context — never into `assemble_mj_context` or
+  any other entity's context. A quoted price writes no canon; money moves via
+  `resource_change` through the checkpoint. [no check]
+- **INV-05** `discoverable_detail` is read by no assembler or prompt-building
+  path. `hidden` content reaches a model ONLY via the post-selection
+  `{detail_content}` injection in `_stream()` on a partial/success perception
+  search (`domain="perception"`, `opposed_npc_id=None`); `ambient` content
+  only via the pure predicate `active_signposts` (`scene_format.py`), passed
+  into the MJ establishment call. A hidden `coutume` fact is a TRAP: never
+  add `"hidden"` to `FACETS["coutume"].aspects`; every play reader filters
+  `notorious_at_location` at query construction. [no check]
+- **INV-06** `connects_to` and `borde` are location map topology, never a
+  social signal; their `intensity` means nothing. Every gameplay reader of
+  `relation` keyed on a character/player id is blind to them; the sole
+  gameplay reader is `_location_neighbours`. A new world-wide relation scan
+  MUST exclude both (`MAP_TOPOLOGY_TYPES`). [no check]
+- **INV-07** PC knowledge is written `is_secret=False`; `_normalize_knowledge`
+  is NPC-only and forces `is_secret=True` — never reuse it for a PC.
+  `_normalize_player_knowledge` emits no `is_secret` key; `False` is applied
+  at write time by the accept route (`create_player_character` via
+  `writes.write_knowledge`), never by the generator. [no check]
+- **INV-08** Two canon-write paths for rows: `_apply_mutation` and creator
+  CRUD. A third covers canon STRUCTURE. -- enforced by
+  `single_canon_write.py`, `runtime_ddl_guard.py`
+- **INV-09** `scene_state` is a third, explicitly ephemeral write path:
   `_write_scene_state` archives the previous snapshot to `history[]` before
   every write; cleared to `{}` on conversation close; never canon — durable
-  consequences require a `proposed_mutation`.
-- **`proposed_by='engine'` deterministic proposals**
+  consequences require a `proposed_mutation`. [no check]
+- **INV-10** History is sacred on BOTH write paths: any edit to `relation` or
+  `knowledge` appends the previous state to `change_history`.
+  `entity_type_history` is append-only by construction, with no
+  `change_history` column — the rows ARE the history. [no check]
+- **INV-11** Commit before touching any canon-writing path (`_apply_mutation`,
+  the creator CRUD, the analyzers, and everything they call) — hard.
+  Recommended before the `/say` flow or the interpretation phase. On SQLite,
+  DDL participates in the surrounding transaction — a guarantee of the shared
+  engine (`db.py`), never a per-site precaution. [no check]
+- **INV-12** Hard deletes are a closed, named list; a new hard-delete path is
+  named there, never added silently. -- enforced by `single_canon_write.py`
+- **INV-13** The `ledger` is append-only: INSERT-only on both canon-write
+  paths, corrections are new compensating lines, and no UPDATE/DELETE
+  endpoint or code path touches a `ledger` row. [no check]
+- **INV-14** `proposed_by='engine'` deterministic proposals
   (`_propose_engine_injury`, `_propose_engine_discovery`) follow the same
-  review queue as AI proposals — never auto-applied.
-- **`skill_progress` is the one live auto-applied mutation:** a roll's point
-  (`proposed_by='engine_roll'`) applied through `_apply_mutation` at proposal time;
-  `write_skill_progress` moves the rank -- enforced by `skill_progression.py`.
-- **Constraint gating is structural, not instructional:** gagged/restrained/
-  blindfolded effects are enforced in Python before any model call
-  (`_stream` in `app.py`). Blindfolded exclusion is a data exclusion in
-  `assemble_mj_context`, never a "don't describe" prompt.
-- **Condition ladder is monotone for engine writes:** `unharmed -> bruised -> injured ->
-  neutralized` — forward only by violent-verdict code; backward only by creator CRUD.
-- **Frozen scene yields no model calls:** `scene_state.frozen = True` -> `/say` short-circuits
-  with a fixed MJ message. Only the creator panel unfreezes.
-- **`discoverable_detail` is structurally excluded from every assembler,
-  with one consciously narrowed exception:** no assembler or prompt-building
-  path reads the table. `hidden` content reaches a model ONLY via the
-  post-selection `{detail_content}` injection in `_stream()` on a
-  partial/success perception search (`domain="perception"`,
-  `opposed_npc_id=None`). `ambient` content is read only via the pure code
-  predicate `active_signposts` (scene_format.py), passed directly into the MJ
-  establishment call. A hidden `coutume` fact (no `location` default) is a
-  TRAP — never add `"hidden"` to `FACETS["coutume"].aspects`, and every play
-  reader filters `notorious_at_location` at query construction; discoverable
-  content lives ONLY in `discoverable_detail`.
-- **`connects_to` and `borde` are location map topology, never a social
-  signal.** Their `intensity=50` is meaningless. Every gameplay reader of
-  `relation` keyed on a character/player id is structurally blind to them;
-  the sole intentional gameplay reader is `_location_neighbours`. Any new
-  world-wide relation scan MUST exclude both (`MAP_TOPOLOGY_TYPES`).
-- **A location with an active child is a zone, derived, never stored
-  (`zone_rules.py`).** Only `connects_to` is traversable and it never
-  touches a zone; a link touching a zone is `borde`. A geographic link's
-  type is derived from its endpoints (`link_locations`), never chosen. No
-  being, item or discoverable detail is placed in a zone
-  (`require_visitable`, at every placement write) -- `zone_placement.py`.
-- **The `ledger` is append-only.** INSERT-only on both canon-write paths;
-  corrections are new compensating lines. No UPDATE/DELETE endpoint or code
-  path may touch a `ledger` row.
-- **`resource_change` writes two canon tables** (`ledger` + optional
-  `knowledge`) inside one `_apply_mutation` SAVEPOINT — the single
-  sanctioned exception to one-branch-one-table. Money leg accumulates
-  (never deduped) and targets the player only, until tracked NPC purses
-  exist; knowledge leg is idempotent, guarded at apply time.
-- **Tick-sourced `proposed_mutation` rows have `source_type='world_tick'`,
-  `proposed_by='local_ai_tick'`, NULL `pass_play_id`/`conversation_id`, and
-  a mandatory `tick_id`** (one UUID per `run_world_tick` invocation).
-  `_find_applied_duplicate`'s tick branch (`cockpit/routes/mutations.py`) is
-  canon-existence-based, never a `tick_id`-scoped history comparison, and
-  must never be extended to `relation_change` (accumulating deltas, never
-  guarded).
-- **`npc_price` rows are seller configuration,** injected ONLY into that
-  seller's own dialogue context — never into `assemble_mj_context` or any
-  other entity's context. A quoted price writes no canon; money moves via
-  `resource_change` through the checkpoint. Catalogue prices are firm and
-  universal; only uncatalogued quotes are relation-modulated.
-- **Membership reaches a model prompt only via `read_public_memberships`;**
-  `is_secret` rows never enter any prompt, including the holder's own —
-  structural filter, no override parameter. The true `role` behind a
-  `cover_role` never enters any prompt: the accessor resolves
-  `cover_role ?? role`. Espionage rides on `goals` prose, never a
-  confessable affiliation label. Declared faction roles live in
-  `faction_role` (relational, never JSON; case-uniqueness is the index's job).
-- **Creator-direct create helpers never commit in their core; the commit
-  boundary belongs to the caller.** `create_entity`, `create_knowledge`,
+  review queue as AI proposals — never auto-applied. [no check]
+- **INV-15** `skill_progress` is the one live auto-applied mutation: a roll's
+  point (`proposed_by='engine_roll'`) applied through `_apply_mutation` at
+  proposal time; `write_skill_progress` moves the rank. -- enforced by
+  `skill_progression.py`
+- **INV-16** A `knowledge` row is identified by its fact: `(entity_id,
+  fact_id)` is unique. -- enforced by `knowledge_identity.py`
+- **INV-17** A `fact_participant` row is the aboutness claim for every
+  `knowledge` row on that fact. `role` is descriptive only, never a filter or
+  a discriminator; `(fact_id, entity_id)` is unique, so every writer reads
+  before it writes. [no check]
+- **INV-18** Creator-direct create helpers never commit in their core; the
+  commit boundary belongs to the caller. `create_entity`, `create_knowledge`,
   `open_entity_membership` each split into a commit-free core plus a thin
-  route wrapper owning the single commit — a structural seam, not a
-  `commit:` flag.
-- **Region generation writes no canon; commit is atomic; resolution is
-  server-authoritative.** `generate_region_draft` proposes factions and
-  locations only — characters retired to the group agent (A1).
-  `POST /api/regions/commit` is the single write point: entities, skeleton
-  (`parent_location_id`, faction role vocabulary via `write_faction_role`)
-  and creator-confirmed links commit in one transaction, all-or-nothing,
-  via the commit-free cores and `write_relation`. No model-emitted id ever
-  reaches a canon row; the accept/reject cascade and link targets are
-  re-derived server-side from raw client state; rejected/uncommitted/
-  unresolved/self-referential targets write nothing.
-- **A lore statement commits whole or not at all, through `lore_write_apply.apply_proposal`.**
-  No model-emitted id reaches a canon row: facts by code, entities by name, both resolved in code
-  and confirmed by the creator; every row written is recorded in `lore_entry_row`.
-- **PC knowledge is written `is_secret=False`; `_normalize_knowledge` is
-  NPC-only and forces `is_secret=True` — never reuse it for a PC.**
-  `_normalize_player_knowledge` emits no `is_secret` key; `False` is
-  applied at write time by the accept route (`create_player_character` via
-  `writes.write_knowledge`), never by the generator.
-- **A PC is excluded from NPC co-presence by construction:** the
-  `H_COMPANY` query in `assemble_npc_context` carries
-  `Character.character_type != "player"`. Do not widen this filter, and do
-  not repoint it at a future NPC-to-NPC observation feature without a
-  deliberate decision.
-- **Creator-CRUD edits that change a character's `current_location_id`, or
-  set an entity's `status` to a non-active value, MUST close that entity's
-  open `gathering_member` rows via `close_open_memberships`** (gatherings
-  are not canon — no `_apply_mutation`, no `change_history`). A location
-  change also attaches the entity to the destination's live open gathering
-  when the open session already holds one there, and, after the commit,
-  dissolves any gathering the move left with no active member. Roster and
-  co-present reads gate on `entity.status='active' AND
-  vital_status='alive'` in addition to `gathering_member.left_at IS NULL`.
-- **An open gathering with no active member is a defect state, not a legal
-  one:** dissolved the moment it is emptied, and ignored by the entry
-  guard where it survives anyway — a location counts as already entered
-  only while one of its open gatherings still holds an active member.
-- Hard deletes are a closed, named list -- enforced by `single_canon_write.py`; any new hard-
-  delete path must be named there, never added silently.
-- **Custom skill lookups filter `skill_definition_id`, by construction:** a
-  base-domain `skill` lookup MUST include `AND skill_definition_id IS NULL`.
-  A custom skill resolves via its `skill_definition.base_domain` — never
-  its own `domain` column — and that resolved `base_domain` is what every
-  base-domain-keyed downstream branch keys off. An NPC holds only the rows it
-  was given; Play's roll reads both sides through `skill_access` (NPC: skill,
-  else base domain, else Initié) -- enforced by `npc_skills.py`.
-- **A `skill_definition` delete always succeeds** (no `ON DELETE RESTRICT`,
-  no `change_history` snapshot): dependent PC `skill` rows then the
-  definition, one transaction. The type-"Oui" modal is the sole safeguard —
-  a named exception to "History is sacred", scoped to one row.
-- **A new open `skill_definition` backfills a default-rank `skill` row onto every
-  existing PC of its world, in the create's own transaction** — the
-  catalogue<->PC alignment of open skills is never partial. A `requires_master`
-  skill is held only once taught (`POST /api/skills`), and `skill_access` locks
-  it in Play until then. Renaming touches no `skill`
-  row (FK-by-id); re-basing (`base_domain` change) updates `domain` on
-  every dependent `skill` row in the same write.
-- **A `skill_definition.name` can never equal a base-domain literal**
-  (`physical`/`agility`/`perception`/`composure`, case-insensitive) — both
-  write paths (creator CRUD and `_normalize_skill_catalogue`) reject/drop
-  it.
-- **A `skill_definition` may carry a `system_id`** (schema v2.01), the body
-  of rules it belongs to; NULL = unaffiliated. `DELETE
-  /api/skill-systems` refuses while any skill is still attached, unlike
-  `DELETE /api/skill-definitions`, which deletes its dependents.
-- **`GET /api/skill-gaps` is read-only** — it performs no write of any
-  kind. It surfaces distinct `unmatched` `skill_resolution.surface_form`
-  rows for the active world; the two arbiter-failure sentinels
-  (`__arbiter_error__`, `__arbiter_empty__`) are excluded from its `gaps`
-  list by design and reported separately in `arbiter_failures`.
-- **All templated model calls resolve through
-  `prompt_registry.effective_model`** — the single model resolver. New
-  prompt usages must add a `PROMPT_REGISTRY` entry
-  (`tooling/verify/checks/prompt_registry.py` enforces).
-- `prompt_template.model` is written ONLY via `PATCH /api/prompts/{id}/model`, validated fail-
-  closed against live Ollama -- enforced by `prompt_model_write.py`.
-- **`_npc_dialogue_system_prompt(system_prompt, context)` in `cockpit/play.py`
-  is the single npc_dialogue system-prompt construction:** every live call
-  site and the Prompts tab's assembled preview call it — never a duplicated
-  inline concatenation.
-- Prompt text lives ONLY in the append-only `prompt_version` table, never
-  UPDATE/DELETE -- enforced by `prompt_version.py`.
-- Affinity tiers are resolved in code (`context.py::_affinity_tier`);
-  prompt templates never carry the tier table.
-- **UI-visible data never lives in JSON** — relational only; enforced
-  fail-closed by `json_ui_boundary` (exceptions justified in that file).
-- **The app refuses to boot when `schema_meta.static_version` !=
-  `EXPECTED_STATIC_SCHEMA_VERSION`, OR when a physical table is neither a static model table nor
-  a registered `entity_type.physical_table`** (fail-closed on both; the second check is
-  `schema_reconcile.unaccounted_tables`, extending the same `cockpit/app.py` startup hook —
-  `_orphan_ext_*` quarantine tables are pattern-accounted, never flagged); `schema_meta` is
-  migration-only infra, never canon, never writable outside a migration script.
-- **Rollback contract (B1):** "Once a runtime type exists, rolling code back past the
-  constructor version requires running `scripts/rollback_quarantine.py` first (after a backup).
-  Roll-forward restoration (`--restore`) is potentially lossy, bounded to rows whose `entity`
-  row was deleted during the rollback window; every lost row is preserved in `_orphan_lost_*`
-  and reported — never silently dropped. This contract is SQLite-scoped (the rebuild-without-FK
-  recipe is SQLite-specific), matching the engine's current single-backend reality." Full
-  rationale: `ARCHITECTURE_DECISIONS.md`, "ENTITY-TYPE CONSTRUCTOR — rollback quarantine (B1)".
-- Every Création page is a `CREATION_TABS` registry entry rendered by the generic dispatcher; no
-  page/tab-specific branch exists outside it — enforced by `page_contract.py`.
-- Every Création surface mounts as a `CREATION_ISLANDS` entry declaring its origin (`migration` or
-  `new`) through `mount.js` alone; `Creation.svelte` imports and renders no component — enforced by
-  `creation_island.py`.
-- The review tree (`review*`, `frontend/src/creation/review/registry.js`) is a generic
-  accept/reject component, never driven by consumer globals — enforced by `review_component.py`.
-- The graph primitive (`frontend/src/graph/Graph.svelte`) is the ONE graph component; a second
-  engine is constructible only by defeating `graph_primitive.py`'s fail-closed lock.
-- A Creation sub-tab change clears the entity sheet from the single dispatcher
-  (`showCreationSubTab`), BEFORE `activeTabKey` moves and on every change, never per
-  registry entry; and `Sheet.svelte` selects its render branch from `sheetType`, the same
-  fact that feeds it, never from `activeTabKey` -- enforced by `creation_tab_switch.py`.
-- A Création tab that owns a single container sizes it in `frontend/public/creation.css`
-  (`flex: 1; min-height: 0`), so its content scrolls instead of being clipped -- enforced by
-  `creation_container_sizing.py`.
-- Inside a `$effect` body, a `$state` binding assigned there must not be read afterwards in the
-  same body — enforced by `effect_self_write.py`.
-- `passage` is written only by `passages.py`, whose `before_flush` listener records every
-  placement write; `rencontre.last_at` moves forward only, in `encounters.py` -- enforced by
-  `fact_learning.py`.
-- **The lore renderer receives rows, never a `Session`,** and only the `answered` verdict reaches
-  a model — every empty verdict is rendered by code, so an absence is never explained by a model.
-- **The Lore usage journal (`lore_usage_event`) is written only through `lore_usage` and read only
-  by `scripts/export_lore_usage.py`;** no prompt, play or creator path reads it back, and it has no
-  `world_id`, so it outlives its world -- enforced by `lore_usage.py`.
+  route wrapper owning the single commit — never a `commit:` flag. [no check]
+- **INV-19** All templated model calls resolve through
+  `prompt_registry.effective_model`, the single model resolver; a new prompt
+  usage adds a `PROMPT_REGISTRY` entry. -- enforced by `prompt_registry.py`
+- **INV-20** UI-visible data never lives in JSON — relational only
+  (exceptions justified in the check). -- enforced by `json_ui_boundary.py`
+- **INV-21** A location with an active child is a zone, derived, never stored
+  (`zone_rules.py`). Only `connects_to` is traversable and it never touches a
+  zone; a link touching a zone is `borde`. A geographic link's type is
+  derived from its endpoints (`link_locations`), never chosen. No being,
+  item or discoverable detail is placed in a zone (`require_visitable`, at
+  every placement write). -- enforced by `zone_placement.py`,
+  `zone_map_links.py`
+- **INV-22** A model names a fact only by a code from a
+  `fact_refs.code_facts` list; code resolves it. [no check]
 
-## Local model notes
+## Path-scoped rules
 
-Default game model for NPC dialogue and analysis:
-**`huihui_ai/qwen3-abliterated:8b-v2`** via Ollama; authoring model:
-`llama3.1:8b`. Per-template overrides exist (`prompt_template.model`,
-cockpit Prompts tab, live dropdown from `GET /api/ollama/models`); NULL
-resolves to the registry's `default_model` at read time, so env overrides
-show through. `prompt_registry.effective_model` is the sole resolver.
+Invariants and notes that hold for one part of the code live in
+`.claude/rules/<topic>.md`. Claude Code loads a rule file when a session
+reads or edits a file matching its `paths:`; `/review-step` and
+`/close-step` read every one on every commit. An invariant that must hold
+wherever new code lands stays in this file. Invariant ids run on across all
+of them.
 
-- **Abliterated** = refusal mechanisms removed; maximally compliant,
-  including to a player pushing for reveals. This makes it the strictest
-  test of concealed knowledge: if secrets hold here, they hold anywhere.
-  The creator checkpoint remains the real safety net.
-- **Thinking mode:** Qwen3 emits `<think>...</think>` before answering;
-  `ollama_client.strip_think()` handles all malformed variants. Policies by
-  call site:
-  - **NPC dialogue** (`talk.py`): `/no_think` in the user message.
-  - **NPC dialogue** (cockpit `/say`, NPC phase): `chat_stream` +
-    `_StreamThinkFilter`; thinking on, filtered before any token is
-    yielded; reply buffered, never raw to the player.
-  - **MJ narration** (`/say`, MJ phase): `chat_stream` + `/no_think` +
-    filter as backstop; narration prose only streams to the player.
-  - **MJ interpretation** (`/say`, phase 0): `chat()` + `/no_think` +
-    `format="json"`; fallback to `dialogue` on any error — a
-    misclassification must never break a turn.
-  - **MJ arbitration** (`/say`, physical turns): `chat()` +
-    `format="json"` + `/no_think`; falls back to
-    `("physical", None, None, False)` on any failure.
-  - **NPC initiative vote:** `chat()` + `format="json"` + `/no_think`;
-    failure is silent.
-  - **NPC initiative act:** `chat()` + `format="json"`, **no** `/no_think`
-    (thinking helps the two-field contract `act_text`/`move`); falls back
-    to `_NPC_INITIATIVE_ACT_FALLBACK` if the template isn't seeded; any
-    error -> silent skip.
-  - **Conversation analysis** (`analyzer.py`): thinking enabled;
-    `strip_think` before JSON parsing.
-- **French quality:** multilingual but not idiomatic-Mistral-grade;
-  acceptable for validating logic. If narrative quality disappoints, that's
-  a model-selection signal, not a code defect.
+- `gatherings.md` — gathering membership, encounters, passages.
+- `mutation-pipeline.md` — analyzers, the world tick, appliers.
+- `context-assembly.md` — NPC and MJ context, the play surface.
+- `skills.md` — skills, definitions, skill gaps.
+- `prompts.md` — prompt text and per-template models.
+- `frontend.md` — the Svelte shell, Création registries, the build.
+- `authoring-lore.md` — region generation, the Lore surface.
+- `schema-migrations.md` — migrations, the boot guard, rollback.
+- `local-models.md` — the local models and their thinking modes.
+- `verify-checks.md` — how a verify check is written.
 
 ## Conventions
 
 ### File structure
 
-One line per file: its role. History lives in the decision registry and the
-schema changelog, never in this tree.
+The top level only. Every Python module, with its role, is listed in the
+generated `tooling/standards/FILE_MAP.md`.
 
 ```
 WG-Nia/
-├── .claude/                 # Claude Code session config
-│   ├── commands/            # /pipeline /recon /brief-exec /verify /review-step /close-step
-│   ├── hooks/               # session-start, block-main-push, block-db-in-git (PowerShell)
-│   ├── skills/              # recon, brief, verify-authoring skills
-│   └── settings.json        # permissions allowlist
-├── frontend/                 # Svelte + Vite sources; build writes the committed static/ output
-│   ├── src/legacy/           # enumerated legacy-mount registry + sole bridge into legacy
-│   ├── src/graph/            # the graph primitive, its consumers, its non-converged registry
-│   └── src/creation/         # Svelte islands + review-tree; registry.js: islands and their origin
-├── src/world_engine/        # the importable package (PYTHONPATH=src)
-│   ├── db.py                # engine + session; URL from env var
-│   ├── schema_version.py    # code-side expected static-schema constant, checked at boot
-│   ├── schema_reconcile.py  # table reconciliation: static ∪ runtime ∪ orphan; boot guard + CLI
-│   ├── models/               # SQLModel table classes, split by canon/faction/ephemeral/pipeline
-│   ├── context*.py          # NPC/MJ assembly + exclusions; context_window.py: sliding-window seam
-│   ├── knowledge_resolve.py, facet_reads.py, prose_*.py  # level resolution; facet reads; tokens
-│   ├── tick*.py             # world-tick: orchestrate/assemble/normalize; sites in world_tick.py
-│   ├── gathering.py, encounters.py, passages.py  # clustering; rencontre's, passage's writers
-│   ├── ollama_client.py     # local Ollama HTTP client; think-stripping; ping()
-│   ├── analyzer*.py         # conversation-bound wrapper + conversation-agnostic judging core
-│   ├── observation_*.py     # observed-lane socle/engine/runner/reads/writes; per-NPC window
-│   ├── resolution.py, ledger.py  # physical-action dice resolution (2d6 bands); ledger read helpers
-│   ├── skill_lexicon.py     # action lexicon: judge/record; Play calls it, never clamps inline
-│   ├── day_plan.py, condition*.py  # day plan + cut; condition forms, tree, text, interpreter
-│   ├── day_extract.py       # day extraction: 3 passes (place/person/faction), never sees registry
-│   ├── day_concordance.py   # day mention resolution: matching rungs, germ emission; never authors
-│   ├── day_rewrite.py       # declaration rewrite: render/resolutions/load_latest, no model call
-│   ├── day_resolve.py       # day step resolution: Python dice, truncation, the frozen fact sheet
-│   ├── day_narration.py     # day narration + rewrite: renders the fact sheet, never decides
-│   ├── day_narration_guard.py  # T1 judge: name containment + outcome survival, Python-only
-│   ├── day_mutations.py     # day-chain mutation emission: proposer only, never applies (V1)
-│   ├── day_feasibility.py   # feasibility veto: downward-only, clamp_verdict is the safety (Y1)
-│   ├── lore_*.py, unbound_facts.py, fact_refs.py  # Lore read/write; unbound facts; fact codes
-│   ├── writes/               # canon-write helpers by domain; schema.py is the DDL authority
-│   ├── prompt_registry.py   # prompt wiring registry; effective_model resolver
-│   ├── prompt_store.py, prompt_load.py, prompt_call.py  # version accessor; loader; JSON call
-│   ├── entity_author.py     # AI authoring assistant (entities, PC, skills, agendas, events)
-│   ├── region_author.py     # region generation orchestrator (proposes names, no canon)
-│   ├── spatial_author.py    # Creation-side door materialization from live connects_to
-│   ├── room_batch_author.py # Room batch orchestrator: manifest, fiches, coherence edges
-│   └── cockpit/             # creator web UI (FastAPI, port 8000, loopback)
-│       ├── app.py           # app factory + router mounting + fail-closed boot guard
-│       ├── play*.py         # say() decomposition: routing, physical branch, narration/initiative
-│       ├── crud/            # creator CRUD routes, split by domain (entities, relations, ...)
-│       ├── legacy.html      # legacy host for Play only now; served at /legacy in the iframe
-│       └── static/          # committed built-frontend output; served at /static, boot-guarded
-├── scripts/
-│   ├── init_db.py           # create tables + indexes (idempotent)
-│   ├── seed_pilot.py        # seed Verkhaal world + prompt templates (idempotent)
-│   ├── talk.py              # CLI conversation with an NPC
-│   ├── analyze_conversation.py  # manual window analysis of a conversation
-│   ├── cockpit.py           # launch the world cockpit
-│   ├── pipeline_cockpit.py  # launch the pipeline cockpit (port 8100; deposit dormant)
-│   ├── backup.py            # manual DB backup, 2-file rotation
-│   ├── rollback_quarantine.py  # quarantine/restore for runtime entity types (destructive, manual)
-│   └── migrate_*.py         # one idempotent migration per schema step
+├── .claude/        # commands/, hooks/, rules/ (path-scoped), settings.json
+├── frontend/       # Svelte + Vite sources; the build writes cockpit/static/
+├── src/world_engine/  # the importable package (PYTHONPATH=src)
+│   ├── models/     # SQLModel table classes
+│   ├── writes/     # canon-write helpers by domain; schema.py is the DDL authority
+│   └── cockpit/    # creator web UI (FastAPI, port 8000, loopback)
+├── scripts/        # init, seed, backup, CLI tools, one migrate_*.py per schema step
 ├── tooling/
-│   ├── tickets/, recon/, briefs/  # pipeline artifacts (filename is law)
-│   ├── questions/           # pipeline escalations awaiting Nia
-│   ├── glue/                # next_id.py, gen_decisions_index.py, question_response.py
-│   ├── standards/           # decision registry, generated index, code_standards.md
-│   ├── verify/              # run.py, checks/, baselines/, results/
-│   ├── improvement/         # bug_log.jsonl
-│   └── pipeline_cockpit/    # deposit UI app (dormant; never imports src/world_engine/)
-├── world-engine-schema.md   # single authoritative schema; header = current version
+│   ├── tickets/, lots/, briefs/  # pipeline artifacts (filename is law); recon/ archived
+│   ├── glue/       # gen_decisions_index.py, gen_file_map.py, escalation.py
+│   ├── standards/  # decision registry; generated DECISIONS_INDEX.md, FILE_MAP.md
+│   └── verify/     # run.py, checks/, baselines/, results/
+├── world-engine-schema.md            # single authoritative schema; header = current version
 ├── world-engine-schema-changelog.md  # append-only schema log
-├── CHANGELOG.md             # project changelog
-├── CLAUDE.md                # this file (contract-checked)
-├── pyproject.toml           # src-layout package metadata
-├── requirements.txt
-└── .env.example
+├── CLAUDE.md       # this file (contract-checked)
+└── pyproject.toml, requirements.txt, .env.example
 ```
 
 ### Naming
@@ -556,12 +317,13 @@ WG-Nia/
   loopback only; requires Ollama for all AI calls. Turn mechanics, overhearing
   accumulation, window-analysis triggers, batch review and Voyager ordering
   are documented in `tooling/standards/ARCHITECTURE_DECISIONS.md`.
-- **Pipeline cockpit:** `python scripts/pipeline_cockpit.py` -> port 8100.
-  Deposit flow dormant; artifacts are deposited manually.
 - **Frontend build:** `cd frontend`, `npm ci`, `npm run build` -> writes the
   committed output under `src/world_engine/cockpit/static/`. The output is
   versioned on purpose; rebuild and commit after any `frontend/` edit.
   Node is needed to BUILD only -- a prod launch requires none.
+- **Module map:** `python tooling/glue/gen_file_map.py` regenerates
+  `tooling/standards/FILE_MAP.md` from module docstrings; `file_map.py`
+  fails while it is stale or a module has no docstring.
 - **Verify:** `python tooling/verify/run.py --ticket TICKET-NNNN` runs the
   checks that ticket links in its Machine-checkable section;
   `tooling/verify/checks/corpus_gate.py` runs every check in the directory,

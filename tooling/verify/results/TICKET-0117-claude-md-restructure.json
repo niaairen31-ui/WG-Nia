@@ -1,0 +1,47 @@
+{
+  "ticket": "TICKET-0117-claude-md-restructure",
+  "when": "2026-10-10T23:34:42.225738+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "escalation_writer.py",
+      "status": "PASS",
+      "msg": "PASS: escalation_writer -- an escalation is appended to and answered in its own ticket, by one writer, and read by one parser"
+    },
+    {
+      "check": "pipeline_state.py",
+      "status": "PASS",
+      "msg": "PASS: every ticket front-matter conforms to TEMPLATE.md"
+    },
+    {
+      "check": "session_config.py",
+      "status": "PASS",
+      "msg": "PASS: session_config -- commits pre-authorized behind a no-commit-on-main hook; review chains to close in one turn; /pipeline escalates into the ticket"
+    },
+    {
+      "check": "file_map.py",
+      "status": "PASS",
+      "msg": "PASS: file_map -- 446 modules, each with a docstring, and FILE_MAP.md is fresh"
+    },
+    {
+      "check": "claude_md_contract.py",
+      "status": "PASS",
+      "msg": "PASS: CLAUDE.md contract \u2014 root and 10 rule file(s): whitelist, budgets, archaeology bans, 61 invariants with ids and markers, rule globs live, pointers fresh"
+    },
+    {
+      "check": "npc_skills.py",
+      "status": "PASS",
+      "msg": "PASS: npc_skills -- v2.16 gives NPCs skill rows in place of physical_tier, migrates every carrure to a physical row from v2.15 only, and an opposing NPC rolls its own row for the skill, else its base domain, else Initi\u00e9; a skill that requires a master is held only once taught, cannot be rolled until then, and is taught by a Ma\u00eetre or granted by the creator; the fiche serves NPCs and players, and teaches from it"
+    },
+    {
+      "check": "decisions_index.py",
+      "status": "PASS",
+      "msg": "PASS: index matches archive, new headers pass the strict gate"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u2014 147 check(s) discovered, 147 executed, 147 passed"
+    }
+  ]
+}

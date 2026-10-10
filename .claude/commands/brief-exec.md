@@ -1,15 +1,18 @@
 ---
-description: Execute a BRIEF-NN on a ticket branch.
+description: Execute one brief of a ticket's lot on its ticket branch.
 ---
-Read the named BRIEF-NN (tooling/briefs/) AND its cited RECON AND only the target
-files it names. Do NOT read the whole tree.
+Read the named brief (tooling/briefs/) and only the files it names. The brief
+embeds every RECON finding and contract it relies on; its lot header
+(tooling/lots/) is authoritative on conflict. Do NOT read the whole tree.
 
-1. Create/switch to branch `ticket/<NNNN>`.
-2. Implement exactly what the brief specifies. If you find yourself needing a
-   decision the brief did not settle (D1), STOP and report — do not guess.
-3. Commit with the mandatory protocol: /review-step then /close-step.
-   If this execution was invoked from `/pipeline`, invoke `/review-step`
-   and `/close-step` in unattended mode (CA1) and state so explicitly at
-   each invocation; do not wait for a manual `/close-step` between
-   briefs of the same ticket.
-4. Never push to main. When done, run /verify for this ticket.
+1. `git switch ticket/<NNNN>`, or `git switch -c ticket/<NNNN>` from `main`
+   when the branch does not exist yet. Never commit on `main`.
+2. Confirm the brief's Mini-RECON anchors. One that does not hold is a STOP.
+3. Implement exactly what the brief specifies, under its Decision rights. A
+   decision the brief did not settle is a STOP: report it, do not guess.
+4. For every commit the brief lists: run /review-step, then continue to
+   /close-step in the same turn when the verdict is CLEAN or ATTENTION.
+   Stop only on VIOLATION. Commits are pre-authorized: /close-step commits
+   without waiting for approval.
+5. Never push to main. When the brief's commits are done, run /verify for
+   this ticket.

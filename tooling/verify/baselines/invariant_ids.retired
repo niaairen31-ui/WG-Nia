@@ -1,0 +1,6 @@
+# TICKET-0117 (F1). Append-only record of every retired invariant id: one
+# line per id, `INV-NN|<ticket>|<one-line reason>`. An id enters this file
+# in the same commit that removes its invariant from CLAUDE.md or
+# .claude/rules/, and is never removed or reused afterward.
+# tooling/verify/checks/claude_md_contract.py requires live and retired ids
+# together to be exactly INV-01 to the highest.

@@ -1,15 +1,26 @@
 """Structural gate for ticket front-matter conformity (pipeline glue, BRIEF-0004),
-extended by BRIEF-0006-b (TICKET-0006) with two grep-grade sentinel checks:
-`.claude/commands/pipeline.md` must contain both the no-recon-spec
-derivation clause and the post-recon push clause within its Step 1 recon
-branch text, and `.claude/commands/brief-exec.md` must contain the CA1
-relay wiring.
+extended by BRIEF-0006-b (TICKET-0006) with sentinel checks on the
+command files -- moved to `session_config.py` by TICKET-0117 (BRIEF-0117-b),
+which owns the Claude Code session configuration.
 
 No DB. Every tooling/tickets/TICKET-*.md (TEMPLATE.md excluded, its glob
 pattern doesn't match) must carry a parseable YAML front-matter block
 containing every TEMPLATE.md field; `status` must be a literal member of
 TEMPLATE.md's enum; `retry_count` an integer in 0-2; and a
-`status: escalated` ticket must have a matching QUESTION file.
+`status: escalated` ticket must hold an open entry in its own
+`## Escalations` section.
+
+TICKET-0117 (J2-a). Escalations live in the ticket they stop. The
+section's shape is asserted here with `tooling/glue/escalation.py`'s own
+parser, imported, never a second copy (the same reason `run.py` is
+imported below): its entries are numbered E-01, E-02, ... in file order
+with no gap, each carries exactly one response marker, and a
+section that holds no entry is a FAILURE.
+
+TICKET-0117 (L1). A retired check is recorded in
+`tooling/verify/baselines/checks.retired`; an older ticket's arrow to it
+still resolves, so history is never rewritten to follow a retirement. A
+check named there that exists again on disk is a FAILURE.
 
 TICKET-0061 (E1). TICKET-0061 itself was authored with `## Done means` --
 the brief template's section name -- instead of the ticket template's
@@ -26,28 +37,24 @@ actually do, and a second copy of `machine_checks()`/`LINK` would drift
 from the original the same way this ticket's own malformed section drifted
 from the template.
 """
+import functools
 import pathlib
 import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 TICKETS = ROOT / "tooling" / "tickets"
-QUESTIONS = ROOT / "tooling" / "questions"
-PIPELINE_MD = ROOT / ".claude" / "commands" / "pipeline.md"
-BRIEF_EXEC_MD = ROOT / ".claude" / "commands" / "brief-exec.md"
+RETIRED_CHECKS = ROOT / "tooling" / "verify" / "baselines" / "checks.retired"
 
 sys.path.insert(0, str(ROOT / "tooling" / "verify"))
 import run  # noqa: E402 -- reuse run.py's machine_checks/LINK, never a second copy
+sys.path.insert(0, str(ROOT / "tooling" / "glue"))
+import escalation  # noqa: E402 -- the one definition of an open escalation
 
 ARROW_FLOOR_STATUSES = {"brief", "exec", "verify", "live-gate", "done"}
 MACHINE_HEADER_RE = re.compile(r"^###\s*machine")
 LIVE_HEADER_RE = re.compile(r"^###\s*live")
 
-PIPELINE_MD_SENTINELS = [
-    "A ticket with NO recon spec on disk is not an error",
-    "git push origin ticket/NNNN",
-]
-BRIEF_EXEC_MD_SENTINEL = "unattended mode (CA1)"
 
 REQUIRED_FIELDS = [
     "id", "title", "type", "status", "created", "model_lane",
@@ -58,7 +65,6 @@ STATUS_ENUM = {
     "intake", "recon", "brief", "exec", "verify", "live-gate", "done",
     "paused", "escalated",
 }
-TICKET_ID_RE = re.compile(r"^(TICKET-\d{4})")
 
 FAILURES: list[str] = []
 
@@ -110,8 +116,26 @@ def check_section_shape(path: pathlib.Path, text: str, status: str | None) -> No
             fail(f"{path.name}: status '{status}' has zero Machine-checkable arrows -- a ticket that has been briefed must have criteria")
         for rel in arrows:
             check_path = run.CHECKS / pathlib.Path(rel).name
-            if not check_path.exists():
+            if not check_path.exists() and check_path.name not in retired_checks():
                 fail(f"{path.name}: Machine-checkable arrow '{rel}' does not resolve to an existing file under tooling/verify/checks/")
+
+
+@functools.lru_cache(maxsize=None)
+def retired_checks() -> frozenset[str]:
+    if not RETIRED_CHECKS.exists():
+        fail(f"{RETIRED_CHECKS.relative_to(ROOT).as_posix()} not found")
+        return frozenset()
+    names = set()
+    for line in RETIRED_CHECKS.read_text(encoding="utf-8").splitlines():
+        if line.strip() and not line.startswith("#"):
+            names.add(line.split("|", 1)[0].strip())
+    return frozenset(names)
+
+
+def check_retired_absent() -> None:
+    for name in sorted(retired_checks()):
+        if (run.CHECKS / name).exists():
+            fail(f"{name} is recorded as retired in checks.retired but exists again")
 
 
 def check_ticket(path: pathlib.Path) -> None:
@@ -138,36 +162,29 @@ def check_ticket(path: pathlib.Path) -> None:
         elif not (0 <= int(retry_raw) <= 2):
             fail(f"{path.name}: field 'retry_count' out of range 0-2 ({retry_raw})")
 
-    if status == "escalated":
-        m = TICKET_ID_RE.match(path.stem)
-        if m is None:
-            fail(f"{path.name}: cannot derive TICKET-NNNN id from filename")
-        else:
-            question_path = QUESTIONS / f"QUESTION-{m.group(1)}.md"
-            if not question_path.exists():
-                fail(
-                    f"{path.name}: field 'status' is 'escalated' but "
-                    f"{question_path.relative_to(ROOT).as_posix()} does not exist"
-                )
+    check_escalations(path, text)
+    if status == "escalated" and not escalation.open_entries(text):
+        fail(f"{path.name}: field 'status' is 'escalated' but its '## Escalations' "
+             "section holds no open entry")
 
 
-def check_pipeline_md_sentinels() -> None:
-    if not PIPELINE_MD.exists():
-        fail(f"{PIPELINE_MD} not found")
+def check_escalations(path: pathlib.Path, text: str) -> None:
+    lines = [line.strip() for line in text.splitlines()]
+    if escalation.SECTION_HEADER not in lines:
         return
-    text = PIPELINE_MD.read_text(encoding="utf-8")
-    for sentinel in PIPELINE_MD_SENTINELS:
-        if sentinel not in text:
-            fail(f"{PIPELINE_MD.relative_to(ROOT).as_posix()}: missing sentinel phrase {sentinel!r}")
-
-
-def check_brief_exec_md_sentinel() -> None:
-    if not BRIEF_EXEC_MD.exists():
-        fail(f"{BRIEF_EXEC_MD} not found")
+    found = escalation.entries(text)
+    if not found:
+        fail(f"{path.name}: '## Escalations' holds no entry")
         return
-    text = BRIEF_EXEC_MD.read_text(encoding="utf-8")
-    if BRIEF_EXEC_MD_SENTINEL not in text:
-        fail(f"{BRIEF_EXEC_MD.relative_to(ROOT).as_posix()}: missing sentinel phrase {BRIEF_EXEC_MD_SENTINEL!r}")
+    ids = [entry["id"] for entry in found]
+    want = [f"E-{n:02d}" for n in range(1, len(found) + 1)]
+    if ids != want:
+        fail(f"{path.name}: escalation ids are {ids}, expected {want}")
+    section = text.splitlines()[lines.index(escalation.SECTION_HEADER):]
+    markers = [line for line in section if line.startswith(escalation.RESPONSE_MARKER)]
+    if len(markers) != len(found):
+        fail(f"{path.name}: {len(found)} escalation(s) but {len(markers)} "
+             f"'{escalation.RESPONSE_MARKER}' marker(s)")
 
 
 def main() -> None:
@@ -180,8 +197,7 @@ def main() -> None:
         for path in tickets:
             check_ticket(path)
 
-    check_pipeline_md_sentinels()
-    check_brief_exec_md_sentinel()
+    check_retired_absent()
 
     if FAILURES:
         for msg in FAILURES:
