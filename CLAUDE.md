@@ -88,22 +88,18 @@ and `world-engine-schema-changelog.md` — never here.
   placeholder resolution step. Nia deposits artifacts into
   `tooling/tickets|recon|briefs` manually. Tickets keep a `slug:`
   front-matter field; recon specs and briefs keep a line-1
-  `<!-- slug: ... -->` comment. The pipeline cockpit's deposit flow is
-  dormant (see ARCHITECTURE_DECISIONS.md) — never route artifacts through
-  it.
+  `<!-- slug: ... -->` comment.
 - **Where things live:** `tooling/tickets`, `tooling/recon`,
-  `tooling/briefs`, `tooling/questions` (pipeline escalations),
+  `tooling/briefs`, `tooling/lots`,
   `tooling/glue` (`next_id.py`, `gen_decisions_index.py`,
-  `question_response.py`), `tooling/verify` (`run.py`, `checks/`,
+  `escalation.py`), `tooling/verify` (`run.py`, `checks/`,
   `baselines/`, `results/`), `tooling/standards`
   (`ARCHITECTURE_DECISIONS.md`, generated `DECISIONS_INDEX.md`,
-  `code_standards.md`), `tooling/improvement/bug_log.jsonl`,
-  `tooling/pipeline_cockpit/` (separate app, port 8100, never imports
-  `src/world_engine/`; deposit flow dormant).
+  `code_standards.md`), `tooling/improvement/bug_log.jsonl`.
 - **Orchestration:** `/pipeline TICKET-NNNN` chains exec -> verify -> PR to
-  the next human gate; `tooling/questions/` is where it escalates (D1) for
-  Nia's response. Recon results are pushed at recon time; everything else
-  publishes at Step 3.
+  the next human gate; it escalates (D1) into the ticket's own
+  `## Escalations` section, through `escalation.py`. Recon results are
+  pushed at recon time; everything else publishes at Step 3.
 - This section governs the ticket pipeline itself (process, gating,
   escalation). It does not replace or relax any invariant below — those
   still apply to every change regardless of how it was ticketed.
@@ -488,18 +484,15 @@ WG-Nia/
 │   ├── talk.py              # CLI conversation with an NPC
 │   ├── analyze_conversation.py  # manual window analysis of a conversation
 │   ├── cockpit.py           # launch the world cockpit
-│   ├── pipeline_cockpit.py  # launch the pipeline cockpit (port 8100; deposit dormant)
 │   ├── backup.py            # manual DB backup, 2-file rotation
 │   ├── rollback_quarantine.py  # quarantine/restore for runtime entity types (destructive, manual)
 │   └── migrate_*.py         # one idempotent migration per schema step
 ├── tooling/
 │   ├── tickets/, recon/, briefs/  # pipeline artifacts (filename is law)
-│   ├── questions/           # pipeline escalations awaiting Nia
-│   ├── glue/                # next_id.py, gen_decisions_index.py, question_response.py
+│   ├── glue/                # next_id.py, gen_decisions_index.py, escalation.py
 │   ├── standards/           # decision registry, generated index, code_standards.md
 │   ├── verify/              # run.py, checks/, baselines/, results/
-│   ├── improvement/         # bug_log.jsonl
-│   └── pipeline_cockpit/    # deposit UI app (dormant; never imports src/world_engine/)
+│   └── improvement/         # bug_log.jsonl
 ├── world-engine-schema.md   # single authoritative schema; header = current version
 ├── world-engine-schema-changelog.md  # append-only schema log
 ├── CHANGELOG.md             # project changelog
@@ -556,8 +549,6 @@ WG-Nia/
   loopback only; requires Ollama for all AI calls. Turn mechanics, overhearing
   accumulation, window-analysis triggers, batch review and Voyager ordering
   are documented in `tooling/standards/ARCHITECTURE_DECISIONS.md`.
-- **Pipeline cockpit:** `python scripts/pipeline_cockpit.py` -> port 8100.
-  Deposit flow dormant; artifacts are deposited manually.
 - **Frontend build:** `cd frontend`, `npm ci`, `npm run build` -> writes the
   committed output under `src/world_engine/cockpit/static/`. The output is
   versioned on purpose; rebuild and commit after any `frontend/` edit.

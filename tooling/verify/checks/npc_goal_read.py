@@ -63,8 +63,7 @@ ALLOWED_MODULES = {
     # NpcGoal rows to build its own test corpus. Allowlisted by name, one
     # entry, on the precedent of npc_goal_read.py's own entry above — not
     # as a directory-wide rule, and NOT by narrowing the tooling/ scan,
-    # which is what would catch a real reader appearing in tooling/glue/
-    # or tooling/pipeline_cockpit/.
+    # which is what would catch a real reader appearing in tooling/glue/.
     "tooling/verify/checks/observation_runner.py",
     # TICKET-0075/BRIEF-0075-c (M4): the occupation-matching rung reads
     # STANDING goals ONLY (`kind='standing'`, reached through

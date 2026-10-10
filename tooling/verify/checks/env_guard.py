@@ -14,8 +14,8 @@ that import in module top-level order, the script either:
 
 Scripts that don't import the engine are out of scope (skipped, not
 failed). `KNOWN_OPERATOR_SCRIPT_ALLOW` below is the single declared
-exception set (TICKET-0049 escalation, `tooling/questions/
-QUESTION-TICKET-0049.md`, Nia 2026-07-27, option A): one-shot migrations,
+exception set (TICKET-0049's escalation E-01, in that ticket's
+`## Escalations` section, Nia 2026-07-27, option A): one-shot migrations,
 one-shot ticket-apply scripts, and standing operator tools that predate
 this ticket and are no longer in active use — allow-listed rather than
 retrofitted, by Nia's explicit call. Extending this list requires the same

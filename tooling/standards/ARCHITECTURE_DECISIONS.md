@@ -18648,6 +18648,34 @@ sends, per condition, the id of the proposal inserted there (IH1).
 Rejected: IB2 (a panel in the Lore shell: detached from the offer it
 changes, and a third reopening of 0085's read-only lock).
 
+## AN ESCALATION LIVES IN THE TICKET IT STOPS (TICKET-0117) -- `tooling/questions/`, THE PIPELINE COCKPIT AND ITS QUESTION WRITER ARE RETIRED (BRIEF-0117-a, no schema change)
+
+**J2-a, L1-L3.** `/pipeline` no longer writes a `QUESTION-TICKET-NNNN.md`.
+An escalation is an entry `### E-NN — <trigger> — <brief>` appended to the
+ticket's own `## Escalations` section by `tooling/glue/escalation.py`, the
+section's only writer; Nia answers in the session and the answer is
+written after the entry's `**Response:**` marker. An entry with an empty
+response is open, and an open entry is what makes a ticket `escalated` --
+`pipeline_state.py` imports that definition rather than restating it.
+Entries are appended and answered, never edited or deleted.
+
+The fourteen files of `tooling/questions/` were archived verbatim, each as
+an answered entry of its own ticket (`TICKET-0072` holds two), then the
+folder was deleted. The pipeline cockpit (`tooling/pipeline_cockpit/`,
+`scripts/pipeline_cockpit.py`, its check) and `question_response.py` were
+deleted with it: the cockpit's deposit flow had been dormant since July and
+its questions surface had nothing left to read. Nia's call (L): a dormant
+tool that can mislead is removed, not kept against a plausible
+reactivation. Older entries of this registry and of the schema changelog
+still name those paths; they are history and stay as written.
+
+A retired check is recorded in `tooling/verify/baselines/checks.retired`
+(the `graph_impls.retired` precedent): `TICKET-0006` and `TICKET-0007` keep
+their arrows to `pipeline_cockpit.py`, and `pipeline_state.py` accepts an
+arrow to a retired check instead of a rewritten ticket. Rejected: J2-b (no
+trace; a relaunch could not know a question was pending), J1 (keep the
+files and only describe them).
+
 ---
 
 *Co-built with Claude, June 2026.*

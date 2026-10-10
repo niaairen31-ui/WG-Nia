@@ -17,8 +17,8 @@ front-matter, in this precedence order:
    the PR's mergeable state via `gh pr view --json mergeable,mergeStateStatus`.
    `live-gate` + `CONFLICTING` triggers the PR-conflict procedure below
    instead of stopping.
-3. A `tooling/questions/QUESTION-TICKET-NNNN.md` exists with an empty
-   `## Response` section -> `escalated`.
+3. The ticket's own `## Escalations` section holds an open entry
+   (`tooling/glue/escalation.py`'s `open_entries`) -> `escalated`.
 4. Brief file(s) `tooling/briefs/BRIEF-NNNN*.md` exist -> eligible for
    `exec`.
 5. A recon result (`tooling/recon/RECON-NNNN*.result.md`) exists ->
@@ -53,8 +53,9 @@ observes and records.
 - `brief` / `intake` -> name the missing artifact (brief, or recon
   result), stop. Those stages are chat-side per P1 — this command does
   not author them.
-- `escalated` with a filled `## Response` -> resume applying the
-  response, then continue the chain from where it left off.
+- `escalated` -> display the open entry's Question and Options and take
+  Nia's answer in this session (see Escalation below), then continue the
+  chain from where it left off.
 - Eligible for `exec` -> run the `/brief-exec` protocol for each brief in
   suffix order (e.g. `-a` before `-b`), then run `/verify` for this
   ticket. When invoking `/review-step` and `/close-step` from within this
@@ -70,8 +71,7 @@ observes and records.
     outside the brief's stated perimeter). Set `retry_count: 1`.
     Re-run `/verify`.
   - If still red after that retry, OR if any D1 (a/b/c/d) trigger fires
-    at any point in the chain: write the QUESTION file (see below), set
-    `status: escalated`, stop.
+    at any point in the chain: escalate (see Escalation below).
 
 ## Step 3 — open the PR (PR1)
 
@@ -93,7 +93,7 @@ On `live-gate` with a CONFLICTING PR:
 2. List conflicted paths: `git diff --name-only --diff-filter=U`.
 3. If ANY conflicted path is under `src/`, or is
    `world-engine-schema-changelog.md`, or is `world-engine-schema.md`:
-   `git merge --abort`, escalate (D1) with a QUESTION file citing the
+   `git merge --abort`, escalate (D1) with an entry citing the
    conflicted paths. The machine never resolves semantic or
    version-numbering conflicts (O1).
 4. Otherwise (append-only docs only): resolve
@@ -117,8 +117,8 @@ changed on disk or in git/GitHub.
 
 ## D1 escalation triggers (QF1)
 
-Any of the following writes the QUESTION file below, sets
-`status: escalated`, and stops the chain — nothing else escalates:
+Any of the following escalates and stops the chain — nothing else
+escalates:
 
 - **D1-a** — an unspecified user-visible behavior change.
 - **D1-b** — a destructive/irreversible data operation.
@@ -127,37 +127,26 @@ Any of the following writes the QUESTION file below, sets
 - **D1-d** — two consecutive `/verify` failures (Step 2's retry
   exhausted).
 
-QUESTION file, created at `tooling/questions/QUESTION-TICKET-NNNN.md`
-(verbatim skeleton):
+## Escalation
 
-```
-# QUESTION — TICKET-NNNN
-Trigger: <D1-a|b|c|d>
-## Context
-<what was attempted; verdicts quoted verbatim if D1-d>
-## Question
-<exactly one precise question>
-## Options
-<lettered options if the executor sees any; else "none proposed">
-## Response
-<empty — Nia writes here>
-```
+An escalation lives in the ticket it stops, in its `## Escalations`
+section. `tooling/glue/escalation.py` is the only writer of that section;
+never edit it by hand.
 
-The file persists after resolution — it is an append-only trace, never
-deleted or rewritten, even once `## Response` is filled and the chain
-resumes. "Empty `## Response`" is defined by
-`tooling/glue/question_response.py:is_open` (stripped content == `""`) —
-the prose above points at the code; the code is the definition.
+1. Write a JSON file with three strings — `context` (what was attempted;
+   verdicts quoted verbatim if D1-d), `question` (exactly one precise
+   question), `options` (lettered options, or "none proposed") — and run
+   `python tooling/glue/escalation.py open TICKET-NNNN <D1-a|b|c|d> <brief letter>`
+   with that file on stdin. It prints the new entry's id (`E-NN`).
+2. Set `status: escalated`, commit the ticket on `ticket/NNNN` (do not
+   push), and display the entry's Question and Options in this session.
+3. When Nia answers, write her answer verbatim with
+   `python tooling/glue/escalation.py answer TICKET-NNNN E-NN` (answer on
+   stdin), commit, and resume the chain immediately.
 
-After writing the QUESTION file, commit it on `ticket/NNNN` (append-only
-trace) but do NOT push it (the cockpit reads the local tree; chat never
-reads QUESTION files). Then: display the `## Question` and `## Options`
-sections in this session and offer to take the answer here. If Nia
-answers in-session, write it through
-`python tooling/glue/question_response.py answer <file>` (stdin) — the
-single sanctioned writer — commit, and resume the chain immediately,
-without requiring a relaunch. The relaunch path (Step 0 detecting a
-filled `## Response`) remains valid and unchanged.
+Entries are never edited or deleted once written; an answered entry stays
+in the ticket as its trace. If the session ends first, a later
+`/pipeline TICKET-NNNN` finds the open entry at Step 0 and asks again.
 
 ## CA1 — unattended invocations
 
