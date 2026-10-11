@@ -53,7 +53,7 @@ NC1 -- the interpreter's shape (BRIEF-0112-C; static and import).
    order; every form of `CODE_LISTS` is outside `ENTITY_TARGET_TYPES`;
    `UNSUPPORTED_NOTES_FR` covers exactly state, event, time, cost, reward
    and other -- cost names « Coûts », reward « Récompenses », state
-   TICKET-0113, event TICKET-0114; `ROLE_LABELS_FR` covers
+   « Création › États » (TICKET-0113), event TICKET-0114; `ROLE_LABELS_FR` covers
    `CONDITION_ROLES`; `RESOURCE_KEY` equals the editor's `MONEY_KEY`.
    `condition_interpreter.py` calls `chat` nowhere: `_call` is one return
    of `prompt_call.call_json(..., chat)`; it calls none of `add`, `commit`,
@@ -590,7 +590,7 @@ def _nc1_tables() -> None:
         fail(f"NC1: CODE_LISTS is {ci.CODE_LISTS}")
     notes = ci.UNSUPPORTED_NOTES_FR
     if set(notes) != {"state", "event", "time", "cost", "reward", "other"} or "« Coûts »" not in notes["cost"] \
-            or "« Récompenses »" not in notes["reward"] or "TICKET-0113" not in notes["state"] \
+            or "« Récompenses »" not in notes["reward"] or "Création › États" not in notes["state"] \
             or "TICKET-0114" not in notes["event"]:
         fail(f"NC1: UNSUPPORTED_NOTES_FR reads {notes}")
     if set(ci.ROLE_LABELS_FR) != set(CONDITION_ROLES):
@@ -650,7 +650,7 @@ def _value_keys() -> set[str]:
     from world_engine.fact_refs import CodedRefs
 
     empty = CodedRefs(codes={}, lines=())
-    ctx = ci.InterpreterContext(entity_lines=(), lists={k: empty for k in "efqs"}, current=None)
+    ctx = ci.InterpreterContext(entity_lines=(), lists={k: empty for k in "efqsa"}, current=None)
     return set(ci.prompt_values(ctx, "eligibility", "x", []))
 
 

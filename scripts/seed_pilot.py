@@ -1951,7 +1951,7 @@ LORE_WRITE_PROMPT_HEADS = (
 # leaf, and the creator confirms before anything reaches the offer
 # (condition_interpreter.interpret). A cost or a reward is never a condition
 # (IA1); what the language cannot say yet is listed, never forced (IF1).
-CONDITION_INTERPRET_SYSTEM_PROMPT = """\
+CONDITION_INTERPRET_SYSTEM_PROMPT_0112 = """\
 Tu traduis en condition la phrase qu'écrit la créatrice d'un monde de jeu \
 de rôle pour une offre de quête. Une condition est un arbre.
 
@@ -2003,7 +2003,7 @@ Réponds UNIQUEMENT avec ce JSON :
 "condition" vaut null si rien de la phrase n'est une condition.\
 """
 
-CONDITION_INTERPRET_USER_TEMPLATE = """\
+CONDITION_INTERPRET_USER_TEMPLATE_0112 = """\
 La condition dit : {role}.
 
 Formes :
@@ -2035,9 +2035,54 @@ Erreurs de ta réponse précédente :
 """
 
 
+# TICKET-0113 (BRIEF-0113-D): the attributes. Each change to the 0112 text is
+# one (field, old fragment, new fragment), applied in order -- the seed's
+# text below and scripts/apply_ticket_0113_condition_prompt.py (which edits
+# the CURRENT version fragment by fragment, so an edit the creator made in
+# the Prompts tab is kept) read this one tuple, so they cannot diverge.
+CONDITION_INTERPRET_FRAGMENTS: tuple[tuple[str, str, str], ...] = (
+    ("system_prompt",
+     'une compétence {"code": "s1"} ; null si la forme n\'a pas de cible ;',
+     'une compétence {"code": "s1"}, un état {"code": "a2"} ; null si la forme n\'a pas de cible ;'),
+    ("system_prompt",
+     '- "value" : une des valeurs de la forme quand elle en a, sinon null.',
+     '- "value" : une des valeurs de la forme quand elle en a, sinon null.\n'
+     'ÉTATS. La forme attribute lit un état de la liste des états : "target" est son code '
+     '{"code": "a2"} ; pour un choix, "value" est un de ses libellés ; pour un nombre, "threshold" '
+     'est le minimum ; pour une entité, "value" est une entité {"name": "...", "kind": "..."}, ou '
+     'null pour « quelqu\'un ». Un état porte sur toute entité à laquelle il s\'applique : son '
+     '"subject" peut être un lieu ou un objet {"name": "...", "kind": "place" | "object"}.'),
+    ("system_prompt",
+     'un fait, une quête ou une compétence absent des listes ne peut pas être une cible.',
+     'un fait, une quête, une compétence ou un état absent des listes ne peut pas être une cible.'),
+    ("system_prompt",
+     "l'état d'une chose (\"state\" : la porte est ouverte)",
+     "un état absent de la liste des états (\"state\" : la porte est ouverte, sans état « ouverte »)"),
+    ("user_template",
+     "Condition actuelle :\n{current}",
+     "États (code — nom, sorte, pour qui) :\n{attributes}\n\nCondition actuelle :\n{current}"),
+)
+
+
+def with_condition_fragments(field: str, text: str) -> str:
+    """`text` with every fragment of `CONDITION_INTERPRET_FRAGMENTS` for
+    `field` applied, in order."""
+    for target, old, new in CONDITION_INTERPRET_FRAGMENTS:
+        if target == field:
+            text = text.replace(old, new)
+    return text
+
+
+CONDITION_INTERPRET_SYSTEM_PROMPT = with_condition_fragments(
+    "system_prompt", CONDITION_INTERPRET_SYSTEM_PROMPT_0112)
+CONDITION_INTERPRET_USER_TEMPLATE = with_condition_fragments(
+    "user_template", CONDITION_INTERPRET_USER_TEMPLATE_0112)
+
+
 # The interpreter's head, one tuple read by the seed and by
 # scripts/apply_ticket_0112_condition_prompt.py (single source, the
-# LORE_WRITE_PROMPT_HEADS precedent).
+# LORE_WRITE_PROMPT_HEADS precedent); its variables by
+# scripts/apply_ticket_0113_condition_prompt.py.
 CONDITION_INTERPRET_PROMPT_HEADS = (
     dict(
         id="pt-condition-interpret",
@@ -2046,8 +2091,8 @@ CONDITION_INTERPRET_PROMPT_HEADS = (
         world_id=None,
         system_prompt=CONDITION_INTERPRET_SYSTEM_PROMPT,
         user_template=CONDITION_INTERPRET_USER_TEMPLATE,
-        variables=["role", "forms", "entities", "tree_entities", "facts", "offers", "skills", "current",
-                   "instruction", "errors"],
+        variables=["role", "forms", "entities", "tree_entities", "facts", "offers", "skills", "attributes",
+                   "current", "instruction", "errors"],
         destination="local",
     ),
 )

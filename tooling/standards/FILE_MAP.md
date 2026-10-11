@@ -31,6 +31,7 @@
 - `apply_ticket_0098_lore_write_prompts.py` — One-shot, idempotent delivery of the TICKET-0098 lore writing prompt heads onto the live DB (BRIEF-0098-D).
 - `apply_ticket_0110_link_prompt.py` — One-shot, idempotent delivery of the TICKET-0110 prompt update onto the live DB (BRIEF-0110-A, I2): the NPC link agent's pair pass no longer offers the relation type `debt` -- « X owes Y » is a `debt` row, never a link.
 - `apply_ticket_0112_condition_prompt.py` — One-shot, idempotent delivery of the TICKET-0112 condition interpreter's prompt head onto the live DB (BRIEF-0112-C).
+- `apply_ticket_0113_condition_prompt.py` — One-shot, idempotent delivery of the TICKET-0113 condition interpreter's prompt update onto the live DB (BRIEF-0113-D): the model reads the world's attributes -- the `a` list, a new variable `attributes` -- and writes an `attribute` leaf.
 - `backup.py` — Timestamped, rotated backup of the live world-engine database.
 - `cockpit.py` — Launch the World Engine Cockpit on 127.0.0.1:8000.
 - `export_lore_usage.py` — Export the Lore shell's usage journal as JSON Lines (TICKET-0103, BRIEF-0103-E, decision E1).
@@ -341,6 +342,7 @@
 - `agenda_assist.py` — G1 check for TICKET-0021/BRIEF-0021-b — AI agenda-draft assistant.
 - `analyzer_seam.py` — G1 check for TICKET-0051 (BRIEF-0051-c, decision R1) — the analyzer transcript seam.
 - `attribute_conditions.py` — G1 check for TICKET-0113 -- the attribute condition form: a leaf reads any attribute of any entity it applies to, and a player never reads a hidden one.
+- `attribute_interpreter.py` — G1 check for TICKET-0113 -- the condition interpreter reads and writes states: the `a` list, the attribute leaf, the prompt delivered fragment by fragment.
 - `attributes.py` — G1 check for TICKET-0113 -- the state of the world: a world's attributes, one value per entity, its history kept.
 - `choice_review.py` — G1 check for TICKET-0095 (K1).
 - `claude_md_contract.py` — G1 check for TICKET-0010 (BRIEF-0010-a), extended by TICKET-0117 -- the instruction corpus: the root CLAUDE.md and every `.claude/rules/*.md`.

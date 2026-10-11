@@ -19164,6 +19164,32 @@ refused by the writer outright.
 **Rejected.** WI2 (definitions created from the sheet only: the world's
 vocabulary scattered).
 
+## THE INTERPRETER READS THE STATES OF THE WORLD (TICKET-0113) -- AN `a` LIST OF CODED ATTRIBUTES, A CHOICE BY ITS LABEL, THE PROMPT DELIVERED FRAGMENT BY FRAGMENT (BRIEF-0113-d, no schema change)
+
+**ID1a, extended.** The interpreter shows the model every active attribute
+of the world -- the system ones, then the world's, a hidden one included
+(IE1: a creator surface) -- in one more coded list, `a`, through the same
+`fact_refs.code_refs`: each line names the attribute, its kind and what it
+compares to, and the types it applies to. An `attribute` leaf in the
+model's form targets its code; a choice is written by its label (read back
+case- and accent-blind to its key), an integer by its threshold, an entity
+by its name (or null: anyone) -- resolved like any target, an ambiguity
+left to the creator. A label the attribute does not have is an error the
+model gets back once (II1), with the attribute's labels.
+
+**A missing state.** Listed as `state`, it reads « définis-le dans
+Création › États, puis redemande » -- until BRIEF-0113-E lets the
+interpreter propose it.
+
+**Delivery.** `seed_pilot.CONDITION_INTERPRET_FRAGMENTS` holds each change
+to the 0112 text as (field, old, new); the seed's text is the 0112 text
+with them applied, and `apply_ticket_0113_condition_prompt.py` applies them
+to the CURRENT version -- an edit the creator made in the Prompts tab is
+kept, a fragment she rewrote is reported -- after declaring the new
+variable `attributes`. One single source: the two cannot diverge. A new
+text is looked for before its old one, since an old fragment may stand
+inside its new text.
+
 ---
 
 *Co-built with Claude, June 2026.*
