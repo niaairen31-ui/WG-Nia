@@ -53,10 +53,10 @@ CC2 -- the writer (fixture). `write_condition` stores a tree using every
    connector, a role, a fixed subject and a value; `read_condition` returns
    it equal; a second write replaces it whole (the first nodes gone); None
    removes it. Refused, each with no row written: an unknown form, a
-   `quest_state` with no value or an unknown one, a `vital_status` naming a
-   target, an `item_held` aimed at a character, a fixed subject that is a
-   faction, an eligibility on an agenda step, two owners, a `not` with two
-   children.
+   `quest_state` with no value or an unknown one, an `attribute` with a
+   label it does not have, an `item_held` aimed at a character, a fixed
+   subject that is a faction, an eligibility on an agenda step, two owners,
+   a `not` with two children.
 CC3 -- migration `scripts/migrate_v2_20_conditions.py`, on a v2.19-shaped
    database (both requirement tables in their v2.19 DDL, verbatim below)
    holding an offer's eligibility, two rows of an offer step (one
@@ -68,7 +68,8 @@ CC3 -- migration `scripts/migrate_v2_20_conditions.py`, on a v2.19-shaped
    orphan is noted, `schema_meta` is the code's version; a second run
    changes nothing.
 CC4 -- the forms and the consumers (fixture). `item_held` reads the
-   holding, `vital_status` the subject's state, `quest_state` each of its
+   holding, the `sys:vital_status` attribute the subject's state,
+   `quest_state` each of its
    values. `evaluate_agenda_step` on a quest's agenda binds the offer's
    giver; the day's NPC (`_account_rendezvous`) is the target of the first
    `relation_gte` reached through `all`, never one under `any`; `blocked_details_fr` says what an
@@ -579,8 +580,9 @@ def _cc2_round_trip(session, ids) -> None:
         leaf(_spec("item_held", target_entity_id=ids["fur"], threshold=2)),
         ConditionTree(op="any", children=(
             leaf(_spec("has_met", subject_role="giver", target_entity_id=ids["pc"])),
-            ConditionTree(op="not", children=(leaf(_spec("vital_status", subject_role=None,
-                                                         subject_entity_id=ids["other"], value="dead")),)))),
+            ConditionTree(op="not", children=(leaf(_spec("attribute", subject_role=None,
+                                                         subject_entity_id=ids["other"],
+                                                         target_key="sys:vital_status", value="dead")),)))),
         ConditionTree(op="at_least", n=1, children=(
             leaf(_spec("quest_state", target_key=ids["offer"], value="failed")),
             leaf(_spec("has_debt_to", subject_role="contact", target_entity_id=ids["guild"]))))))
@@ -612,8 +614,9 @@ def _cc2_refusals(session, ids) -> None:
                                         one(_spec("quest_state", target_key=ids["offer"]))),
         "a quest_state with an unknown value": ({"agenda_step_id": ids["agenda_step"]}, "prerequisite",
                                                 one(_spec("quest_state", target_key=ids["offer"], value="won"))),
-        "a vital_status naming a target": ({"agenda_step_id": ids["agenda_step"]}, "prerequisite",
-                                           one(_spec("vital_status", target_entity_id=ids["npc"], value="dead"))),
+        "an attribute with a label it does not have": ({"agenda_step_id": ids["agenda_step"]}, "prerequisite",
+                                                       one(_spec("attribute", target_key="sys:vital_status",
+                                                                 value="asleep"))),
         "an item_held aimed at a character": ({"agenda_step_id": ids["agenda_step"]}, "prerequisite",
                                               one(_spec("item_held", target_entity_id=ids["npc"], threshold=1))),
         "a faction as fixed subject": ({"agenda_step_id": ids["agenda_step"]}, "prerequisite",
@@ -807,8 +810,9 @@ def _cc4_forms(session, ids) -> None:
     if not met("item_held", target_entity_id=ids["fur"], threshold=3) or met("item_held", target_entity_id=ids["fur"],
                                                                               threshold=4):
         fail("CC4: item_held does not read the holding of 3")
-    if not met("vital_status", value="alive") or met("vital_status", value="dead"):
-        fail("CC4: vital_status does not read the character's state")
+    if not met("attribute", target_key="sys:vital_status", value="alive") \
+            or met("attribute", target_key="sys:vital_status", value="dead"):
+        fail("CC4: the vital_status attribute does not read the character's state")
     session.add(Quest(world_id=ids["world"], offer_id=ids["offer"], character_id=ids["pc"], agenda_id=ids["agenda"]))
     session.commit()
     for status, value in (("paused", "open"), ("failed", "failed"), ("abandoned", "abandoned")):

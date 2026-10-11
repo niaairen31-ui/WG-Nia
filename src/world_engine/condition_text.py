@@ -9,9 +9,10 @@ read by the surfaces; neither decides anything. Every phrase comes from
 `conditions.py` CB4.
 
 A player surface passes its character as `viewer_id` (AMENDMENT-0111-01):
-a fact he does not know is never written out (A1, `HIDDEN_FACT_FR`), a leaf
-about someone else shows `?` (V2, `VerdictNode.seen_by`), and no line
-counts another's regard toward him. The creator reads every line whole.
+a fact he does not know is never written out (A1, `HIDDEN_FACT_FR`), nor a
+hidden attribute (WH1 of TICKET-0113, `HIDDEN_STATE_FR`), a leaf about
+someone else shows `?` (V2, `VerdictNode.seen_by`), and no line counts
+another's regard toward him. The creator reads every line whole.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from typing import Optional
 
 from sqlmodel import Session
 
+from .attributes import ATTRIBUTE_FORM, value_label, view_of
 from .condition_forms import RequirementSpec
 from .conditions import ConditionTree, VerdictNode
 from .knowledge_resolve import resolve_knowledge_level
@@ -41,13 +43,12 @@ FORM_PHRASES_FR: dict[str, str] = {
     "has_debt_to": "{who} a une dette envers {target}",
     "no_debt_to": "{who} n'a aucune dette envers {target}",
     "item_held": "{who} possède au moins {threshold} × « {target} »",
-    "vital_status": "{who} est {value}",
+    "attribute": "{who} — {target} : {value}",
 }
 
 # The French of a form's value (`condition_forms.FORM_VALUES`), one label per
 # value, kept equal to it by `conditions.py` CC.
 VALUE_LABELS_FR: dict[str, dict[str, str]] = {
-    "vital_status": {"alive": "en vie", "dead": "mort", "missing": "disparu", "unknown": "d'état inconnu"},
     "quest_state": {"open": "en cours", "completed": "accomplie", "failed": "échouée", "abandoned": "abandonnée"},
 }
 
@@ -67,6 +68,10 @@ STATE_MARKS: dict[str, str] = {"met": "✓", "unmet": "✗", "unknown": "?"}
 # still to learn.
 HIDDEN_FACT_FR = "{who} connaît un fait encore caché"
 
+# WH1 (TICKET-0113): what a player reads in place of a leaf on a hidden
+# attribute -- its name and its value are never written out.
+HIDDEN_STATE_FR = "{who} est dans un état encore caché"
+
 # Forms whose progress a player never sees: the count is another's regard.
 HIDDEN_PROGRESS_FORMS: tuple[str, ...] = ("relation_gte",)
 
@@ -83,7 +88,7 @@ def _entity_name(db: Session, entity_id: Optional[str]) -> str:
 
 
 def _target(db: Session, spec: RequirementSpec) -> str:
-    if spec.target_entity_id:
+    if spec.target_entity_id and spec.type != ATTRIBUTE_FORM:
         return _entity_name(db, spec.target_entity_id)
     if spec.type == "knowledge":
         fact = db.get(Fact, spec.target_key) if spec.target_key else None
@@ -93,6 +98,9 @@ def _target(db: Session, spec: RequirementSpec) -> str:
     if spec.type == "quest_state":
         offer = db.get(QuestOffer, spec.target_key) if spec.target_key else None
         return offer.title if offer is not None else str(spec.target_key)
+    if spec.type == ATTRIBUTE_FORM:
+        view = view_of(db, spec.target_key)
+        return view.name if view is not None else str(spec.target_key)
     return str(spec.target_key or "")
 
 
@@ -110,9 +118,31 @@ def leaf_text(db: Session, spec: RequirementSpec, viewer_id: Optional[str] = Non
         raise ValueError(f"condition_text: unknown requirement type {spec.type!r}")
     if spec.type == "knowledge" and viewer_id is not None and not known_to(db, viewer_id, spec.target_key):
         phrase = HIDDEN_FACT_FR
-    value = VALUE_LABELS_FR.get(spec.type, {}).get(spec.value, spec.value)
+    if spec.type == ATTRIBUTE_FORM and viewer_id is not None and _hidden(db, spec):
+        phrase = HIDDEN_STATE_FR
+    value = _value(db, spec)
     text = phrase.format(who=_subject(db, spec), target=_target(db, spec), threshold=spec.threshold, value=value)
     return text[0].upper() + text[1:]
+
+
+def _hidden(db: Session, spec: RequirementSpec) -> bool:
+    view = view_of(db, spec.target_key)
+    return view is None or view.hidden
+
+
+def _value(db: Session, spec: RequirementSpec) -> object:
+    """The French of what a leaf compares to: a form's value label, or an
+    attribute's label, « N ou plus », an entity or « quelqu'un »."""
+    if spec.type != ATTRIBUTE_FORM:
+        return VALUE_LABELS_FR.get(spec.type, {}).get(spec.value, spec.value)
+    view = view_of(db, spec.target_key)
+    if view is None:
+        return spec.value or spec.threshold or ""
+    if view.kind == "choice":
+        return value_label(db, view, spec.value)
+    if view.kind == "integer":
+        return f"{spec.threshold} ou plus"
+    return value_label(db, view, spec.target_entity_id) if spec.target_entity_id else "quelqu'un"
 
 
 def _head(op: str, n: Optional[int]) -> str:

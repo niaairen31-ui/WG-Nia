@@ -70,7 +70,7 @@ NC2 -- context and form (fixture). `build_context` codes the current
    (`q`); the four base domains then the world's skill (`s`); the current
    tree's entities (`e`); and lists the named entity. A clean tree using
    every connector, a fixed subject, a code target of each list, an entity
-   target, `resource` and `vital_status` encodes to the model's form and
+   target, `resource` and a fixed subject encodes to the model's form and
    reads back, bound and validated, to the same tree. `form_lines` has one
    line per form carrying its phrase.
 NC3 -- interpretation (fixture, `condition_interpreter.chat` stubbed).
@@ -735,7 +735,7 @@ def _full_tree(ids) -> dict:
         {"op": "not", "children": [_leafd("faction_member", target_entity_id=ids["guild"])]},
         {"op": "at_least", "n": 1, "children": [
             _leafd("resource", target_key="monnaie", threshold=30),
-            _leafd("vital_status", subject_role=None, subject_entity_id=ids["garde"], value="alive"),
+            _leafd("has_met", subject_role=None, subject_entity_id=ids["garde"], target_entity_id=ids["tower"]),
             _leafd("location_reachable", target_entity_id=ids["tower"])]},
     ]}
 

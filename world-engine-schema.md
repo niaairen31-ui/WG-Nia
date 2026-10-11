@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.22
+Current schema version: v2.23
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -2325,7 +2325,8 @@ One node of a condition's tree (v2.20, O-a: rows, never JSON). A connector
 -- `all`, `any`, `not` (one child), `at_least` (`n` of its children) -- or
 a leaf carrying one form (`condition_forms.REQUIREMENT_TYPES`) and its
 arguments: its subject (a role bound when judged -- `doer`, `giver`,
-`contact` -- or one character, P1), its target (an entity or a key), a
+`contact` -- or one character, P1; any entity for `attribute`, v2.23), its
+target (an entity or a key), a
 threshold, a value. `parent_id` and `position` give the tree its shape; the
 root has no parent. No CHECK names a form: the vocabulary is a code-plane
 property (the `entity_trait.trait_key` precedent), held by the one writer,
@@ -2337,8 +2338,11 @@ currency per world, `target_key` a label); `has_met` an encounter row;
 `quest_state` a quest taken from the offer `target_key` whose agenda is in
 `value` (`open`, `completed`, `failed`, `abandoned`); `has_debt_to` /
 `no_debt_to` an open debt toward the target or none; `item_held` at least
-`threshold` of the item held; `vital_status` the subject's own
-`vital_status` equal to `value`. THE POSITIONAL WALL holds:
+`threshold` of the item held; `attribute` (v2.23, replacing
+`vital_status`) one attribute of its subject, `target_key` a definition id
+or a system key (`sys:vital_status`, `sys:status`, `sys:magic_status`):
+equal to the choice `value`, at least `threshold` for an integer, equal to
+`target_entity_id` for an entity -- or set, with none. THE POSITIONAL WALL holds:
 `location_reachable`'s target lives on the leaf, never on `agenda_step`.
 
 ```sql

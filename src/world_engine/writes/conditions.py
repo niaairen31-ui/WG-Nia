@@ -3,9 +3,9 @@ and I1): one `condition` row per owner and role, its tree as
 `condition_node` rows.
 
 - `clean_leaf(...)`        : one leaf against its form -- the form is known,
-  its subject is a role or a character of the world, its target exists in
-  the world and is of the right kind, its threshold and value are in
-  range. Moved here from `goals_agendas._clean_requirement` (TICKET-0108,
+  its subject is a role or a character of the world (any entity an
+  `attribute` applies to, TICKET-0113), its target exists in the world and
+  is of the right kind, its threshold and value are in range. Moved here from `goals_agendas._clean_requirement` (TICKET-0108,
   C-01) and widened to subjects and values.
 - `clean_condition(...)`   : a whole tree, shape (`conditions.check_shape`)
   then every leaf; returns the tree as it will be stored.
@@ -27,10 +27,11 @@ from typing import Optional
 from sqlalchemy import text
 from sqlmodel import Session
 
+from ..attributes import ATTRIBUTE_FORM, applies_to, attribute_view
 from ..condition_forms import (
+    ANY_SUBJECT_TYPES,
     ENTITY_TARGET_TYPES,
     FORM_VALUES,
-    NO_TARGET_TYPES,
     REQUIREMENT_TYPES,
     THRESHOLD_TYPES,
     RequirementSpec,
@@ -86,15 +87,12 @@ def _clean_subject(db: Session, world_id: str, where: str, req: RequirementSpec)
             raise ValueError(f"{where}unknown subject role {req.subject_role!r}")
         return
     subject = db.get(Entity, req.subject_entity_id)
-    if subject is None or subject.world_id != world_id or subject.type != "character":
-        raise ValueError(f"{where}subject {req.subject_entity_id!r} is not a character of this world")
+    wanted = None if req.type in ANY_SUBJECT_TYPES else "character"
+    if subject is None or subject.world_id != world_id or (wanted is not None and subject.type != wanted):
+        raise ValueError(f"{where}subject {req.subject_entity_id!r} is not {'a ' + wanted if wanted else 'an entity'} of this world")
 
 
 def _clean_target(db: Session, world_id: str, where: str, req: RequirementSpec) -> tuple[Optional[str], Optional[str]]:
-    if req.type in NO_TARGET_TYPES:
-        if req.target_entity_id or req.target_key:
-            raise ValueError(f"{where}requirement type {req.type!r} judges its subject alone and takes no target")
-        return None, None
     if req.type in ENTITY_TARGET_TYPES:
         if not req.target_entity_id:
             raise ValueError(f"{where}requirement type {req.type!r} needs a target_entity_id")
@@ -133,6 +131,38 @@ def _clean_value(where: str, req: RequirementSpec) -> Optional[str]:
     return req.value
 
 
+def _clean_attribute(db: Session, world_id: str, where: str, req: RequirementSpec) -> RequirementSpec:
+    """An `attribute` leaf (TICKET-0113, WG1): `target_key` an active
+    attribute of the world -- a definition or a system key --, a fixed
+    subject of a type it applies to; a `choice` compares to one of its
+    choices (`value`), an `integer` to `threshold` (any integer), an
+    `entity` to `target_entity_id` -- an entity of a type its value may
+    name -- or, with none, to anyone."""
+    view = attribute_view(db, world_id, req.target_key)
+    if view is None or view.status != "active":
+        raise ValueError(f"{where}unknown attribute {req.target_key!r}")
+    if req.subject_entity_id is not None and not applies_to(view, db.get(Entity, req.subject_entity_id).type):
+        raise ValueError(f"{where}attribute {view.name!r} does not apply to {req.subject_entity_id!r}")
+    value = threshold = target = None
+    if view.kind == "choice":
+        if req.value not in dict(view.choices):
+            raise ValueError(f"{where}attribute {view.name!r} needs one of its labels, got {req.value!r}")
+        value = req.value
+    elif view.kind == "integer":
+        if not isinstance(req.threshold, int) or isinstance(req.threshold, bool):
+            raise ValueError(f"{where}attribute {view.name!r} needs an integer threshold")
+        threshold = req.threshold
+    elif req.target_entity_id is not None:
+        entity = db.get(Entity, req.target_entity_id)
+        if entity is None or entity.world_id != world_id or entity.type not in view.value_types:
+            raise ValueError(f"{where}attribute {view.name!r} cannot name {req.target_entity_id!r}")
+        target = req.target_entity_id
+    return RequirementSpec(
+        type=req.type, subject_role=req.subject_role, subject_entity_id=req.subject_entity_id,
+        target_entity_id=target, target_key=req.target_key, threshold=threshold, value=value,
+    )
+
+
 def clean_leaf(db: Session, world_id: str, req: RequirementSpec, where: str = "") -> RequirementSpec:
     """One leaf as it will be stored: the arguments its form uses, nothing
     else. `where` prefixes every error (« write_day_plan: step 2 »).
@@ -140,6 +170,8 @@ def clean_leaf(db: Session, world_id: str, req: RequirementSpec, where: str = ""
     if req.type not in REQUIREMENT_TYPES:
         raise ValueError(f"{where}unknown requirement type {req.type!r}")
     _clean_subject(db, world_id, where, req)
+    if req.type == ATTRIBUTE_FORM:
+        return _clean_attribute(db, world_id, where, req)
     target_entity_id, target_key = _clean_target(db, world_id, where, req)
     return RequirementSpec(
         type=req.type, subject_role=req.subject_role, subject_entity_id=req.subject_entity_id,

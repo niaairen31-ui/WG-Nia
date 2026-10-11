@@ -1,8 +1,8 @@
 """G1 check for TICKET-0113 -- the state of the world: a world's attributes, one value per entity, its history kept.
 
-The lot adds its pieces brief by brief; this check grows with it (the
-`conditions.py` precedent). Each brief adds its rules here in the same
-commit.
+BRIEF-0113-A's rules; the attribute condition form has its own check,
+`attribute_conditions.py` (BRIEF-0113-B), so each stays inside the
+corpus's per-check time budget.
 
 AA1 -- storage (BRIEF-0113-A, import). The five attribute tables carry
    exactly their contract's columns, CHECK names and index names; no column

@@ -11,6 +11,8 @@ read the same way here:
   (its kind, its types, its choices, its default), or None.
 - `world_attributes(db, world_id)`    : the system attributes, then the
   world's definitions by name.
+- `view_of(db, key)`                  : the attribute a stored condition leaf
+  names, whatever its world (BRIEF-0113-B).
 - `current_value(db, view, entity)`   : an entity's `StateValue` -- its own
   value, or the default when it holds none (WC1: nothing is written on read).
 - `world_entity_types(db, world_id)`  : the entity types a definition may
@@ -160,6 +162,17 @@ def attribute_view(db: Session, world_id: str, key: Optional[str]) -> Optional[A
     if definition is None or definition.world_id != world_id:
         return None
     return _definition_view(db, definition)
+
+
+def view_of(db: Session, key: Optional[str]) -> Optional[AttributeView]:
+    """The attribute a stored condition leaf names -- a system key, or a
+    definition of whatever world it belongs to -- or None. For readers that
+    hold a leaf the writer already validated (BRIEF-0113-B)."""
+    spec = system_attribute(key)
+    if spec is not None:
+        return _system_view(spec)
+    definition = db.get(AttributeDefinition, key) if key else None
+    return _definition_view(db, definition) if definition is not None else None
 
 
 def world_attributes(db: Session, world_id: str, include_retired: bool = False) -> tuple[AttributeView, ...]:

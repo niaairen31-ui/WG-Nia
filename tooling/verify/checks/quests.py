@@ -9,10 +9,11 @@ QA1 -- vocabulary (BRIEF-0108-A, static and import; since TICKET-0111 the
    forms are `condition_forms`', no table carries their CHECK).
    `REQUIREMENT_TYPES` holds the model's four forms, the creator's four
    (`quest_state` in place of `quest_completed` since v2.20), TICKET-0110's
-   two debt forms and TICKET-0111's two (`conditions.py` owns those);
-   `MODEL_REQUIREMENT_TYPES` is exactly the model's four;
-   `ENTITY_TARGET_TYPES`, `KEY_TARGET_TYPES` and `NO_TARGET_TYPES` partition
-   it and `THRESHOLD_TYPES` is inside it; `day_plan._validate_requirement`
+   two debt forms, TICKET-0111's `item_held` (`conditions.py` owns it) and
+   TICKET-0113's `attribute` in place of `vital_status` (`attributes.py`
+   owns it); `MODEL_REQUIREMENT_TYPES` is exactly the model's four;
+   `ENTITY_TARGET_TYPES` and `KEY_TARGET_TYPES` partition it and
+   `THRESHOLD_TYPES` is inside it; `day_plan._validate_requirement`
    (the model's parser) accepts each model form and refuses every other.
 QA2 -- migration `scripts/migrate_v2_17_quests.py`, on a v2.16-shaped
    database (`agenda_step_requirement` in its v2.16 DDL, verbatim below, no
@@ -72,8 +73,7 @@ QC1 -- the editor's mirror (BRIEF-0108-C, static). `frontend/src/creation/
    questRequirements.js`'s `REQUIREMENT_FORMS` has exactly the keys of
    `condition_forms.REQUIREMENT_TYPES`; its forms with `column: 'entity'` are
    `ENTITY_TARGET_TYPES`, with `column: 'key'` `KEY_TARGET_TYPES`, with
-   `column: 'none'` `NO_TARGET_TYPES`, with `threshold: true`
-   `THRESHOLD_TYPES`, with `values: true` the keys of `FORM_VALUES`.
+   `threshold: true` `THRESHOLD_TYPES`, with `values: true` the keys of `FORM_VALUES`.
 QC2 -- the « Quêtes » tab (static). `tabs.js`'s `quetes` entry mounts the
    `questOffers` island in `creation-quetes` and routes « + Nouvelle quête »
    through `triggerPrimaryAction('questOffers')`; `QuestOffers.svelte`
@@ -108,7 +108,9 @@ CREATOR_FORMS = ("has_met", "faction_member", "skill_rank_gte", "quest_state")
 # TICKET-0110 (BRIEF-0110-A, G1): two more creator-only forms; `debts.py` owns them.
 DEBT_FORMS = ("has_debt_to", "no_debt_to")
 # TICKET-0111 (BRIEF-0111-C, S1): two more; `conditions.py` owns them.
-CONDITION_FORMS = ("item_held", "vital_status")
+# TICKET-0113 (BRIEF-0113-B, WG1): `attribute` replaces `vital_status`;
+# `attributes.py` owns it.
+CONDITION_FORMS = ("item_held", "attribute")
 # QA2 runs the v2.17 migration: the forms it added, the tables it created.
 V217_FORMS = ("has_met", "faction_member", "skill_rank_gte", "quest_completed")
 QUEST_TABLES = ("quest_offer", "quest_offer_step", "quest_offer_requirement", "quest")
@@ -157,11 +159,10 @@ def check_qa1() -> None:
         fail(f"QA1: REQUIREMENT_TYPES is {types}")
     if tuple(condition_forms.MODEL_REQUIREMENT_TYPES) != MODEL_FORMS or not set(MODEL_FORMS) <= set(types):
         fail(f"QA1: MODEL_REQUIREMENT_TYPES is {condition_forms.MODEL_REQUIREMENT_TYPES}")
-    entity, key, none = (set(condition_forms.ENTITY_TARGET_TYPES), set(condition_forms.KEY_TARGET_TYPES),
-                         set(condition_forms.NO_TARGET_TYPES))
+    entity, key = set(condition_forms.ENTITY_TARGET_TYPES), set(condition_forms.KEY_TARGET_TYPES)
     threshold = set(condition_forms.THRESHOLD_TYPES)
-    if entity & key or (entity | key) & none or entity | key | none != set(types) or not threshold <= set(types):
-        fail(f"QA1: the shape groups do not partition the vocabulary: {entity}, {key}, {none}, {threshold}")
+    if entity & key or entity | key != set(types) or not threshold <= set(types):
+        fail(f"QA1: the shape groups do not partition the vocabulary: {entity}, {key}, {threshold}")
 
     for form in MODEL_FORMS:
         try:
@@ -804,7 +805,6 @@ def check_qc1() -> None:
     groups = {
         "column: 'entity'": tuple(condition_forms.ENTITY_TARGET_TYPES),
         "column: 'key'": tuple(condition_forms.KEY_TARGET_TYPES),
-        "column: 'none'": tuple(condition_forms.NO_TARGET_TYPES),
         "threshold: true": tuple(condition_forms.THRESHOLD_TYPES),
         "values: true": tuple(f for f in condition_forms.REQUIREMENT_TYPES if f in condition_forms.FORM_VALUES),
     }

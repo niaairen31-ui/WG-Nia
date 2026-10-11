@@ -107,6 +107,7 @@
 - `migrate_v2_20_conditions.py` — Migration v2.20 — the condition language (TICKET-0111, BRIEF-0111-C, decisions A1, I1, O-a, S1).
 - `migrate_v2_21_condition_draft.py` — Migration v2.21 — `condition_draft`, the condition interpreter's journal (TICKET-0112, BRIEF-0112-B, decision IH1).
 - `migrate_v2_22_attributes.py` — Migration v2.22 — the state of the world (TICKET-0113, BRIEF-0113-A; decisions WA3, WB2, WC1, WD1 and WH1 of the conditions series).
+- `migrate_v2_23_attribute_leaves.py` — Migration v2.23 — the `vital_status` form becomes an `attribute` leaf (TICKET-0113, BRIEF-0113-B; decisions WE1 and WG1 of the conditions series).
 - `observation_metrics.py` — Observation run metrics (TICKET-0051, BRIEF-0051-g, decision J2/Q).
 - `preview_npc_schedule.py` — Preview `where_is` / `who_is_at` / `unresolved_npcs` — the concrete reader for `world.current_phase` (T-A1) and the live-gate instrument for TICKET-0074, BRIEF-0074-a.
 - `preview_tick_context.py` — Preview the full-interiority briefing a world tick would send to one NPC (TICKET-0014, BRIEF-0014-a; TICKET-0015, BRIEF-0015-a adds --interval) — the concrete reader for `assemble_tick_context` in this brief, and the live-gate instrument for the T1 review.
@@ -338,6 +339,7 @@
 
 - `agenda_assist.py` — G1 check for TICKET-0021/BRIEF-0021-b — AI agenda-draft assistant.
 - `analyzer_seam.py` — G1 check for TICKET-0051 (BRIEF-0051-c, decision R1) — the analyzer transcript seam.
+- `attribute_conditions.py` — G1 check for TICKET-0113 -- the attribute condition form: a leaf reads any attribute of any entity it applies to, and a player never reads a hidden one.
 - `attributes.py` — G1 check for TICKET-0113 -- the state of the world: a world's attributes, one value per entity, its history kept.
 - `choice_review.py` — G1 check for TICKET-0095 (K1).
 - `claude_md_contract.py` — G1 check for TICKET-0010 (BRIEF-0010-a), extended by TICKET-0117 -- the instruction corpus: the root CLAUDE.md and every `.claude/rules/*.md`.

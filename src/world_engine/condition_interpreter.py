@@ -76,7 +76,8 @@ TARGET_HINTS_FR: dict[str, str] = {
     "has_debt_to": "un personnage ou une faction, par son nom",
     "no_debt_to": "un personnage ou une faction, par son nom",
     "item_held": "un objet, par son nom ; seuil = la quantité minimale",
-    "vital_status": "aucune cible ; valeur = l'état vital",
+    "attribute": "un état, par son code a ; valeur = un de ses libellés, seuil = le minimum pour un nombre, "
+                 "cible = une entité par son nom (aucune : quelqu'un)",
 }
 # The forms whose target is a code, and the list each code comes from.
 CODE_LISTS: dict[str, str] = {"knowledge": "f", "quest_state": "q", "skill_rank_gte": "s"}

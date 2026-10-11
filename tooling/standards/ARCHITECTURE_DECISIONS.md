@@ -19098,6 +19098,45 @@ current value its last row), WE2 (the `vital_status` form kept beside the
 attribute form), WE3 (no system attribute: « détruit » defined twice), WJ1
 (retiring silently breaks conditions), WJ3 (a hard delete).
 
+## A CONDITION READS THE STATE OF THE WORLD (TICKET-0113) -- ONE FORM, `attribute`, ON ANY ENTITY IT APPLIES TO; `vital_status` BECOMES ONE OF ITS SYSTEM ATTRIBUTES (BRIEF-0113-b, schema v2.23)
+
+**WG1.** One form reads every attribute: `attribute`, its `target_key` a
+definition id or a system key. A `choice` compares to one of its labels
+(`value`), an `integer` to a threshold (`threshold`, « N or more », any
+integer), an `entity` to an entity (`target_entity_id`) -- or, with none,
+to anyone. Its subject is any entity the attribute applies to
+(`condition_forms.ANY_SUBJECT_TYPES`): « le pont est détruit » judges the
+bridge. A subject the attribute does not apply to, or a role bound to such
+an entity, makes the leaf `unknown`, never `unmet`. The vocabulary grows by
+data -- a new state is a definition, never a form.
+
+**WE1.** The form `vital_status` is retired: `migrate_v2_23_attribute_leaves.py`
+turns its leaves into `attribute` leaves on `sys:vital_status`, subject and
+value kept (measured on the production database before the lot: none),
+refusing a leaf it cannot convert. The column stays where it is (G3).
+`NO_TARGET_TYPES` and `VITAL_STATUSES` go with it; `FORM_VALUES` keeps
+`quest_state` alone.
+
+**WH1, INV-62.** A leaf on a hidden attribute is `unknown` to a player even
+about his own character (`VerdictNode.seen_by`), written « … est dans un
+état encore caché » (`HIDDEN_STATE_FR`), « quelque chose de caché l'en
+empêche encore » in a blocked step (`HIDDEN_STATE_DETAIL_FR`): neither its
+name nor its value reaches him. `Verdict.hidden` carries it to
+`player_detail_fr`. A hidden attribute its subject cannot hold is `unknown`
+with `HIDDEN_STATE_REASON_FR`, a reason that names nothing, because every
+surface writes the reason out (AMENDMENT-0113-01). AMENDMENT-0111-01's A1
+and V2 and this rule are one invariant, INV-62, in CLAUDE.md.
+
+**The editor.** The offer editor's row lists the world's attributes
+(`editor_choices.attributes`) and, for an attribute, every active entity of
+a type it applies to as a fixed subject (`editor_choices.entities`); what
+it compares to follows the attribute's kind.
+
+**Rejected.** WG2 (two forms, `attribute_is` and `attribute_gte`: the
+vocabulary grows by code), WH2 (V2 alone: « Le personnage est maudit » would
+tell the player), WH3 (a visible attribute readable on others; reactivation:
+TICKET-0114's journal knows who witnessed it, V1's condition).
+
 ---
 
 *Co-built with Claude, June 2026.*

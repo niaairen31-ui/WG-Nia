@@ -13,6 +13,15 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.23** — TICKET-0113, BRIEF-0113-B: no table change. The condition
+  form `vital_status` is retired: its leaves become `attribute` leaves
+  reading the system attribute `sys:vital_status` (`target_key`), subject
+  and `value` kept. `attribute` reads one attribute of its subject -- any
+  entity the attribute applies to -- and compares it to a label (`value`),
+  an integer (`threshold`, « or more ») or an entity (`target_entity_id`, or
+  none for anyone). `migrate_v2_23_attribute_leaves.py` converts the
+  leaves, refuses a database older than v2.22 and moves `schema_meta` to
+  v2.23.
 - **v2.22** — TICKET-0113, BRIEF-0113-A: the state of the world.
   `attribute_definition` (a world's attribute: its name, its kind --
   `choice`, `integer` or `entity` --, its default, hidden or not, active or
