@@ -127,6 +127,7 @@
 - `__init__.py` — World Engine — local, single-player-first RPG world engine.
 - `analyzer.py` — Conversation analysis — extract proposed mutations from unanalyzed turns.
 - `analyzer_transcript.py` — Conversation-agnostic analysis core (TICKET-0051, BRIEF-0051-c).
+- `attribute_proposals.py` — The attributes the interpreter proposes (TICKET-0113, BRIEF-0113-E; decisions WK2 and WN2 of the conditions series).
 - `attributes.py` — The state of the world, read (TICKET-0113, BRIEF-0113-A; decisions WA3, WB2, WC1, WE1 and WH1 of the conditions series).
 - `condition_forms.py` — The requirement forms: the leaves of the condition language, each with its evaluator (TICKET-0111, BRIEF-0111-A -- a pure move out of `day_plan.py`, which keeps the plan emission and the budget cut; decisions S1 of TICKET-0075, C-01 of TICKET-0108, G1 of TICKET-0110 unchanged).
 - `condition_interpreter.py` — The condition interpreter: a sentence in French -> a condition tree the creator confirms (TICKET-0112, BRIEF-0112-C; decisions A1 and T1 of the conditions series, IA1-IK1 of TICKET-0112).

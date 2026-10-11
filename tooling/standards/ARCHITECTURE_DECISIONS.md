@@ -19190,6 +19190,43 @@ variable `attributes`. One single source: the two cannot diverge. A new
 text is looked for before its old one, since an old fragment may stand
 inside its new text.
 
+## THE INTERPRETER PROPOSES A STATE THE WORLD LACKS (TICKET-0113) -- THE DEFINITION AND THE CONDITION CONFIRMED TOGETHER, A NEAR NAME PICKED, BOTH WRITTEN BY THE OFFER'S SAVE (BRIEF-0113-e, no schema change)
+
+**WK2.** A state the `a` list lacks is no longer a dead end: the model
+proposes its definition in its answer's `define` block (name, kind, the
+types it applies to, labels and default, an entity's value types, hidden
+or not) and the condition names it `{"define": ...}`. Code cleans it with
+the writer's own `clean_definition`; refused, it goes back to the model once
+with its error (II1). The definition joins the condition's proposal as a
+card the creator reads, retouches in the same `AttributeDefinitionForm` as
+Création › États, and confirms with « Insérer » -- the condition checked
+again against what she confirmed. Never a duplicate unseen: a proposed
+name near an existing attribute's or another proposal's
+(`attributes.near_attributes`, `lore_resolve.near_ratio`) makes the
+proposal `needs_choice`; she uses the existing one -- the leaves move onto
+it, a label read back to its choice, refused if it has no such label -- or
+creates this one. The tool never picks (0092).
+
+**WN2.** Until « Enregistrer », a proposed definition is UNSAVED: it lives
+in the offer draft (`unsaved_attributes`), keyed `new:<ref>`, sent with
+every interpreter request -- the model sees it, a later sentence may name
+it -- and every condition naming it is validated against it by
+`clean_leaf(..., unsaved=...)`; `write_condition` passes none, so no `new:`
+key is ever stored. The offer's save (`attribute_proposals.materialize`)
+writes each definition a condition still names through
+`write_attribute_definition`, in the offer's transaction, before the
+conditions, rewritten to the ids written; one no condition names is not
+written. The journal keeps each proposal (`definitions`: proposed, and
+`confirmed` or `adopted`), and « saved as proposed » compares the saved
+tree with the proposal rewritten the same way.
+
+**Rejected.** WK1 (the interpreter only names the missing state and sends
+the creator to États; reactivation: none -- A1 of the series). WN1 (« Insérer »
+writes the definition at once: two transactions, an abandoned offer
+leaving a definition behind). Adding a missing label to an existing
+attribute from the interpreter: deferred (reactivation: the journal shows
+proposals refused because the existing attribute lacks the label).
+
 ---
 
 *Co-built with Claude, June 2026.*

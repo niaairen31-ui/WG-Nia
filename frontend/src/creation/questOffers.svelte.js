@@ -7,7 +7,10 @@
    TICKET-0111 (BRIEF-0111-D): every condition -- the eligibility, each
    step's prerequisite and completion -- is a condition draft, sent as a
    tree (conditionBody). Since TICKET-0112 (BRIEF-0112-E, IH1): with the id
-   of the interpreter's proposal inserted into it, which the save marks. */
+   of the interpreter's proposal inserted into it, which the save marks.
+   Since TICKET-0113 (BRIEF-0113-E, WN2): `unsavedAttributes`, the
+   attributes the interpreter proposed and the creator confirmed, sent with
+   the save, which writes those a condition names. */
 import { api } from './sheetRequest.svelte.js';
 import { blankCondition, conditionBody, conditionDraft } from './questRequirements.js';
 import { blankTerm, termBody } from './questTerms.js';
@@ -33,7 +36,7 @@ export function newDraft() {
   questOffersState.saveError = '';
   questOffersState.draft = {
     id: null, giver_entity_id: '', contact_entity_id: '', title: '', summary: '', repeatable: false, status: 'open',
-    eligibility: blankCondition(), steps: [blankStep()], terms: [],
+    eligibility: blankCondition(), steps: [blankStep()], terms: [], unsavedAttributes: [],
   };
   refreshValue();
 }
@@ -54,6 +57,7 @@ export function editOffer(offer) {
       item_id: t.item_id || '', fact_id: t.fact_id || '', skill_key: t.skill_key || '', amount: t.amount,
       level: t.level || '',
     })),
+    unsavedAttributes: [],
   };
   questOffersState.value = offer.value || null;
 }
@@ -129,6 +133,7 @@ function draftBody(draft) {
       prerequisite_draft_id: s.prerequisite.draftId || null, completion_draft_id: s.completion.draftId || null,
     })),
     terms: draft.terms.map(termBody),
+    unsaved_attributes: draft.unsavedAttributes.map((u) => ({ ref: u.ref, definition: u.definition })),
   };
 }
 

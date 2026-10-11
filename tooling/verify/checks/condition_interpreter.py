@@ -118,7 +118,9 @@ ND3 -- saving the offer (fixture). An offer saved with its eligibility as
    the save whole and the `proposed` draft unmoved.
 
 NE1 -- the editor (BRIEF-0112-E; static). `ConditionEditor.svelte` renders
-   `<ConditionInterpreter {cond} {role} />`; `QuestOffers.svelte` passes
+   `<ConditionInterpreter {cond} {role}` (with the draft's unsaved
+   attributes since TICKET-0113, `attribute_interpreter.py` AE1);
+   `QuestOffers.svelte` passes
    `role="eligibility"`, `"prerequisite"` and `"completion"`, one each.
    `conditionInterpreter.svelte.js` POSTs `/api/conditions/interpret` with
    `current: conditionBody(cond)` and `attempt_id: state.attemptId`,
@@ -393,7 +395,7 @@ def check_nb1() -> None:
 
 def _payload(**over) -> dict:
     base = {"current": None, "pending": None, "mentions": [], "bindings": {}, "proposed": None,
-            "notes": [], "errors": []}
+            "notes": [], "errors": [], "definitions": []}
     base.update(over)
     return base
 
@@ -1143,7 +1145,7 @@ def _front(name: str) -> str:
 
 def check_ne1() -> None:
     editor = _front("ConditionEditor.svelte")
-    if "<ConditionInterpreter {cond} {role} />" not in editor:
+    if "<ConditionInterpreter {cond} {role} " not in editor:
         fail("NE1: ConditionEditor.svelte does not render the interpreter with its role")
     offers = _front("QuestOffers.svelte")
     for role in ("eligibility", "prerequisite", "completion"):
@@ -1151,11 +1153,11 @@ def check_ne1() -> None:
             fail(f"NE1: QuestOffers.svelte does not pass role={role!r} to one ConditionEditor")
     state = _front("conditionInterpreter.svelte.js")
     for needle in ("'/api/conditions/interpret'", "current: conditionBody(cond)", "attempt_id: state.attemptId",
-                   "'/resolve'", "bindings: state.picks", "'/decision'", "decide(state, 'discarded')"):
+                   "'/resolve'", "{ ...state.picks }", "'/decision'", "decide(state, 'discarded')"):
         if needle not in state:
             fail(f"NE1: conditionInterpreter.svelte.js lacks {needle!r}")
     body = state[state.find("export async function insertProposal"):]
-    inserted, assigned = body.find("decide(state, 'inserted')"), body.find(
+    inserted, assigned = body.find("decide(state, 'inserted'"), body.find(
         "Object.assign(cond, conditionDraft(proposal.view), { draftId: proposal.draft_id })")
     if inserted < 0 or assigned < 0 or assigned < inserted:
         fail("NE1: insertProposal does not record `inserted` before it fills the condition")

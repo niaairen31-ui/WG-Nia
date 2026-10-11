@@ -2056,19 +2056,39 @@ CONDITION_INTERPRET_FRAGMENTS: tuple[tuple[str, str, str], ...] = (
      'un fait, une quête ou une compétence absent des listes ne peut pas être une cible.',
      'un fait, une quête, une compétence ou un état absent des listes ne peut pas être une cible.'),
     ("system_prompt",
-     "l'état d'une chose (\"state\" : la porte est ouverte)",
-     "un état absent de la liste des états (\"state\" : la porte est ouverte, sans état « ouverte »)"),
+     "l'état d'une chose (\"state\" : la porte est ouverte), ",
+     "un état que tu ne sais ni lire dans la liste des états ni proposer dans \"define\" (\"state\"), "),
     ("user_template",
      "Condition actuelle :\n{current}",
      "États (code — nom, sorte, pour qui) :\n{attributes}\n\nCondition actuelle :\n{current}"),
+    # BRIEF-0113-E (WK2): a state the list lacks is proposed in `define`.
+    # No fragment's old or new text may be touched by another's -- the
+    # delivery script finds each new text to know it is applied.
+    ("system_prompt",
+     "CE QUI N'EST PAS UNE CONDITION.",
+     "NOUVEL ÉTAT. Si la phrase parle d'un état absent de la liste des états, propose-le dans "
+     "\"define\" : {\"ref\": \"d1\", \"name\": \"Ouverte\", \"kind\": \"choice\" | \"integer\" | "
+     "\"entity\", \"for\": [les types d'entité auxquels il s'applique, par leur clé], \"choices\": "
+     "[\"non\", \"oui\"] (pour un choix), \"default\": un de ses libellés, un entier, ou null pour une "
+     "entité, \"value_types\": [les types qu'une entité peut nommer] (pour une entité), \"hidden\": "
+     "false}. La feuille le nomme par {\"define\": \"d1\"} comme cible. Ne propose jamais un état que "
+     "la liste contient déjà, même sous un autre nom proche : utilise son code.\n\n"
+     "CE QUI N'EST PAS UNE CONDITION."),
+    ("system_prompt",
+     ' "unsupported": [{"text": "...", "kind": "event"}]}',
+     ' "unsupported": [{"text": "...", "kind": "event"}],\n "define": []}'),
+    ("user_template",
+     "Entités que la phrase nomme :\n{entities}",
+     "Types d'entité (clé — nom) :\n{entity_types}\n\nEntités que la phrase nomme :\n{entities}"),
 )
 
 
 def with_condition_fragments(field: str, text: str) -> str:
     """`text` with every fragment of `CONDITION_INTERPRET_FRAGMENTS` for
-    `field` applied, in order."""
+    `field` applied, in order -- a fragment whose new text already stands is
+    skipped (an old fragment may stand inside its own new text)."""
     for target, old, new in CONDITION_INTERPRET_FRAGMENTS:
-        if target == field:
+        if target == field and new not in text:
             text = text.replace(old, new)
     return text
 
@@ -2091,8 +2111,8 @@ CONDITION_INTERPRET_PROMPT_HEADS = (
         world_id=None,
         system_prompt=CONDITION_INTERPRET_SYSTEM_PROMPT,
         user_template=CONDITION_INTERPRET_USER_TEMPLATE,
-        variables=["role", "forms", "entities", "tree_entities", "facts", "offers", "skills", "attributes",
-                   "current", "instruction", "errors"],
+        variables=["role", "forms", "entity_types", "entities", "tree_entities", "facts", "offers", "skills",
+                   "attributes", "current", "instruction", "errors"],
         destination="local",
     ),
 )

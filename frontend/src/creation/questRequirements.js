@@ -64,6 +64,21 @@ export function attributeOf(key, choices) {
   return (choices?.attributes || []).find((a) => a.key === key) || null;
 }
 
+/** TICKET-0113 (BRIEF-0113-E, WN2): the editor's choices with the draft's
+    unsaved attributes -- those the interpreter proposed and the creator
+    confirmed -- listed as `new:<ref>`, their labels as their own keys,
+    until the offer's save writes them. */
+export function withUnsaved(choices, unsaved) {
+  if (!choices || !unsaved?.length) return choices;
+  const extra = unsaved.map((u) => ({
+    key: 'new:' + u.ref, name: u.definition.name + ' (à créer)', kind: u.definition.kind, system: false,
+    hidden: !!u.definition.is_hidden, holder_types: u.definition.holder_types,
+    value_types: u.definition.value_types || [],
+    choices: (u.definition.choices || []).map((c) => ({ value: c.label, label: c.label })),
+  }));
+  return { ...choices, attributes: [...(choices.attributes || []), ...extra] };
+}
+
 /** TICKET-0113: what an `entity` attribute's value may name. */
 export function attributeTargets(attr, choices) {
   return (choices?.entities || []).filter((e) => attr.value_types.includes(e.type))

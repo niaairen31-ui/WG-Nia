@@ -87,7 +87,13 @@ def _entity_name(db: Session, entity_id: Optional[str]) -> str:
     return entity.name if entity is not None else str(entity_id)
 
 
-def _target(db: Session, spec: RequirementSpec) -> str:
+def _view(db: Session, key: Optional[str], unsaved: Optional[dict]):
+    """The attribute `key` names -- an unsaved one the interpreter proposed
+    (TICKET-0113, BRIEF-0113-E), else a stored one."""
+    return (unsaved or {}).get(key) or view_of(db, key)
+
+
+def _target(db: Session, spec: RequirementSpec, unsaved: Optional[dict] = None) -> str:
     if spec.target_entity_id and spec.type != ATTRIBUTE_FORM:
         return _entity_name(db, spec.target_entity_id)
     if spec.type == "knowledge":
@@ -99,7 +105,7 @@ def _target(db: Session, spec: RequirementSpec) -> str:
         offer = db.get(QuestOffer, spec.target_key) if spec.target_key else None
         return offer.title if offer is not None else str(spec.target_key)
     if spec.type == ATTRIBUTE_FORM:
-        view = view_of(db, spec.target_key)
+        view = _view(db, spec.target_key, unsaved)
         return view.name if view is not None else str(spec.target_key)
     return str(spec.target_key or "")
 
@@ -110,7 +116,8 @@ def _subject(db: Session, spec: RequirementSpec) -> str:
     return _entity_name(db, spec.subject_entity_id)
 
 
-def leaf_text(db: Session, spec: RequirementSpec, viewer_id: Optional[str] = None) -> str:
+def leaf_text(db: Session, spec: RequirementSpec, viewer_id: Optional[str] = None,
+              unsaved: Optional[dict] = None) -> str:
     """One leaf in French. With `viewer_id` (a player surface), a fact the
     viewer does not know is not written out (A1)."""
     phrase = FORM_PHRASES_FR.get(spec.type)
@@ -120,8 +127,9 @@ def leaf_text(db: Session, spec: RequirementSpec, viewer_id: Optional[str] = Non
         phrase = HIDDEN_FACT_FR
     if spec.type == ATTRIBUTE_FORM and viewer_id is not None and _hidden(db, spec):
         phrase = HIDDEN_STATE_FR
-    value = _value(db, spec)
-    text = phrase.format(who=_subject(db, spec), target=_target(db, spec), threshold=spec.threshold, value=value)
+    value = _value(db, spec, unsaved)
+    text = phrase.format(who=_subject(db, spec), target=_target(db, spec, unsaved), threshold=spec.threshold,
+                         value=value)
     return text[0].upper() + text[1:]
 
 
@@ -130,12 +138,12 @@ def _hidden(db: Session, spec: RequirementSpec) -> bool:
     return view is None or view.hidden
 
 
-def _value(db: Session, spec: RequirementSpec) -> object:
+def _value(db: Session, spec: RequirementSpec, unsaved: Optional[dict] = None) -> object:
     """The French of what a leaf compares to: a form's value label, or an
     attribute's label, « N ou plus », an entity or « quelqu'un »."""
     if spec.type != ATTRIBUTE_FORM:
         return VALUE_LABELS_FR.get(spec.type, {}).get(spec.value, spec.value)
-    view = view_of(db, spec.target_key)
+    view = _view(db, spec.target_key, unsaved)
     if view is None:
         return spec.value or spec.threshold or ""
     if view.kind == "choice":
@@ -149,22 +157,23 @@ def _head(op: str, n: Optional[int]) -> str:
     return CONNECTOR_HEADS_FR[op].format(n=n)
 
 
-def describe(db: Session, node: Optional[ConditionTree]) -> list[dict]:
+def describe(db: Session, node: Optional[ConditionTree], unsaved: Optional[dict] = None) -> list[dict]:
     """The tree as lines: `{"depth", "text"}`, a connector before its
-    children. [] for no condition."""
+    children. [] for no condition. `unsaved`: the attributes the
+    interpreter proposed, by their `new:` key (BRIEF-0113-E)."""
     lines: list[dict] = []
     if node is not None:
-        _describe(db, node, 0, lines)
+        _describe(db, node, 0, lines, unsaved)
     return lines
 
 
-def _describe(db: Session, node: ConditionTree, depth: int, lines: list[dict]) -> None:
+def _describe(db: Session, node: ConditionTree, depth: int, lines: list[dict], unsaved: Optional[dict]) -> None:
     if node.op == "leaf":
-        lines.append({"depth": depth, "text": leaf_text(db, node.leaf)})
+        lines.append({"depth": depth, "text": leaf_text(db, node.leaf, unsaved=unsaved)})
         return
     lines.append({"depth": depth, "text": _head(node.op, node.n)})
     for child in node.children:
-        _describe(db, child, depth + 1, lines)
+        _describe(db, child, depth + 1, lines, unsaved)
 
 
 def _progress(verdict_node: VerdictNode, viewer_id: Optional[str] = None) -> Optional[str]:

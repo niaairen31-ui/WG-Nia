@@ -131,14 +131,18 @@ def _clean_value(where: str, req: RequirementSpec) -> Optional[str]:
     return req.value
 
 
-def _clean_attribute(db: Session, world_id: str, where: str, req: RequirementSpec) -> RequirementSpec:
+def _clean_attribute(db: Session, world_id: str, where: str, req: RequirementSpec,
+                     unsaved: Optional[dict] = None) -> RequirementSpec:
     """An `attribute` leaf (TICKET-0113, WG1): `target_key` an active
     attribute of the world -- a definition or a system key --, a fixed
     subject of a type it applies to; a `choice` compares to one of its
     choices (`value`), an `integer` to `threshold` (any integer), an
     `entity` to `target_entity_id` -- an entity of a type its value may
-    name -- or, with none, to anyone."""
-    view = attribute_view(db, world_id, req.target_key)
+    name -- or, with none, to anyone. `unsaved` (TICKET-0113, BRIEF-0113-E):
+    the attributes the interpreter proposed and the creator has not saved
+    yet, by their `new:` key -- validated by the same rules, never written
+    by `write_condition`, which passes none."""
+    view = (unsaved or {}).get(req.target_key) or attribute_view(db, world_id, req.target_key)
     if view is None or view.status != "active":
         raise ValueError(f"{where}unknown attribute {req.target_key!r}")
     if req.subject_entity_id is not None and not applies_to(view, db.get(Entity, req.subject_entity_id).type):
@@ -163,7 +167,8 @@ def _clean_attribute(db: Session, world_id: str, where: str, req: RequirementSpe
     )
 
 
-def clean_leaf(db: Session, world_id: str, req: RequirementSpec, where: str = "") -> RequirementSpec:
+def clean_leaf(db: Session, world_id: str, req: RequirementSpec, where: str = "",
+               unsaved: Optional[dict] = None) -> RequirementSpec:
     """One leaf as it will be stored: the arguments its form uses, nothing
     else. `where` prefixes every error (« write_day_plan: step 2 »).
     Raises `ValueError` on any violation."""
@@ -171,7 +176,7 @@ def clean_leaf(db: Session, world_id: str, req: RequirementSpec, where: str = ""
         raise ValueError(f"{where}unknown requirement type {req.type!r}")
     _clean_subject(db, world_id, where, req)
     if req.type == ATTRIBUTE_FORM:
-        return _clean_attribute(db, world_id, where, req)
+        return _clean_attribute(db, world_id, where, req, unsaved)
     target_entity_id, target_key = _clean_target(db, world_id, where, req)
     return RequirementSpec(
         type=req.type, subject_role=req.subject_role, subject_entity_id=req.subject_entity_id,
@@ -181,7 +186,7 @@ def clean_leaf(db: Session, world_id: str, req: RequirementSpec, where: str = ""
 
 
 def clean_condition(
-    db: Session, world_id: str, tree: Optional[ConditionTree], where: str = "",
+    db: Session, world_id: str, tree: Optional[ConditionTree], where: str = "", unsaved: Optional[dict] = None,
 ) -> Optional[ConditionTree]:
     """A whole tree, shape first then every leaf, before any write. None is
     no condition. Raises `ValueError` (a `ConditionShapeError` is one)."""
@@ -191,13 +196,15 @@ def clean_condition(
         check_shape(tree)
     except ValueError as exc:
         raise ValueError(f"{where}{exc}") from exc
-    return _clean_tree(db, world_id, tree, where)
+    return _clean_tree(db, world_id, tree, where, unsaved)
 
 
-def _clean_tree(db: Session, world_id: str, tree: ConditionTree, where: str) -> ConditionTree:
+def _clean_tree(db: Session, world_id: str, tree: ConditionTree, where: str,
+                unsaved: Optional[dict] = None) -> ConditionTree:
     if tree.op == "leaf":
-        return ConditionTree(op="leaf", leaf=clean_leaf(db, world_id, tree.leaf, where))
-    return ConditionTree(op=tree.op, n=tree.n, children=tuple(_clean_tree(db, world_id, c, where) for c in tree.children))
+        return ConditionTree(op="leaf", leaf=clean_leaf(db, world_id, tree.leaf, where, unsaved))
+    return ConditionTree(op=tree.op, n=tree.n,
+                         children=tuple(_clean_tree(db, world_id, c, where, unsaved) for c in tree.children))
 
 
 def write_condition(db: Session, *, world_id: str, role: str, tree: Optional[ConditionTree], **owner) -> Optional[Condition]:

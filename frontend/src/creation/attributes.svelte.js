@@ -37,6 +37,18 @@ export function definitionDraft(attr) {
   };
 }
 
+/** A definition draft from a definition in the request body's shape -- the
+    interpreter's proposal (BRIEF-0113-E). */
+export function specDraft(def) {
+  return {
+    key: null, name: def.name, kind: def.kind, holder_types: [...(def.holder_types || [])],
+    value_types: [...(def.value_types || [])],
+    choices: (def.choices || []).map((c) => ({ id: null, label: c.label })),
+    defaultLabel: def.kind === 'choice' ? def.default : '', defaultInteger: def.kind === 'integer' ? def.default : 0,
+    is_hidden: !!def.is_hidden,
+  };
+}
+
 /** The request body of a definition draft (`DefinitionBody`). */
 export function definitionBody(draft, confirmNear) {
   return {

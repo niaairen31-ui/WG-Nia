@@ -17,7 +17,7 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
-from .attributes import AttributeView, world_attributes
+from .attributes import AttributeView, world_attributes, world_entity_type_labels
 from .condition_forms import FORM_VALUES
 from .condition_text import VALUE_LABELS_FR, describe, verdict_lines
 from .conditions import evaluate, flat_leaves, node_to_dict, read_condition
@@ -59,13 +59,15 @@ def _requirement_dict(req) -> dict:
             "subject_entity_id": req.subject_entity_id, "value": req.value}
 
 
-def condition_view(db: Session, tree) -> dict:
+def condition_view(db: Session, tree, unsaved: Optional[dict] = None) -> dict:
     """One condition as the editor reads it (TICKET-0111, T1): the tree
     itself, its leaves when it is flat (the list the editor edits; None when
-    it is not -- shown, sent back unchanged), and its French lines."""
+    it is not -- shown, sent back unchanged), and its French lines -- an
+    unsaved attribute the interpreter proposed named by `unsaved`
+    (TICKET-0113, BRIEF-0113-E)."""
     flat = flat_leaves(tree)
     return {"tree": node_to_dict(tree), "flat": None if flat is None else [_requirement_dict(r) for r in flat],
-            "lines": describe(db, tree)}
+            "lines": describe(db, tree, unsaved)}
 
 
 def _name(db: Session, entity_id: Optional[str]) -> Optional[str]:
@@ -153,6 +155,8 @@ def editor_choices(world_id: str, db: Session) -> dict:
         # read, and every active entity -- a leaf's fixed subject, an entity
         # value.
         "attributes": [attribute_choice(view) for view in world_attributes(db, world_id)],
+        # TICKET-0113 (BRIEF-0113-E): the types a proposed definition may name.
+        "entity_types": world_entity_type_labels(db, world_id),
         "entities": sorted(({"id": e.id, "name": e.name, "type": e.type} for e in db.exec(select(Entity).where(
             Entity.world_id == world_id, Entity.status == "active")).all()),
             key=lambda d: (d["name"].lower(), d["id"])),

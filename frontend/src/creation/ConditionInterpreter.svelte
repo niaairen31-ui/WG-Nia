@@ -2,16 +2,21 @@
   /* TICKET-0112 (BRIEF-0112-E, IB1). « Écrire en langage naturel » under one
      condition of the offer editor: a sentence, then the proposal read back
      in French -- inserted into the draft or discarded by the creator. The
-     requests live in conditionInterpreter.svelte.js. */
+     requests live in conditionInterpreter.svelte.js.
+     TICKET-0113 (BRIEF-0113-E, WK2): a state the world lacks comes as a
+     card -- use the near existing one, or create this one, retouched in
+     AttributeDefinitionForm -- confirmed with « Insérer ». */
+  import AttributeDefinitionForm from './AttributeDefinitionForm.svelte';
   import {
     interpreterState, askInterpreter, pickNames, insertProposal, discardProposal,
   } from './conditionInterpreter.svelte.js';
 
-  let { cond, role } = $props();
+  let { cond, role, unsaved = [], types = [] } = $props();
 
   const s = $state(interpreterState());
   let proposal = $derived(s.proposal);
-  let picked = $derived(proposal ? proposal.mentions.every((m) => s.picks[m.ref]) : false);
+  let picked = $derived(proposal
+    ? proposal.mentions.every((m) => s.picks[m.ref]) && s.cards.every((c) => c.pick) : false);
 </script>
 
 {#if !s.open}
@@ -21,7 +26,7 @@
     <textarea rows="2" placeholder="Ex. : le joueur possède 15 fourrures de loup ou est membre de la Guilde"
               bind:value={s.instruction}></textarea>
     <div class="inline">
-      <button disabled={s.busy || !s.instruction.trim()} onclick={() => askInterpreter(s, cond, role)}>
+      <button disabled={s.busy || !s.instruction.trim()} onclick={() => askInterpreter(s, cond, role, unsaved)}>
         {proposal ? 'Reformuler' : 'Proposer'}
       </button>
       <button class="link" onclick={() => { s.open = false; }}>Fermer</button>
@@ -43,14 +48,31 @@
             </select>
           </label>
         {/each}
+        {#each s.cards as card (card.ref)}
+          <div class="card">
+            <strong>État à créer : {card.draft.name}</strong>
+            {#if card.near.length}
+              <div class="muted">Ce nom ressemble à un état existant :</div>
+              {#each card.near as n (n.key)}
+                <label class="pick"><input type="radio" bind:group={card.pick} value={n.key}>
+                  Utiliser « {n.name} »{n.system ? ' (système)' : ''} — {n.score} %</label>
+              {/each}
+              <label class="pick"><input type="radio" bind:group={card.pick} value="new">
+                Créer « {card.draft.name} »</label>
+            {/if}
+            {#if card.pick === 'new'}
+              <AttributeDefinitionForm draft={card.draft} {types} />
+            {/if}
+          </div>
+        {/each}
         {#each proposal.notes as note, i (i)}<p class="muted">{note}</p>{/each}
         {#each proposal.errors as error, i (i)}<p class="err">{error}</p>{/each}
         <div class="inline">
           {#if proposal.outcome === 'needs_choice'}
-            <button disabled={s.busy || !picked} onclick={() => pickNames(s)}>Appliquer les choix</button>
+            <button disabled={s.busy || !picked} onclick={() => pickNames(s, unsaved)}>Appliquer les choix</button>
           {/if}
           {#if proposal.outcome === 'proposed'}
-            <button onclick={() => insertProposal(s, cond)}>Insérer dans l'offre</button>
+            <button onclick={() => insertProposal(s, cond, unsaved)}>Insérer dans l'offre</button>
           {/if}
           <button onclick={() => discardProposal(s)}>Écarter</button>
         </div>
@@ -67,4 +89,6 @@
   .link { background: none; border: none; color: var(--accent, inherit); cursor: pointer; padding: 0; }
   .muted { color: var(--muted); font-size: 12px; }
   .err { color: var(--danger, #c33); font-size: 12px; }
+  .card { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; margin: 6px 0; }
+  .pick { display: block; margin: 2px 0; }
 </style>

@@ -36,6 +36,34 @@ AD4 -- delivery (`scripts/apply_ticket_0113_condition_prompt.py`, fixture
    run prints « unchanged » and writes nothing; on a head whose text lost
    one fragment, the others are applied and the lost one is reported.
 
+AE1 -- the shape (BRIEF-0113-E, static and import). The journal's
+   `PAYLOAD_KEYS` hold `definitions`; the head declares `entity_types`;
+   applying every fragment to the seed's texts changes nothing (no fragment
+   touches another's); `write_condition` cleans its tree with no unsaved
+   attribute; the offer body carries `unsaved_attributes`; the editor sends
+   them (`questOffers.svelte.js`), passes them to every condition
+   (`QuestOffers.svelte`) and the interpreter (`ConditionEditor.svelte`),
+   whose card renders `<AttributeDefinitionForm` and sends the confirmed
+   `definitions` with `inserted`.
+AE2 -- proposing (fixture, `condition_interpreter.chat` stubbed). An answer
+   defining « Ouverte » (a choice for places) whose leaf names it by
+   `{"define": ...}` is `proposed`, the leaf on `new:n1` with its label, the
+   definition listed with no near attribute and named in the French lines;
+   a definition « maudite » is `needs_choice` with « Maudit » near; picking
+   « Maudit » moves the leaf onto it, its label read back to its choice,
+   the proposal kept as `adopted` with its key;
+   picking `new` keeps the definition; a definition the writer refuses is
+   refused, then retried with its error; a draft's unsaved attribute is
+   listed in `a` and named by its code.
+AE3 -- confirming and saving (route functions). `inserted` with the
+   definition retouched keeps both forms in the journal (`confirmed`);
+   with a definition whose labels no longer hold the leaf, 422 and nothing
+   moves. Saving the offer with the unsaved attribute writes it once, the
+   condition stored on its id and its choice's id, the draft `saved` as
+   proposed; an unsaved attribute no condition names is not written; a
+   condition naming one the body does not carry answers 422 and writes
+   nothing.
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that collects nothing fails.
 """
@@ -371,6 +399,210 @@ def check_ad4() -> None:
         fail(f"AD4: an edited head gave v{number}: {result.stdout.strip()[-300:]}")
 
 
+# --- AE1 -------------------------------------------------------------------------
+
+def check_ae1() -> None:
+    import ast
+
+    import seed_pilot
+
+    from world_engine.cockpit.routes.quests import OfferBody
+    from world_engine.writes.condition_drafts import PAYLOAD_KEYS
+
+    if "definitions" not in PAYLOAD_KEYS:
+        fail(f"AE1: PAYLOAD_KEYS is {sorted(PAYLOAD_KEYS)}")
+    if "entity_types" not in seed_pilot.CONDITION_INTERPRET_PROMPT_HEADS[0]["variables"]:
+        fail("AE1: the head does not declare entity_types")
+    for field, text in (("system_prompt", seed_pilot.CONDITION_INTERPRET_SYSTEM_PROMPT),
+                        ("user_template", seed_pilot.CONDITION_INTERPRET_USER_TEMPLATE)):
+        if seed_pilot.with_condition_fragments(field, text) != text:
+            fail(f"AE1: applying the fragments to the seed's {field} changes it: one fragment touches another")
+    tree = ast.parse((ROOT / "src" / "world_engine" / "writes" / "conditions.py").read_text(encoding="utf-8"))
+    write = next((n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "write_condition"), None)
+    calls = [c for c in ast.walk(write) if isinstance(c, ast.Call) and getattr(c.func, "id", "") == "clean_condition"] \
+        if write else []
+    if len(calls) != 1 or calls[0].keywords:
+        fail("AE1: write_condition does not clean its tree with no unsaved attribute")
+    if "unsaved_attributes" not in OfferBody.model_fields:
+        fail("AE1: OfferBody carries no unsaved_attributes")
+    front = ROOT / "frontend" / "src" / "creation"
+    needles = {
+        "questOffers.svelte.js": ("unsaved_attributes: draft.unsavedAttributes",),
+        "QuestOffers.svelte": ("unsaved={draft.unsavedAttributes}",),
+        "ConditionEditor.svelte": ("<ConditionInterpreter {cond} {role} {unsaved}", "withUnsaved(choices, unsaved)"),
+        "ConditionInterpreter.svelte": ("<AttributeDefinitionForm",),
+        "conditionInterpreter.svelte.js": ("decide(state, 'inserted', { definitions",),
+    }
+    for name, wanted in needles.items():
+        text = (front / name).read_text(encoding="utf-8") if (front / name).exists() else ""
+        for needle in wanted:
+            if needle not in text:
+                fail(f"AE1: {name} lacks {needle}")
+    if (front / "QuestOffers.svelte").read_text(encoding="utf-8").count("unsaved={draft.unsavedAttributes}") != 3:
+        fail("AE1: QuestOffers.svelte does not pass the unsaved attributes to its three conditions")
+
+
+# --- AE2 -------------------------------------------------------------------------
+
+def _define(ref, name, kind="choice", for_=("location",), choices=("non", "oui"), default="non"):
+    return {"ref": ref, "name": name, "kind": kind, "for": list(for_), "choices": list(choices),
+            "default": default, "hidden": False}
+
+
+def _parsed(condition, define=()) -> str:
+    return json.dumps({"condition": condition, "unsupported": [], "define": list(define)}, ensure_ascii=False)
+
+
+def _open_leaf():
+    return {"op": "leaf", "form": "attribute", "subject": {"name": "Crypte", "kind": "place"},
+            "target": {"define": "d1"}, "threshold": None, "value": "oui"}
+
+
+def check_ae2(engine, ids: dict) -> None:
+    from sqlmodel import Session
+
+    from world_engine import condition_interpreter as ci
+    from world_engine.attribute_proposals import UnsavedAttribute
+    from world_engine.conditions import node_to_dict
+    from world_engine.quest_reads import condition_view
+    from world_engine.attribute_proposals import unsaved_views, spec_from_dict
+    from world_engine.writes.attributes import ChoiceSpec, DefinitionSpec
+
+    with Session(engine) as db:
+        _seed_prompt(db)
+        result, _ = _run(ci, db, ids, [_parsed({"op": "all", "children": [_open_leaf()]},
+                                                [_define("d1", "Ouverte")])])
+        leaf = node_to_dict(result.tree)["children"][0] if result.tree else {}
+        defs = result.definitions
+        if result.outcome != "proposed" or leaf.get("target_key") != "new:n1" or leaf.get("value") != "oui" \
+                or len(defs) != 1 or defs[0]["near"] or defs[0]["definition"]["name"] != "Ouverte":
+            fail(f"AE2: a defined state gave {result.outcome}, {leaf}, {defs}, {result.errors}")
+        else:
+            views = unsaved_views([UnsavedAttribute(ref=d["ref"], spec=spec_from_dict(d["definition"])) for d in defs])
+            lines = " ".join(l["text"] for l in condition_view(db, result.tree, views)["lines"])
+            if "Ouverte : oui" not in lines:
+                fail(f"AE2: the French lines read {lines!r}")
+        cursed = {"op": "leaf", "form": "attribute", "subject": "doer", "target": {"define": "d1"},
+                  "threshold": None, "value": "oui"}
+        near_answer = _parsed({"op": "all", "children": [cursed]},
+                              [_define("d1", "maudite", for_=("character",))])
+        result, _ = _run(ci, db, ids, [near_answer])
+        near = result.definitions[0]["near"] if result.definitions else []
+        if result.outcome != "needs_choice" or ids["maudit"] not in [n["key"] for n in near]:
+            fail(f"AE2: a near name gave {result.outcome}, near {near}")
+        else:
+            oui = _choice(db, ids["world"], ids["maudit"], "oui")
+            used = ci.resolve(db, ids["world"], result.pending, result.mentions, result.notes,
+                              {"n1": ids["maudit"]}, tuple(result.definitions))
+            moved = node_to_dict(used.tree)["children"][0] if used.tree else {}
+            if used.outcome != "proposed" or (moved.get("target_key"), moved.get("value")) != (ids["maudit"], oui) \
+                    or [d.get("adopted") for d in used.definitions] != [ids["maudit"]]:
+                fail(f"AE2: picking Maudit gave {used.outcome}, {moved}, {used.definitions}")
+            kept = ci.resolve(db, ids["world"], result.pending, result.mentions, result.notes, {"n1": "new"},
+                              tuple(result.definitions))
+            if kept.outcome != "proposed" or len(kept.definitions) != 1:
+                fail(f"AE2: creating it gave {kept.outcome}, {kept.definitions}")
+        bad = _parsed({"op": "all", "children": [_open_leaf()]}, [_define("d1", "Ouverte", choices=("oui",),
+                                                                           default="oui")])
+        good = _parsed({"op": "all", "children": [_open_leaf()]}, [_define("d1", "Ouverte")])
+        result, stub = _run(ci, db, ids, [bad, good])
+        second = stub.messages[1][1]["content"] if len(stub.messages) == 2 else ""
+        if result.outcome != "proposed" or not result.retried or "at least two labels" not in second:
+            fail(f"AE2: a refused definition gave {result.outcome}, retried {result.retried}")
+        unsaved = (UnsavedAttribute(ref="n1", spec=DefinitionSpec(
+            name="Brisé", kind="choice", holder_types=("item",), choices=(ChoiceSpec("non"), ChoiceSpec("oui")),
+            default="non")),)
+        ctx = ci.build_context(db, ids["world"], "x", None, unsaved)
+        code = next((c for c, key in ctx.lists["a"].codes.items() if key == "new:n1"), None)
+        broken = {"op": "leaf", "form": "attribute", "subject": {"name": "Trône de fer", "kind": "object"},
+                  "target": {"code": code}, "threshold": None, "value": "oui"}
+        stub, original = _Stub([_parsed({"op": "all", "children": [broken]})]), ci.chat
+        ci.chat = stub
+        try:
+            result = ci.interpret(db, ids["world"], "eligibility", "Le trône est brisé", None, [], unsaved)
+        finally:
+            ci.chat = original
+        leaf = node_to_dict(result.tree)["children"][0] if result.tree else {}
+        if code is None or "à créer" not in " ".join(ctx.lists["a"].lines) or result.outcome != "proposed" \
+                or leaf.get("target_key") != "new:n1":
+            fail(f"AE2: a draft's unsaved attribute gave {code}, {result.outcome}, {leaf}, {result.errors}")
+
+
+# --- AE3 -------------------------------------------------------------------------
+
+def check_ae3(engine, ids: dict) -> None:
+    from fastapi import HTTPException
+    from sqlmodel import Session, func, select
+
+    from world_engine import condition_interpreter as ci
+    from world_engine.cockpit.routes import attributes as attr_routes
+    from world_engine.cockpit.routes import conditions as routes
+    from world_engine.cockpit.routes import quests
+    from world_engine.models import AttributeDefinition, ConditionDraft, ConditionNode, World
+
+    def unsaved(ref, name, labels=("non", "oui")):
+        return attr_routes.UnsavedBody(ref=ref, definition=attr_routes.DefinitionBody(
+            name=name, kind="choice", holder_types=["location"], default=labels[0],
+            choices=[attr_routes.ChoiceBody(label=l) for l in labels]))
+
+    def count(model) -> int:
+        return db.exec(select(func.count()).select_from(model)).one()
+
+    with Session(engine) as db:
+        _seed_prompt(db)
+        db.get(World, ids["world"]).is_active = True
+        db.commit()
+        stub, original = _Stub([_parsed({"op": "all", "children": [_open_leaf()]}, [_define("d1", "Ouverte")])]), ci.chat
+        ci.chat = stub
+        try:
+            answer = routes.interpret(routes.InterpretBody(instruction="La crypte est ouverte", role="eligibility"),
+                                      db=db)
+        finally:
+            ci.chat = original
+        draft_id = answer["draft_id"]
+        try:
+            routes.decide(draft_id, routes.DecisionBody(decision="inserted", definitions=[
+                unsaved("n1", "Ouverte", ("fermée", "ouverte"))]), db=db)
+            fail("AE3: a definition whose labels no longer hold the leaf was accepted")
+        except HTTPException as exc:
+            if exc.status_code != 422 or db.get(ConditionDraft, draft_id).outcome != "proposed":
+                fail(f"AE3: a broken confirmation answered {exc.status_code}")
+        routes.decide(draft_id, routes.DecisionBody(decision="inserted", definitions=[unsaved("n1", "Ouvert")]),
+                      db=db)
+        stored = db.get(ConditionDraft, draft_id).payload["definitions"][0]
+        if stored["definition"]["name"] != "Ouverte" or stored.get("confirmed", {}).get("name") != "Ouvert":
+            fail(f"AE3: the journal keeps {stored}")
+        before = (count(AttributeDefinition), count(ConditionNode))
+        tree = answer["view"]["tree"]
+        step = [quests.OfferStepBody(objective="Entrer", cost=1)]
+        orphan = quests.OfferBody(giver_entity_id=ids["garde"], title="Orpheline", eligibility={
+            "op": "all", "children": [{**tree["children"][0], "target_key": "new:n9"}]},
+            unsaved_attributes=[unsaved("n1", "Ouvert")], steps=step)
+        try:
+            quests.create_offer(orphan, db=db)
+            fail("AE3: a condition naming an attribute the body does not carry was saved")
+        except HTTPException as exc:
+            if exc.status_code != 422 or (count(AttributeDefinition), count(ConditionNode)) != before:
+                fail(f"AE3: an orphan key answered {exc.status_code} or wrote rows")
+        body = quests.OfferBody(giver_entity_id=ids["garde"], title="La crypte", eligibility=tree,
+                                eligibility_draft_id=draft_id, steps=step,
+                                unsaved_attributes=[unsaved("n1", "Ouvert"), unsaved("n2", "Inutile")])
+        saved = quests.create_offer(body, db=db)
+        made = db.exec(select(AttributeDefinition).where(AttributeDefinition.name == "Ouvert")).all()
+        if len(made) != 1 or db.exec(select(AttributeDefinition).where(AttributeDefinition.name == "Inutile")).first():
+            fail(f"AE3: the save wrote {[d.name for d in made]} (and Inutile?)")
+        else:
+            leaf = saved["eligibility"]["tree"]["children"][0]
+            oui = _choice(db, ids["world"], made[0].id, "oui")
+            if (leaf["target_key"], leaf["value"]) != (made[0].id, oui):
+                fail(f"AE3: the saved leaf is {leaf}")
+        draft = db.get(ConditionDraft, draft_id)
+        if (draft.outcome, draft.saved_as_proposed) != ("saved", True):
+            fail(f"AE3: the draft reads {draft.outcome}, {draft.saved_as_proposed}")
+        db.get(World, ids["world"]).is_active = False
+        db.commit()
+
+
 def main() -> int:
     _fresh_db()
     from world_engine.db import create_db_and_tables, engine
@@ -378,7 +610,9 @@ def main() -> int:
     create_db_and_tables()
     ids = _world(engine)
     for name, rule in (("AD1", check_ad1), ("AD2", lambda: check_ad2(engine, ids)),
-                       ("AD3", lambda: check_ad3(engine, ids)), ("AD4", check_ad4)):
+                       ("AD3", lambda: check_ad3(engine, ids)), ("AD4", check_ad4),
+                       ("AE1", check_ae1), ("AE2", lambda: check_ae2(engine, ids)),
+                       ("AE3", lambda: check_ae3(engine, ids))):
         try:
             rule()
         except Exception as exc:  # a crash is that rule's failure, never a pass
@@ -388,8 +622,9 @@ def main() -> int:
             print(f"FAIL: {msg}")
         return 1
     print("PASS: attribute_interpreter -- the interpreter shows the model every attribute by code, writes "
-          "an attribute leaf by label, threshold or name and reads it back, and its prompt is delivered "
-          "fragment by fragment, keeping the creator's edits")
+          "an attribute leaf by label, threshold or name and reads it back, proposes a missing state the "
+          "creator confirms -- a near one picked, never duplicated -- written with the offer's save, and its "
+          "prompt is delivered fragment by fragment, keeping the creator's edits")
     return 0
 
 

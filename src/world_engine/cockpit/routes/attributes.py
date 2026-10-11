@@ -74,6 +74,13 @@ class DefinitionBody(BaseModel):
     confirm_near: bool = False
 
 
+class UnsavedBody(BaseModel):
+    """BRIEF-0113-E (WN2): an attribute the interpreter proposed, in the
+    offer's draft until the offer's save writes it (`routes/quests.py`)."""
+    ref: str
+    definition: DefinitionBody
+
+
 class StatusBody(BaseModel):
     status: str
 
