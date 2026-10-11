@@ -358,6 +358,15 @@ export const CREATION_TABS = {
     islands: [{ key: 'debts', containerId: 'creation-dettes' }],
     primaryAction: { label: '+ Nouvelle dette', handler: () => triggerPrimaryAction('debts') },
   },
+  etats: {
+    label: 'États',
+    archetype: 'bespoke',
+    containers: ['creation-etats'],
+    loader: null,
+    state: { onTabEnter: null, onWorldSwitch: null },
+    islands: [{ key: 'states', containerId: 'creation-etats' }],
+    primaryAction: { label: '+ Nouvel état', handler: () => triggerPrimaryAction('states') },
+  },
   subjects: {
     label: 'Sujets',
     archetype: 'bespoke',

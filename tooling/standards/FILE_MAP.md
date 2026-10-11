@@ -260,6 +260,7 @@
 ## src/world_engine/cockpit/routes/
 
 - `__init__.py` — Domain routers mounted on the cockpit app (TICKET-0027, BRIEF-0027-d).
+- `attributes.py` — The state of the world's routes (TICKET-0113, BRIEF-0113-C; decisions WA3, WB2, WD1, WI1, WJ2 and WK2 of the conditions series) -- creator CRUD, a sanctioned canon-write path:
 - `conditions.py` — The condition interpreter's routes (TICKET-0112, BRIEF-0112-D; decisions IB1, IG1, IH1, IJ1).
 - `creator.py` — Creator-mode generation + composite routes: entity/world/player/skill- catalogue/agenda/event draft generation, world CRUD, bootstrap, player-character composite create, NPC listing.
 - `day.py` — Day declaration, plan-emission and resolution routes (TICKET-0075, BRIEF-0075-a — the declaration socle: plumbing only; BRIEF-0075-b — plan emission and budget; BRIEF-0075-c — extraction and concordance; BRIEF-0075-d — resolution, the fact sheet and narration; BRIEF-0075-g — the feasibility veto, decision Y1).

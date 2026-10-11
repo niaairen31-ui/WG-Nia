@@ -567,4 +567,12 @@ export const CREATION_ISLANDS = Object.freeze({
     origin: 'new',
     createdBy: 'TICKET-0110',
   }),
+  // TICKET-0113 (BRIEF-0113-C, WI1): the attributes of the world -- the
+  // state of the world -- created directly as an island, no legacy predecessor.
+  states: Object.freeze({
+    containerId: 'creation-etats',
+    component: 'States.svelte',
+    origin: 'new',
+    createdBy: 'TICKET-0113',
+  }),
 });

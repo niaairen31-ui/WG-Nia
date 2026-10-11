@@ -1,6 +1,7 @@
 """G1 check for TICKET-0113 -- the state of the world: a world's attributes, one value per entity, its history kept.
 
-BRIEF-0113-A's rules; the attribute condition form has its own check,
+BRIEF-0113-A's rules, then BRIEF-0113-C's (the Création surfaces); the
+attribute condition form has its own check,
 `attribute_conditions.py` (BRIEF-0113-B), so each stays inside the
 corpus's per-check time budget.
 
@@ -51,6 +52,32 @@ AA6 -- migration `scripts/migrate_v2_22_attributes.py`, on a database
    nothing to do.
 AA7 -- the reader writes nothing (static, AST). `attributes.py` calls no
    `add`, `commit`, `delete`, `execute` or `flush`.
+AC1 -- the routes (BRIEF-0113-C, route functions on the AA world made
+   active). `list_attributes` lists the system attributes first, the
+   retired ones too, each with `in_condition`, and the world's types with
+   their French names (a runtime type by its name). A new name near
+   another's (« Maudit » beside « Maudite ») answers `saved: false` with the
+   near one and writes nothing; `confirm_near` writes it; saving a
+   definition under its own name asks nothing. `get_states` lists the
+   system attributes then the world's that apply to the entity, with value,
+   `is_default` and history; `set_state` writes a change of the kind given
+   and answers the states with its history line (before, after, kind); a
+   system key, an unknown kind or a refused value answer 422 and write
+   nothing.
+AC2 -- nearness (fixture). `near_attributes` finds « Maudite » for
+   « maudit » (score 92 or more) and the system « État vital » for « etat
+   vitale », never an attribute it excludes, nothing for « Porte rouge »;
+   `lore_resolve.near_in_surfaces` and `near_attributes` both score through
+   `near_ratio` (static).
+AC3 -- the Création surfaces (static). `tabs.js`'s `etats` entry mounts
+   the `states` island in `creation-etats` and routes « + Nouvel état »
+   through `triggerPrimaryAction('states')`; `registry.js` declares
+   `states` as origin 'new', created by TICKET-0113; `States.svelte` exports
+   `primaryAction` and renders `<AttributeDefinitionForm`;
+   `attributes.svelte.js` exports `definitionDraft` and `definitionBody`
+   and sends `confirm_near`; `Sheet.svelte` renders `<StatesPanel` for a
+   saved entity; `StatesPanel.svelte` sends the change's `kind`, offers
+   `correction` and `changement`, and preselects neither.
 
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that collects nothing fails.
@@ -531,6 +558,137 @@ def check_aa7() -> None:
             fail(f"AA7: attributes.py calls .{call.func.attr} on line {call.lineno}")
 
 
+# --- AC1 -------------------------------------------------------------------------
+
+def check_ac1(engine, ids: dict, defs: dict) -> None:
+    from fastapi import HTTPException
+    from sqlmodel import Session
+
+    from world_engine.cockpit.routes import attributes as routes
+    from world_engine.models import AttributeChange, AttributeDefinition, World
+
+    with Session(engine) as db:
+        db.get(World, ids["world"]).is_active = True
+        db.commit()
+        listed = routes.list_attributes(db)
+        keys = [a["key"] for a in listed["attributes"]]
+        if keys[:3] != ["sys:vital_status", "sys:status", "sys:magic_status"] or not all(
+                "in_condition" in a for a in listed["attributes"]):
+            fail(f"AC1: list_attributes lists {keys}")
+        labels = {t["type"]: t["label"] for t in listed["entity_types"]}
+        if labels.get("character") != "Personnage" or labels.get("navire") != "navire" or "epave" in labels:
+            fail(f"AC1: the entity types read {labels}")
+        before = _count(db, AttributeDefinition)
+        body = routes.DefinitionBody(name="Maudit", kind="choice", holder_types=["character"],
+                                     choices=[routes.ChoiceBody(label="non"), routes.ChoiceBody(label="oui")],
+                                     default="non")
+        asked = routes.create_attribute(body, db)
+        if asked.get("saved") is not False or "Maudite" not in [n["name"] for n in asked.get("near", [])] \
+                or _count(db, AttributeDefinition) != before:
+            fail(f"AC1: a near name answered {asked}")
+        body.confirm_near = True
+        made = routes.create_attribute(body, db)
+        if made.get("saved") is not True or _count(db, AttributeDefinition) != before + 1:
+            fail(f"AC1: confirm_near answered {made}")
+        same = routes.save_attribute(made["attribute"]["key"], routes.DefinitionBody(
+            name="Maudit", kind="choice", holder_types=["character"], default="oui",
+            choices=[routes.ChoiceBody(label=c["label"], id=c["value"]) for c in made["attribute"]["choices"]]), db)
+        if same.get("saved") is not True:
+            fail(f"AC1: saving a definition under its own name answered {same}")
+        states = routes.get_states(ids["garde"], db)
+        names = [st["name"] for st in states]
+        if names[:2] != ["État vital", "Statut"] or "Maudit" not in names or "Niveau d'alerte" in names:
+            fail(f"AC1: get_states lists {names}")
+        key = made["attribute"]["key"]
+        non = next(c["value"] for c in made["attribute"]["choices"] if c["label"] == "non")
+        after = routes.set_state(ids["garde"], key, routes.ValueBody(value=non, kind="changement"), db)
+        row = next(st for st in after if st["key"] == key)
+        line = row["history"][0] if len(row["history"]) == 1 else {}
+        if row["label"] != "non" or row["is_default"] \
+                or (line.get("kind"), line.get("before"), line.get("after")) != ("changement", "oui", "non"):
+            fail(f"AC1: set_state answered {row}")
+        changes = _count(db, AttributeChange)
+        for label, call in {
+            "a system key": lambda: routes.set_state(ids["garde"], "sys:vital_status",
+                                                     routes.ValueBody(value="dead", kind="correction"), db),
+            "an unknown kind": lambda: routes.set_state(ids["garde"], key, routes.ValueBody(value=non, kind="x"), db),
+            "a refused value": lambda: routes.set_state(ids["garde"], key, routes.ValueBody(value="z",
+                                                                                           kind="correction"), db),
+        }.items():
+            try:
+                call()
+                fail(f"AC1: set_state accepts {label}")
+            except HTTPException as exc:
+                if exc.status_code != 422 or _count(db, AttributeChange) != changes:
+                    fail(f"AC1: {label} answered {exc.status_code} or wrote a change")
+        db.get(World, ids["world"]).is_active = False
+        db.commit()
+
+
+# --- AC2 -------------------------------------------------------------------------
+
+def check_ac2(engine, ids: dict, defs: dict) -> None:
+    from sqlmodel import Session
+
+    from world_engine.attributes import near_attributes
+
+    with Session(engine) as db:
+        world = ids["world"]
+        found = {n.name: n.score for n in near_attributes(db, world, "maudit")}
+        if found.get("Maudite", 0) < 92:
+            fail(f"AC2: « maudit » finds {found}")
+        if "État vital" not in {n.name for n in near_attributes(db, world, "etat vitale")}:
+            fail("AC2: « etat vitale » does not find the system « État vital »")
+        if any(n.key == defs["maudit"] for n in near_attributes(db, world, "maudit", exclude_key=defs["maudit"])):
+            fail("AC2: an excluded attribute is listed")
+        if near_attributes(db, world, "Porte rouge"):
+            fail("AC2: « Porte rouge » finds a near attribute")
+    for rel in ("lore_resolve.py", "attributes.py"):
+        text = (SRC / rel).read_text(encoding="utf-8")
+        if "near_ratio(" not in text:
+            fail(f"AC2: {rel} does not score through near_ratio")
+    if (SRC / "attributes.py").read_text(encoding="utf-8").count("SequenceMatcher"):
+        fail("AC2: attributes.py scores nearness on its own")
+
+
+# --- AC3 -------------------------------------------------------------------------
+
+def check_ac3() -> None:
+    front = ROOT / "frontend" / "src" / "creation"
+
+    def read(name: str) -> str:
+        path = front / name
+        if not path.exists():
+            fail(f"AC3: {name} is missing")
+            return ""
+        return path.read_text(encoding="utf-8")
+
+    tabs = read("tabs.js")
+    entry = re.search(r"\n  etats: \{(.*?)\n  \},", tabs, re.S)
+    body = entry.group(1) if entry else ""
+    for needle in ("{ key: 'states', containerId: 'creation-etats' }", "triggerPrimaryAction('states')"):
+        if needle not in body:
+            fail(f"AC3: tabs.js's etats entry lacks {needle}")
+    registry = read("registry.js")
+    island = re.search(r"\n  states: Object\.freeze\(\{(.*?)\}\),", registry, re.S)
+    if not island or "origin: 'new'" not in island.group(1) or "createdBy: 'TICKET-0113'" not in island.group(1):
+        fail("AC3: registry.js does not declare the states island as new, TICKET-0113")
+    states = read("States.svelte")
+    for needle in ("export function primaryAction", "<AttributeDefinitionForm"):
+        if needle not in states:
+            fail(f"AC3: States.svelte lacks {needle}")
+    module = read("attributes.svelte.js")
+    for needle in ("export function definitionDraft", "export function definitionBody", "confirm_near"):
+        if needle not in module:
+            fail(f"AC3: attributes.svelte.js lacks {needle}")
+    if "<StatesPanel entityId={detail.id}" not in read("Sheet.svelte"):
+        fail("AC3: Sheet.svelte does not render the states panel")
+    panel = read("StatesPanel.svelte")
+    for needle in ("kind: editing.kind", 'value="correction"', 'value="changement"', "kind: '' }"):
+        if needle not in panel:
+            fail(f"AC3: StatesPanel.svelte lacks {needle}")
+
+
 def main() -> int:
     _fresh_db()
     from world_engine.db import create_db_and_tables, engine
@@ -542,6 +700,8 @@ def main() -> int:
         ("AA1", check_aa1), ("AA2", lambda: check_aa2(engine, ids, defs)),
         ("AA3", lambda: check_aa3(engine, ids, defs)), ("AA4", lambda: check_aa4(engine, ids)),
         ("AA5", lambda: check_aa5(engine, ids, defs)), ("AA6", check_aa6), ("AA7", check_aa7),
+        ("AC1", lambda: check_ac1(engine, ids, defs)), ("AC2", lambda: check_ac2(engine, ids, defs)),
+        ("AC3", check_ac3),
     )
     for name, rule in rules:
         try:
@@ -554,7 +714,8 @@ def main() -> int:
         return 1
     print("PASS: attributes -- v2.22 keeps a world's attributes, one value per entity of the types each "
           "names, its history row by row; the system attributes read the canon's own columns; nothing in "
-          "use is taken away")
+          "use is taken away; Création defines them, asks before a near name, and sets an entity's "
+          "value as a correction or a change")
     return 0
 
 

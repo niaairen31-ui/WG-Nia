@@ -253,6 +253,8 @@
   <div id="creation-quetes" style:display={containerVisible('creation-quetes') ? '' : 'none'}></div>
   <!-- ── Dettes sub-tab -- Svelte island (TICKET-0110): empty by construction ── -->
   <div id="creation-dettes" style:display={containerVisible('creation-dettes') ? '' : 'none'}></div>
+  <!-- ── États sub-tab -- Svelte island (TICKET-0113): empty by construction ── -->
+  <div id="creation-etats" style:display={containerVisible('creation-etats') ? '' : 'none'}></div>
   <div id="creation-subjects" style:display={containerVisible('creation-subjects') ? '' : 'none'}></div>
 
   <!-- ── Review Queue sub-tab -- Svelte island: empty by construction ── -->

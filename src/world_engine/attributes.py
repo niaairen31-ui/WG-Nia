@@ -17,6 +17,10 @@ read the same way here:
   value, or the default when it holds none (WC1: nothing is written on read).
 - `world_entity_types(db, world_id)`  : the entity types a definition may
   name (WB2): the built-in four, then the world's active runtime types.
+- `near_attributes(db, world_id, name)` : the attributes whose name is near
+  a new one, for the creator to pick (BRIEF-0113-C, WK2).
+- `entity_states(db, world_id, entity)` : what an entity's sheet shows --
+  every attribute that applies to it, its value, its history.
 
 The vocabularies of the system attributes are the creator forms'
 (`cockpit/crud/entities.py`: `ENTITY_STATUSES`, the character's
@@ -32,7 +36,9 @@ from typing import Optional, Union
 
 from sqlmodel import Session, select
 
+from .lore_resolve import near_ratio, near_score, normalize_surface
 from .models import (
+    AttributeChange,
     AttributeChoice,
     AttributeDefinition,
     AttributeDefinitionType,
@@ -53,6 +59,12 @@ ATTRIBUTE_FORM = "attribute"
 BUILTIN_ENTITY_TYPES: tuple[str, ...] = ("character", "location", "faction", "item")
 
 SYSTEM_PREFIX = "sys:"
+
+# The French name of each built-in type, as the creator's « États » tab
+# lists them (a runtime type shows its `entity_type.name`).
+BUILTIN_TYPE_LABELS_FR: dict[str, str] = {
+    "character": "Personnage", "location": "Lieu", "faction": "Faction", "item": "Objet",
+}
 
 RawValue = Union[str, int, None]
 
@@ -242,3 +254,73 @@ def current_value(db: Session, view: AttributeView, entity: Entity) -> StateValu
         return StateValue(raw=view.default, label=value_label(db, view, view.default), is_default=True)
     raw = raw_of(row)
     return StateValue(raw=raw, label=value_label(db, view, raw), is_default=False)
+
+
+def world_entity_type_labels(db: Session, world_id: str) -> list[dict]:
+    """`world_entity_types` with each type's French name (BRIEF-0113-C)."""
+    names = dict(db.exec(select(EntityType.slug, EntityType.name).where(EntityType.world_id == world_id)).all())
+    return [{"type": t, "label": BUILTIN_TYPE_LABELS_FR.get(t) or names.get(t, t)}
+            for t in world_entity_types(db, world_id)]
+
+
+@dataclass(frozen=True)
+class NearAttribute:
+    key: str
+    name: str
+    system: bool
+    score: int
+
+
+def near_attributes(db: Session, world_id: str, name: str, exclude_key: Optional[str] = None) -> tuple[NearAttribute, ...]:
+    """The attributes whose name is near `name` (`lore_resolve.near_ratio`):
+    the system ones and the world's definitions, retired included, best
+    first. For display: the creator picks (WK2, never a duplicate « Maudit »
+    / « maudite »), the tool never does (0092)."""
+    target = normalize_surface(name or "")
+    if not target:
+        return ()
+    found = []
+    for view in world_attributes(db, world_id, include_retired=True):
+        if view.key == exclude_key:
+            continue
+        ratio = near_ratio(target, view.name)
+        if ratio is not None:
+            found.append(NearAttribute(view.key, view.name, view.system, near_score(ratio)))
+    return tuple(sorted(found, key=lambda n: (-n.score, n.name.casefold(), n.key)))
+
+
+def entity_states(db: Session, world_id: str, entity: Entity) -> list[dict]:
+    """Every active attribute that applies to `entity`, as its sheet shows it
+    (BRIEF-0113-C): the system ones first, then the world's by name, each
+    with its current value, its choices and its history, newest first."""
+    states = []
+    for view in world_attributes(db, world_id):
+        if not applies_to(view, entity.type):
+            continue
+        value = current_value(db, view, entity)
+        states.append({
+            "key": view.key, "name": view.name, "kind": view.kind, "system": view.system, "hidden": view.hidden,
+            "raw": value.raw, "label": value.label, "is_default": value.is_default,
+            "choices": [{"value": key, "label": label} for key, label in view.choices],
+            "value_types": list(view.value_types),
+            "history": [] if view.system else _history(db, view, entity.id),
+        })
+    return states
+
+
+def _history(db: Session, view: AttributeView, entity_id: str) -> list[dict]:
+    row = stored_value(db, view.key, entity_id)
+    if row is None:
+        return []
+    changes = db.exec(select(AttributeChange).where(AttributeChange.value_id == row.id)
+                      .order_by(AttributeChange.changed_at.desc(), AttributeChange.id)).all()
+    return [{
+        "kind": c.kind, "changed_by": c.changed_by, "changed_at": c.changed_at.isoformat(),
+        "before": value_label(db, view, _change_raw(c, "before", view.kind)),
+        "after": value_label(db, view, _change_raw(c, "after", view.kind)),
+    } for c in changes]
+
+
+def _change_raw(change: AttributeChange, side: str, kind: str) -> RawValue:
+    column = {"choice": "choice_id", "integer": "integer", "entity": "entity_id"}[kind]
+    return getattr(change, f"{side}_{column}")

@@ -183,6 +183,24 @@ class NearCandidate:
     score: int         # 0-100, ratio * 100 rounded half up
 
 
+def near_ratio(target: str, text: str) -> Optional[float]:
+    """How near `text` is to `target` (already `normalize_surface`d): a
+    `difflib` ratio >= `NEAR_RATIO` or a shared 3+ token qualifies, and the
+    ratio is returned; None otherwise. The one nearness rule, read by
+    `near_in_surfaces` and by `attributes.near_attributes` (TICKET-0113)."""
+    key = normalize_surface(text)
+    ratio = difflib.SequenceMatcher(None, target, key).ratio()
+    shared = {t for t in target.split() if len(t) >= 3} & {t for t in key.split() if len(t) >= 3}
+    return ratio if ratio >= NEAR_RATIO or shared else None
+
+
+def near_score(ratio: float) -> int:
+    """A ratio as a 0-100 score, rounded half up -- not `round()`: banker's
+    rounding would score 0.625 as 62, and TICKET-0094's Near table (La Reine
+    Grise, 63) is the acceptance reference."""
+    return int(ratio * 100 + 0.5)
+
+
 def near_in_surfaces(surface_form: str, name_surfaces: Sequence[NameSurface], *,
                      exclude_ids: frozenset[str] = frozenset()) -> tuple[NearCandidate, ...]:
     """Names close to `surface_form` among `name_surfaces` (C-03,
@@ -192,22 +210,17 @@ def near_in_surfaces(surface_form: str, name_surfaces: Sequence[NameSurface], *,
     target = normalize_surface(surface_form)
     if not target:
         return ()
-    long_target = {t for t in target.split() if len(t) >= 3}
     best: dict[str, tuple[float, NameSurface]] = {}
     for s in name_surfaces:
         if s.entity_id in exclude_ids:
             continue
-        key = normalize_surface(s.text)
-        ratio = difflib.SequenceMatcher(None, target, key).ratio()
-        shared = long_target & {t for t in key.split() if len(t) >= 3}
-        if ratio < NEAR_RATIO and not shared:
+        ratio = near_ratio(target, s.text)
+        if ratio is None:
             continue
         if s.entity_id not in best or ratio > best[s.entity_id][0]:
             best[s.entity_id] = (ratio, s)
-    # Half-up, not `round()`: banker's rounding would score 0.625 as 62, and
-    # the lot's Near table (La Reine Grise, 63) is the acceptance reference.
     found = [
-        NearCandidate(s.entity_id, s.entity_name, s.entity_type, s.text, int(ratio * 100 + 0.5))
+        NearCandidate(s.entity_id, s.entity_name, s.entity_type, s.text, near_score(ratio))
         for ratio, s in best.values()
     ]
     found.sort(key=lambda c: (-c.score, c.name.casefold(), c.entity_id))

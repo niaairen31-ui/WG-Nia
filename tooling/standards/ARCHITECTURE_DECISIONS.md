@@ -19137,6 +19137,33 @@ vocabulary grows by code), WH2 (V2 alone: « Le personnage est maudit » would
 tell the player), WH3 (a visible attribute readable on others; reactivation:
 TICKET-0114's journal knows who witnessed it, V1's condition).
 
+## THE CREATOR DEFINES THE STATES OF HER WORLD IN CRÉATION (TICKET-0113) -- AN « ÉTATS » TAB, A PANEL ON EVERY SHEET, A NEAR NAME CONFIRMED BEFORE IT IS WRITTEN (BRIEF-0113-c, no schema change)
+
+**WI1.** Création › États lists the world's attributes -- the three system
+ones first, read-only -- and writes one through `AttributeDefinitionForm`
+(name, kind, the types it applies to, an entity's value types, labels and
+default, hidden or not), the one form the interpreter's proposal card
+reuses (BRIEF-0113-E). A definition is retired, refused while a condition
+names it, or restored (WJ2). Every saved entity's sheet carries an
+« États » panel: each attribute that applies to its type, its value or
+« (défaut) », its history; a system attribute is read there and edited in
+its own field. Routes: `cockpit/routes/attributes.py`.
+
+**WD1 at the surface.** Changing a value asks « correction » or
+« changement » every time; neither is preselected, and a change without
+one is not sent.
+
+**WK2 in Création.** A new name near another attribute's
+(`attributes.near_attributes`, scored by `lore_resolve.near_ratio` -- the
+one nearness rule, extracted from `near_in_surfaces` unchanged) is not
+written: the answer is `saved: false` with the near ones, and the creator
+opens the existing one or creates anyway (`confirm_near`). « maudite »
+beside « Maudit » scores 92. An exact duplicate, case and accents aside, is
+refused by the writer outright.
+
+**Rejected.** WI2 (definitions created from the sheet only: the world's
+vocabulary scattered).
+
 ---
 
 *Co-built with Claude, June 2026.*
