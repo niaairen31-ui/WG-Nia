@@ -12,7 +12,8 @@ evaluated -- `doer`, the character who acts (the player for a quest or a day
 plan), `giver`, the offer's giver, `contact`, a faction giver's contact --
 or one fixed entity (`subject_entity_id`). A form judges a character; a
 subject that is not one, or a role nothing binds, makes the leaf
-`unknown`, never `met`.
+`unknown`, never `met`. An `attribute` leaf (TICKET-0113) judges any entity
+its attribute applies to; an entity it does not apply to is `unknown`.
 
 A verdict has three states (R1): `met`, `unmet`, `unknown`. The connectors
 follow Kleene's three-valued logic, so an `unknown` leaf can still be
@@ -21,7 +22,8 @@ outweighed (`any` with a met sibling is met). A gate passes only on `met`.
 A player sees a verdict only as his character could (AMENDMENT-0111-01,
 V2): `VerdictNode.seen_by` turns every judged leaf about someone else -- the
 giver, the contact, another character -- into `unknown`, and recombines the
-connectors from what is left. The creator's surfaces read the verdict whole.
+connectors from what is left. A leaf on a hidden attribute (TICKET-0113,
+WH1) is `unknown` to him even about himself. The creator's surfaces read the verdict whole.
 
 This module writes nothing: it reads the canon through the evaluators and
 reads a stored tree back (`read_condition`). Its writer is
@@ -35,7 +37,15 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
-from .condition_forms import _EVALUATORS, RequirementSpec, Verdict, _day_reachable_ids
+from .condition_forms import (
+    _EVALUATORS,
+    ANY_SUBJECT_TYPES,
+    HIDDEN_STATE_REASON_FR,
+    RequirementSpec,
+    Verdict,
+    _day_reachable_ids,
+    attribute_unjudged,
+)
 from .models import Character, Condition, ConditionNode, Entity
 
 # The four connectors, then the leaf.
@@ -117,6 +127,8 @@ class VerdictNode:
         and every connector is recombined from what is left, so no head
         line betrays a hidden leaf."""
         if self.op == "leaf":
+            if self.verdict is not None and self.verdict.hidden:
+                return replace(self, state="unknown", verdict=None, reason=HIDDEN_STATE_REASON_FR)
             if self.verdict is None or _seen_subject(self.spec, viewer_id):
                 return self
             return replace(self, state="unknown", verdict=None, reason=UNSEEN_REASON_FR)
@@ -356,8 +368,9 @@ def _combine(node: ConditionTree, children: tuple[VerdictNode, ...]) -> str:
 _ROLE_LABELS_FR = {"giver": "le donneur", "contact": "le contact"}
 
 
-def _subject(spec: RequirementSpec, bindings: Bindings, db: Session) -> tuple[Optional[Character], Optional[str]]:
-    """The character a leaf judges, or None and why (in French)."""
+def _subject(spec: RequirementSpec, bindings: Bindings, db: Session) -> tuple[Optional[object], Optional[str]]:
+    """The character a leaf judges -- any entity for a form of
+    `ANY_SUBJECT_TYPES` (TICKET-0113) -- or None and why (in French)."""
     if spec.subject_role == "doer":
         return bindings.doer, None
     if spec.subject_role is not None:
@@ -369,6 +382,9 @@ def _subject(spec: RequirementSpec, bindings: Bindings, db: Session) -> tuple[Op
         entity_id = spec.subject_entity_id
         entity = db.get(Entity, entity_id)
         label = entity.name if entity is not None else "le sujet"
+    if spec.type in ANY_SUBJECT_TYPES:
+        entity = db.get(Entity, entity_id)
+        return (entity, None) if entity is not None else (None, f"{label} n'existe pas")
     character = db.get(Character, entity_id)
     if character is None:
         return None, f"{label} n'est pas un personnage"
@@ -380,6 +396,9 @@ def _evaluate_leaf(spec: RequirementSpec, bindings: Bindings, db: Session, reach
     if evaluator is None:
         raise ValueError(f"unknown requirement type {spec.type!r}")
     character, why = _subject(spec, bindings, db)
+    if character is not None and spec.type in ANY_SUBJECT_TYPES:
+        why = attribute_unjudged(spec, character, db)
+        character = None if why else character
     if character is None:
         return VerdictNode(state="unknown", op="leaf", spec=spec, reason=why)
     ids = None

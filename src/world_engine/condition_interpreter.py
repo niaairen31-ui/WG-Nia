@@ -5,7 +5,8 @@ conditions series, IA1-IK1 of TICKET-0112).
 The model proposes, code validates, the creator confirms (A1): nothing here
 writes. `interpret` shows the model the language (`form_lines`), the
 entities the instruction names, coded lists of the world's facts (`f`), its
-quest offers (`q`) and skills (`s`), and -- when the creator edits a
+quest offers (`q`), skills (`s`) and attributes (`a`, TICKET-0113: a state
+by its code, a choice by its label), and -- when the creator edits a
 condition (IC1) -- the current tree in the model's own form, its entities
 coded `e`. The model answers that form (C-03): entities by name (or by an
 `e` code), every other target by code, never an id (ID1a). Code reads the
@@ -34,11 +35,22 @@ from typing import Any, Optional
 from sqlmodel import Session, select
 
 from . import model_exchange, prompt_call
+from .attribute_proposals import (
+    adopt,
+    is_unsaved,
+    near_existing,
+    read_definitions,
+    spec_dict,
+    spec_from_dict,
+    unsaved_views,
+    UnsavedAttribute,
+)
+from .attributes import ATTRIBUTE_FORM, AttributeView, world_attributes, world_entity_type_labels
 from .condition_forms import ENTITY_TARGET_TYPES, FORM_VALUES, REQUIREMENT_TYPES, RequirementSpec
 from .condition_text import FORM_PHRASES_FR, VALUE_LABELS_FR
 from .conditions import CONNECTORS, SUBJECT_ROLES, ConditionTree, all_of, check_shape, leaves, node_to_dict
 from .fact_refs import CodedRefs, code_facts, code_refs
-from .lore_resolve import CATEGORIES, near_candidates, resolve_named
+from .lore_resolve import CATEGORIES, near_candidates, normalize_surface, resolve_named
 from .lore_write_draft import MAX_CODED_FACTS, named_entity_ids, world_fact_ids
 from .models import BASE_SKILL_DOMAINS, Entity, FactParticipant, QuestOffer, SkillDefinition
 from .name_index import CREATOR
@@ -76,16 +88,18 @@ TARGET_HINTS_FR: dict[str, str] = {
     "has_debt_to": "un personnage ou une faction, par son nom",
     "no_debt_to": "un personnage ou une faction, par son nom",
     "item_held": "un objet, par son nom ; seuil = la quantité minimale",
-    "vital_status": "aucune cible ; valeur = l'état vital",
+    "attribute": "un état, par son code a ; pour un choix, valeur = un de ses libellés ; pour un nombre, "
+                 "seuil = le minimum ; pour une entité, valeur = une entité par son nom, ou null pour "
+                 "« quelqu'un »",
 }
 # The forms whose target is a code, and the list each code comes from.
-CODE_LISTS: dict[str, str] = {"knowledge": "f", "quest_state": "q", "skill_rank_gte": "s"}
+CODE_LISTS: dict[str, str] = {"knowledge": "f", "quest_state": "q", "skill_rank_gte": "s", "attribute": "a"}
 
 # IF1: what the language cannot say yet, by the kind the model gives it, and
 # where it will come from. IA1: a cost or a reward is a term of the offer.
 UNSUPPORTED_NOTES_FR: dict[str, str] = {
-    "state": "« {text} » : l'état du monde (ouvert, détruit, occupé…) n'est pas encore une "
-             "condition ; il arrive avec les attributs (TICKET-0113).",
+    "state": "« {text} » : cet état n'existe pas encore dans ce monde ; définis-le dans Création › États, "
+             "puis redemande.",
     "event": "« {text} » : ce qui s'est passé (tué, repéré, capturé…) n'est pas encore une "
              "condition ; il arrive avec le journal d'événements (TICKET-0114).",
     "time": "« {text} » : le temps (avant le jour N, pendant N tours) n'est pas encore une "
@@ -106,12 +120,14 @@ class InterpreterContext:
     """What the model may see; the coded lists also resolve its answer."""
 
     entity_lines: tuple[str, ...]
-    lists: dict[str, CodedRefs]  # "e", "f", "q", "s"
+    lists: dict[str, CodedRefs]  # "e", "f", "q", "s", "a"
     current: Optional[dict]
+    attributes: dict[str, AttributeView] = field(default_factory=dict)  # key -> view, the `a` list's
+    type_lines: tuple[str, ...] = ()  # the types a proposed definition may name (BRIEF-0113-E)
 
 
 def _current_ids(tree: Optional[ConditionTree]) -> dict[str, list[str]]:
-    found: dict[str, list[str]] = {"e": [], "f": [], "q": [], "s": []}
+    found: dict[str, list[str]] = {"e": [], "f": [], "q": [], "s": [], "a": []}
     for spec in leaves(tree):
         for entity_id in (spec.subject_entity_id, spec.target_entity_id):
             if entity_id and entity_id not in found["e"]:
@@ -132,7 +148,8 @@ def _skill_pairs(db: Session, world_id: str) -> list[tuple[str, str]]:
         ((d.id, d.name) for d in definitions), key=lambda pair: pair[1].lower())
 
 
-def build_context(db: Session, world_id: str, instruction: str, current: Optional[ConditionTree]) -> InterpreterContext:
+def build_context(db: Session, world_id: str, instruction: str, current: Optional[ConditionTree],
+                  unsaved: tuple = ()) -> InterpreterContext:
     """IE1: the facts of the current tree, then of the entities the
     instruction names, then the world-level facts, creator-only facts
     included, capped at `MAX_CODED_FACTS`; every offer and skill of the
@@ -145,15 +162,35 @@ def build_context(db: Session, world_id: str, instruction: str, current: Optiona
             FactParticipant.entity_id == entity_id).order_by(FactParticipant.fact_id)).all()
     fact_ids += world_fact_ids(db, world_id)
     offers = db.exec(select(QuestOffer).where(QuestOffer.world_id == world_id)).all()
+    attributes = {view.key: view for view in world_attributes(db, world_id)}
+    attributes.update(unsaved_views(unsaved))  # the draft's proposed ones (BRIEF-0113-E)
+    types = {t["type"]: t["label"] for t in world_entity_type_labels(db, world_id)}
     lists = {
         "e": code_refs("e", ((eid, _entity_label(db, eid)) for eid in ids["e"])),
         "f": code_facts(db, list(dict.fromkeys(fact_ids))[:MAX_CODED_FACTS]),
         "q": code_refs("q", sorted(((o.id, o.title) for o in offers), key=lambda pair: pair[1].lower())),
         "s": code_refs("s", _skill_pairs(db, world_id)),
+        "a": code_refs("a", ((key, attribute_line(view, types)) for key, view in attributes.items())),
     }
     lines = tuple(f"- {_entity_label(db, eid)}" for eid in named)
-    return InterpreterContext(entity_lines=lines, lists=lists,
-                              current=encode(current, lists) if current is not None else None)
+    return InterpreterContext(entity_lines=lines, lists=lists, attributes=attributes,
+                              type_lines=tuple(f"{t} — {label}" for t, label in types.items()),
+                              current=encode(current, lists, attributes) if current is not None else None)
+
+
+def attribute_line(view: AttributeView, types: dict[str, str]) -> str:
+    """One attribute as the model reads it in the `a` list (BRIEF-0113-D):
+    its name, its kind and what it compares to, the types it applies to."""
+    holders = "toute entité" if view.holder_types is None else ", ".join(
+        types.get(t, t).lower() for t in view.holder_types)
+    if view.kind == "choice":
+        kind = "choix : " + ", ".join(label for _key, label in view.choices)
+    elif view.kind == "integer":
+        kind = "nombre"
+    else:
+        kind = "une entité : " + ", ".join(types.get(t, t).lower() for t in view.value_types)
+    status = "système ; " if view.system else "à créer, proposé ; " if is_unsaved(view.key) else ""
+    return f"{view.name} ({status}{kind} ; pour : {holders})"
 
 
 # --- the model's form (C-03) ---------------------------------------------------
@@ -162,21 +199,29 @@ def _encode_ref(entity_id: Optional[str], lists: dict[str, CodedRefs]) -> Option
     return {"code": lists["e"].code_of(entity_id)} if entity_id else None
 
 
-def encode(tree: ConditionTree, lists: dict[str, CodedRefs]) -> dict:
+def encode(tree: ConditionTree, lists: dict[str, CodedRefs], attributes: Optional[dict] = None) -> dict:
     """A clean tree in the model's form: entities by `e` code, facts,
-    offers and skills by their code."""
+    offers, skills and attributes by their code; an attribute's choice by
+    its label, its entity value by `e` code (BRIEF-0113-D)."""
     if tree.op != "leaf":
-        out: dict[str, Any] = {"op": tree.op, "children": [encode(c, lists) for c in tree.children]}
+        out: dict[str, Any] = {"op": tree.op, "children": [encode(c, lists, attributes) for c in tree.children]}
         if tree.op == "at_least":
             out["n"] = tree.n
         return out
     spec = tree.leaf
     target = _encode_ref(spec.target_entity_id, lists)
+    value: Any = spec.value
     if spec.type in CODE_LISTS:
         target = {"code": lists[CODE_LISTS[spec.type]].code_of(spec.target_key)}
+    if spec.type == ATTRIBUTE_FORM:
+        view = (attributes or {}).get(spec.target_key)
+        if view is not None and view.kind == "choice":
+            value = dict(view.choices).get(spec.value, spec.value)
+        elif view is not None and view.kind == "entity":
+            value = _encode_ref(spec.target_entity_id, lists)
     return {"op": "leaf", "form": spec.type,
             "subject": spec.subject_role or _encode_ref(spec.subject_entity_id, lists),
-            "target": target, "threshold": spec.threshold, "value": spec.value}
+            "target": target, "threshold": spec.threshold, "value": value}
 
 
 def form_lines() -> str:
@@ -205,6 +250,7 @@ class Reading:
     mentions: list[dict] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     name_errors: list[str] = field(default_factory=list)
+    defined: dict[str, str] = field(default_factory=dict)  # the model's `define` ref -> `new:<ref>` (E)
 
 
 def _mention(db: Session, world_id: str, raw: dict, reading: Reading) -> Optional[str]:
@@ -267,10 +313,17 @@ def _leaf(db: Session, world_id: str, raw: dict, ctx: InterpreterContext, readin
             subject = {"name": subject, "kind": "person"}
         out["subject_entity_id"], out["subject_mention"] = _entity(db, world_id, subject, ctx, reading, where)
     target = raw.get("target")
+    if form == ATTRIBUTE_FORM and isinstance(target, dict) and "define" in target:
+        target = {"key": reading.defined.get(str(target["define"]))}
+        if target["key"] is None:
+            reading.errors.append(f"{where}état proposé inconnu {raw['target']['define']!r} (attendu : un "
+                                  "ref de « define »)")
     if isinstance(target, str) and form in ENTITY_TARGET_TYPES:  # a bare name
         target = {"name": target, "kind": "other"}
     if form in ENTITY_TARGET_TYPES:
         out["target_entity_id"], out["target_mention"] = _entity(db, world_id, target, ctx, reading, where)
+    elif form == ATTRIBUTE_FORM and isinstance(target, dict) and "key" in target:
+        out["target_key"] = target["key"]
     elif form in CODE_LISTS:
         code = target.get("code") if isinstance(target, dict) else target
         out["target_key"] = ctx.lists[CODE_LISTS[form]].resolve(code)
@@ -278,7 +331,38 @@ def _leaf(db: Session, world_id: str, raw: dict, ctx: InterpreterContext, readin
             reading.errors.append(f"{where}code inconnu {code!r} (attendu : un code {CODE_LISTS[form]})")
     elif form == "resource":
         out["target_key"] = RESOURCE_KEY
+    if form == ATTRIBUTE_FORM and out["target_key"] is not None:
+        _attribute_value(db, world_id, raw, ctx, reading, where, out)
     return {k: v for k, v in out.items() if v is not None or not k.endswith("_mention")}
+
+
+def _attribute_value(db: Session, world_id: str, raw: dict, ctx: InterpreterContext, reading: Reading,
+                     where: str, out: dict) -> None:
+    """What an `attribute` leaf compares to, by its attribute's kind
+    (BRIEF-0113-D): a choice's label -- or its stored value -- read back to
+    its key; an integer's threshold kept; an entity named (or null: anyone)
+    resolved like any target."""
+    view = ctx.attributes.get(out["target_key"])
+    if view is None:
+        return
+    value = raw.get("value")
+    out["value"] = None
+    if view.kind == "integer":
+        return
+    out["threshold"] = None
+    if view.kind == "entity":
+        if value is not None:
+            if isinstance(value, str):
+                value = {"name": value, "kind": "other"}
+            out["target_entity_id"], out["target_mention"] = _entity(db, world_id, value, ctx, reading, where)
+        return
+    wanted = normalize_surface(str(value or ""))
+    for key, label in view.choices:
+        if value == key or (wanted and normalize_surface(label) == wanted):
+            out["value"] = key
+            return
+    labels = ", ".join(label for _key, label in view.choices)
+    reading.errors.append(f"{where}« {value} » n'est pas un libellé de « {view.name} » (libellés : {labels})")
 
 
 def _read(db: Session, world_id: str, raw: Any, ctx: InterpreterContext, reading: Reading, path: str) -> dict:
@@ -299,10 +383,12 @@ def _read(db: Session, world_id: str, raw: Any, ctx: InterpreterContext, reading
     return out
 
 
-def read_answer(db: Session, world_id: str, raw: Any, ctx: InterpreterContext) -> Reading:
+def read_answer(db: Session, world_id: str, raw: Any, ctx: InterpreterContext,
+                defined: Optional[dict[str, str]] = None) -> Reading:
     """The model's `condition` read back: codes and names resolved, nothing
-    validated yet. None reads as no tree."""
-    reading = Reading()
+    validated yet. None reads as no tree. `defined`: the model's `define`
+    refs, already read (`attribute_proposals.read_definitions`)."""
+    reading = Reading(defined=dict(defined or {}))
     if raw is not None:
         reading.pending = _read(db, world_id, raw, ctx, reading, "1")
     return reading
@@ -347,10 +433,12 @@ def _tree(raw: dict) -> ConditionTree:
     return ConditionTree(op=raw["op"], n=raw.get("n"), children=tuple(_tree(c) for c in raw.get("children", [])))
 
 
-def validate(db: Session, world_id: str, pending: dict) -> tuple[Optional[ConditionTree], list[str]]:
+def validate(db: Session, world_id: str, pending: dict,
+             unsaved: Optional[dict] = None) -> tuple[Optional[ConditionTree], list[str]]:
     """A bound tree checked whole: its shape, then every leaf on its own
     (`clean_leaf`), so every error is reported at once. (tree, []) or
-    (None, errors)."""
+    (None, errors). `unsaved`: the proposed attributes' views, by `new:`
+    key (BRIEF-0113-E)."""
     try:
         tree = _tree(pending)
         check_shape(tree)
@@ -359,12 +447,12 @@ def validate(db: Session, world_id: str, pending: dict) -> tuple[Optional[Condit
     errors = []
     for index, spec in enumerate(leaves(tree), start=1):
         try:
-            clean_leaf(db, world_id, spec, where=f"condition {index} ({spec.type}) : ")
+            clean_leaf(db, world_id, spec, where=f"condition {index} ({spec.type}) : ", unsaved=unsaved)
         except ValueError as exc:
             errors.append(str(exc))
     if errors:
         return None, errors
-    clean = clean_condition(db, world_id, tree)
+    clean = clean_condition(db, world_id, tree, unsaved=unsaved)
     # A lone leaf is proposed as the editor's list sends it back: `all` of it
     # (`conditions.flat_leaves`, T1), so an unchanged insert saves as proposed.
     return (all_of(leaves(clean)) if clean.op == "leaf" else clean), []
@@ -383,12 +471,15 @@ class Interpretation:
     notes: list[str]
     errors: list[str]
     retried: bool = False
+    # BRIEF-0113-E: the attributes this answer proposes -- `{ref, definition,
+    # near}`, `near` the attributes whose name is near (the creator picks).
+    definitions: list[dict] = field(default_factory=list)
 
     def payload(self, current: Optional[ConditionTree], bindings: Optional[dict] = None) -> dict:
         """The journal's payload (`writes.condition_drafts.PAYLOAD_KEYS`)."""
         return {"current": node_to_dict(current), "pending": self.pending, "mentions": self.mentions,
                 "bindings": bindings or {}, "proposed": node_to_dict(self.tree),
-                "notes": self.notes, "errors": self.errors}
+                "notes": self.notes, "errors": self.errors, "definitions": self.definitions}
 
 
 Exchanges = Optional[list[model_exchange.ModelExchange]]
@@ -410,6 +501,7 @@ def prompt_values(ctx: InterpreterContext, role: str, instruction: str, errors: 
         "role": ROLE_LABELS_FR[role], "forms": form_lines(), "entities": _lines(ctx.entity_lines),
         "tree_entities": _lines(ctx.lists["e"].lines), "facts": _lines(ctx.lists["f"].lines),
         "offers": _lines(ctx.lists["q"].lines), "skills": _lines(ctx.lists["s"].lines),
+        "attributes": _lines(ctx.lists["a"].lines), "entity_types": _lines(ctx.type_lines),
         "current": json.dumps(ctx.current, ensure_ascii=False) if ctx.current is not None else "(aucune)",
         "instruction": instruction.strip(), "errors": _lines(f"- {e}" for e in errors),
     }
@@ -424,9 +516,13 @@ def _notes(raw: Any) -> list[str]:
     return notes
 
 
-def _settle(db: Session, world_id: str, reading: Reading, notes: list[str], retried: bool) -> Interpretation:
+def _settle(db: Session, world_id: str, reading: Reading, notes: list[str], retried: bool,
+            proposals: Optional[Proposals] = None) -> Interpretation:
+    proposals = proposals or Proposals()
+
     def done(outcome, tree=None, errors=()):
-        return Interpretation(outcome, tree, reading.pending, reading.mentions, notes, list(errors), retried)
+        return Interpretation(outcome, tree, reading.pending, reading.mentions, notes, list(errors), retried,
+                              proposals.entries())
 
     if reading.errors or reading.name_errors:
         return done("refused", errors=reading.errors + reading.name_errors)
@@ -434,25 +530,59 @@ def _settle(db: Session, world_id: str, reading: Reading, notes: list[str], retr
         return done("refused", errors=[] if notes else [NOTHING_PROPOSED_FR])
     if waiting(reading.pending):
         return done("needs_choice")
-    tree, errors = validate(db, world_id, reading.pending)
-    return done("proposed", tree) if tree is not None else done("refused", errors=errors)
+    tree, errors = validate(db, world_id, reading.pending, proposals.views())
+    if tree is None:
+        return done("refused", errors=errors)
+    return done("needs_choice" if proposals.near else "proposed", tree)
+
+
+@dataclass
+class Proposals:
+    """BRIEF-0113-E: the draft's unsaved attributes (`unsaved`), those this
+    answer proposes (`new`), and, for each new one, the attributes whose
+    name is near (`near`, by ref)."""
+
+    unsaved: tuple = ()
+    new: list = field(default_factory=list)
+    near: dict[str, list[dict]] = field(default_factory=dict)
+
+    def views(self) -> dict[str, AttributeView]:
+        return unsaved_views(tuple(self.unsaved) + tuple(self.new))
+
+    def entries(self) -> list[dict]:
+        return [{"ref": item.ref, "definition": spec_dict(item.spec), "near": self.near.get(item.ref, [])}
+                for item in self.new]
+
+
+def _answer(db: Session, world_id: str, parsed: dict, ctx: InterpreterContext, unsaved: tuple,
+            retried: bool) -> Interpretation:
+    """One answer read and settled: its `define` block first (the new
+    attributes join the context), then its condition."""
+    taken = {item.ref for item in unsaved}
+    new, defined, errors = read_definitions(db, world_id, parsed.get("define"), taken, list(unsaved))
+    ctx.attributes.update(unsaved_views(new))
+    reading = read_answer(db, world_id, parsed.get("condition"), ctx, defined)
+    reading.errors[:0] = errors
+    proposals = Proposals(unsaved=unsaved, new=new, near=near_existing(db, world_id, new, list(unsaved)))
+    return _settle(db, world_id, reading, _notes(parsed.get("unsupported")), retried, proposals)
 
 
 def interpret(
     db: Session, world_id: str, role: str, instruction: str, current: Optional[ConditionTree],
-    exchanges: Exchanges = None,
+    exchanges: Exchanges = None, unsaved: tuple = (),
 ) -> Interpretation:
     """II1: one call, and one more carrying the errors when code refused the
     first answer for anything but an unknown name. `OllamaError` and
-    `LlmParseError` propagate."""
-    ctx = build_context(db, world_id, instruction, current)
+    `LlmParseError` propagate. `unsaved`: the offer draft's proposed
+    attributes not saved yet (BRIEF-0113-E, WN2), shown to the model and
+    named by its leaves."""
+    ctx = build_context(db, world_id, instruction, current, unsaved)
     parsed = _call(db, prompt_values(ctx, role, instruction, []), exchanges)
-    result = _settle(db, world_id, read_answer(db, world_id, parsed.get("condition"), ctx),
-                     _notes(parsed.get("unsupported")), retried=False)
+    result = _answer(db, world_id, parsed, ctx, unsaved, retried=False)
     if result.outcome == "refused" and _retryable(result):
+        ctx = build_context(db, world_id, instruction, current, unsaved)
         parsed = _call(db, prompt_values(ctx, role, instruction, result.errors), exchanges)
-        result = _settle(db, world_id, read_answer(db, world_id, parsed.get("condition"), ctx),
-                         _notes(parsed.get("unsupported")), retried=True)
+        result = _answer(db, world_id, parsed, ctx, unsaved, retried=True)
     return result
 
 
@@ -464,10 +594,46 @@ def _retryable(result: Interpretation) -> bool:
 
 
 def resolve(db: Session, world_id: str, pending: dict, mentions: list[dict], notes: list[str],
-            bindings: dict[str, str]) -> Interpretation:
+            bindings: dict[str, str], definitions: tuple = (), unsaved: tuple = ()) -> Interpretation:
     """The creator's picks applied to a `needs_choice` proposal; no model
-    call. `ValueError` when a pick is missing or outside its choices."""
+    call. `ValueError` when a pick is missing or outside its choices. A
+    proposed attribute near another (BRIEF-0113-E, WK2) is picked by its
+    ref: `new` keeps it, an existing key moves its leaves there (`adopt`) --
+    a label that attribute does not have refuses the proposal. The adopted
+    one stays in `definitions`, marked `adopted` with its key."""
     bound = bind(pending, mentions, bindings)
-    tree, errors = validate(db, world_id, bound)
+    new, errors, adopted = [], [], []
+    for entry in definitions:
+        pick = bindings.get(entry["ref"])
+        if entry.get("adopted"):
+            adopted.append(entry)
+            continue
+        if entry.get("near") and pick != "new":
+            if pick not in {n["key"] for n in entry["near"]}:
+                raise ValueError(f"« {entry['definition']['name']} » : choisis un état existant ou « créer »")
+            try:
+                bound = adopt(db, world_id, bound, entry["ref"], pick, unsaved_views(unsaved))
+            except ValueError as exc:
+                errors.append(str(exc))
+            adopted.append({**entry, "adopted": pick})
+            continue
+        new.append(UnsavedAttribute(ref=entry["ref"], spec=spec_from_dict(entry["definition"])))
+    proposals = Proposals(unsaved=unsaved, new=new)
+    tree = None
+    if not errors:
+        tree, errors = validate(db, world_id, bound, proposals.views())
     outcome = "proposed" if tree is not None else "refused"
-    return Interpretation(outcome, tree, bound, mentions, list(notes), errors)
+    # An adopted proposal stays in the journal with the key it went to
+    # (the dashboard of TICKET-0115 counts them); no card shows it.
+    return Interpretation(outcome, tree, bound, mentions, list(notes), errors, False,
+                          proposals.entries() + adopted)
+
+
+def confirm(db: Session, world_id: str, proposed: Optional[dict], unsaved: tuple,
+            edited: tuple) -> tuple[Optional[ConditionTree], list[str]]:
+    """BRIEF-0113-E: the proposed tree checked again against the definitions
+    as the creator confirmed them (`edited`, perhaps retouched in the card)
+    and the draft's other unsaved ones. (tree, []) or (None, errors)."""
+    if proposed is None:
+        return None, []
+    return validate(db, world_id, proposed, unsaved_views(tuple(unsaved) + tuple(edited)))

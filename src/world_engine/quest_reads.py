@@ -17,6 +17,7 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
+from .attributes import AttributeView, world_attributes, world_entity_type_labels
 from .condition_forms import FORM_VALUES
 from .condition_text import VALUE_LABELS_FR, describe, verdict_lines
 from .conditions import evaluate, flat_leaves, node_to_dict, read_condition
@@ -58,13 +59,15 @@ def _requirement_dict(req) -> dict:
             "subject_entity_id": req.subject_entity_id, "value": req.value}
 
 
-def condition_view(db: Session, tree) -> dict:
+def condition_view(db: Session, tree, unsaved: Optional[dict] = None) -> dict:
     """One condition as the editor reads it (TICKET-0111, T1): the tree
     itself, its leaves when it is flat (the list the editor edits; None when
-    it is not -- shown, sent back unchanged), and its French lines."""
+    it is not -- shown, sent back unchanged), and its French lines -- an
+    unsaved attribute the interpreter proposed named by `unsaved`
+    (TICKET-0113, BRIEF-0113-E)."""
     flat = flat_leaves(tree)
     return {"tree": node_to_dict(tree), "flat": None if flat is None else [_requirement_dict(r) for r in flat],
-            "lines": describe(db, tree)}
+            "lines": describe(db, tree, unsaved)}
 
 
 def _name(db: Session, entity_id: Optional[str]) -> Optional[str]:
@@ -124,7 +127,8 @@ def editor_choices(world_id: str, db: Session) -> dict:
     factions, facts (their text), skills (base domains, then definitions),
     offers; items with their value, the fact reward levels and the world's
     rates (TICKET-0109); each faction's members (TICKET-0110, X1); the
-    values a form compares to (TICKET-0111)."""
+    values a form compares to (TICKET-0111); the world's attributes and its
+    active entities (TICKET-0113)."""
     facts = db.exec(select(Fact).where(Fact.world_id == world_id)).all()
     definitions = db.exec(select(SkillDefinition).where(SkillDefinition.world_id == world_id)).all()
     characters = _named(db, world_id, "character")
@@ -147,6 +151,25 @@ def editor_choices(world_id: str, db: Session) -> dict:
         # TICKET-0111 (S1): the values a form compares to, in French.
         "form_values": {form: [{"value": value, "label": VALUE_LABELS_FR[form][value]} for value in values]
                         for form, values in FORM_VALUES.items()},
+        # TICKET-0113 (BRIEF-0113-B): the attributes an `attribute` leaf may
+        # read, and every active entity -- a leaf's fixed subject, an entity
+        # value.
+        "attributes": [attribute_choice(view) for view in world_attributes(db, world_id)],
+        # TICKET-0113 (BRIEF-0113-E): the types a proposed definition may name.
+        "entity_types": world_entity_type_labels(db, world_id),
+        "entities": sorted(({"id": e.id, "name": e.name, "type": e.type} for e in db.exec(select(Entity).where(
+            Entity.world_id == world_id, Entity.status == "active")).all()),
+            key=lambda d: (d["name"].lower(), d["id"])),
+    }
+
+
+def attribute_choice(view: AttributeView) -> dict:
+    """One attribute as the condition editor lists it (TICKET-0113)."""
+    return {
+        "key": view.key, "name": view.name, "kind": view.kind, "system": view.system, "hidden": view.hidden,
+        "holder_types": list(view.holder_types) if view.holder_types is not None else None,
+        "value_types": list(view.value_types),
+        "choices": [{"value": key, "label": label} for key, label in view.choices],
     }
 
 

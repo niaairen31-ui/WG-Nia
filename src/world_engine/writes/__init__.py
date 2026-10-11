@@ -59,6 +59,12 @@ Layout, by canon domain:
                           `clean_condition`, `write_condition`,
                           `delete_offer_conditions` (TICKET-0111,
                           BRIEF-0111-C).
+    attributes.py       — the state of the world: `attribute_definition`,
+                          `attribute_definition_type`, `attribute_choice`,
+                          `attribute_value`, `attribute_change`:
+                          `clean_definition`, `write_attribute_definition`,
+                          `set_attribute_status`, `write_attribute_value`
+                          (TICKET-0113, BRIEF-0113-A).
     worlds.py           — `delete_world_cascade` (the sole delete-side
                           helper, wildcard-allowed in canon_write_policy.txt).
 
@@ -158,6 +164,14 @@ from .quests import (
     write_quest_offer,
 )
 from .conditions import clean_condition, clean_leaf, delete_offer_conditions, write_condition
+from .attributes import (
+    ChoiceSpec,
+    DefinitionSpec,
+    clean_definition,
+    set_attribute_status,
+    write_attribute_definition,
+    write_attribute_value,
+)
 from .pipeline import (
     BATCH_RESOLVED_STATUS,
     BATCH_STATUSES,

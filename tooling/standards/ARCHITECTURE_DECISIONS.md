@@ -19052,6 +19052,181 @@ D2 (compress only, everything in the root; reactivation: a session misses a
 local invariant), D3 (an imported file: loaded at launch anyway), H2 (a
 second full text of each invariant), H3 (cut without keeping the law).
 
+## THE STATE OF THE WORLD IS A WORLD'S OWN ATTRIBUTES (TICKET-0113) -- A DEFINITION PER IDEA, ONE VALUE PER ENTITY, ITS HISTORY ROW BY ROW (BRIEF-0113-a, schema v2.22)
+
+**B1, G1 of the conditions series.** What the canon could not say -- the
+door is open, the bridge destroyed, the throne occupied by Ysa -- is now an
+attribute the creator defines in her world, never a column, never a ticket.
+`attribute_definition` names it and its kind (WA3): `choice` (labels in
+`attribute_choice`, one the default), `integer`, or `entity` (another
+entity, of the types its `value` side names). `attribute_definition_type`
+lists the entity types it applies to (WB2: one « Maudit » for characters and
+items, not three). `attribute_value` holds one entity's value; an entity
+with none reads the default and nothing is written on read (WC1).
+`attribute_change` is its history, append-only -- the rows ARE the history
+-- each row the value before and after and `correction` or `changement`,
+the creator's choice at every write as for facts since TICKET-0105 (WD1).
+`is_hidden` (WH1, off by default) is read by the condition language
+(BRIEF-0113-B). `writes/attributes.py` is the one writer of the five tables.
+
+**WE1.** The states the canon already keeps -- `character.vital_status`,
+`entity.status`, `location.magic_status` -- are SYSTEM attributes
+(`attributes.SYSTEM_ATTRIBUTES`), read where they live and never copied
+(G3 rejected: one state in two places diverges). No definition takes a
+system attribute's name, nor another definition's of its world, compared
+through `lore_resolve.normalize_surface`.
+
+**WJ2.** Nothing in use is taken away: a definition's kind once a value or
+a condition holds it, a subject type an entity holding a value has, a
+value type a value names, a label a value or a condition holds. A label
+dropped is retired, never deleted (a history names it); a definition is
+retired, refused while a condition names it, and can be restored. The
+types are replaced whole (`_write_types`, the full-replace shape of
+`write_offer_terms`, named in `single_canon_write.py`).
+
+**v2.22 moves `schema_meta` to v2.22 only.** `migrate_v2_22_attributes.py`
+converges to its own version, not the code's: v2.23 (BRIEF-0113-B) converts
+condition leaves this one does not, and the boot guard keeps refusing until
+it has run.
+
+**Rejected.** WA1 (choice and integer only; reactivation: none -- « occupé
+par Ysa » needed the `entity` kind), WA2 (choice only), WB1 (one type per
+definition: the same idea defined three times), WB3 (every entity type),
+WC2 (a value written for every entity at definition), WC3 (no value reads
+unknown), WD2 (a JSON history: it is shown), WD3 (the history alone, the
+current value its last row), WE2 (the `vital_status` form kept beside the
+attribute form), WE3 (no system attribute: « détruit » defined twice), WJ1
+(retiring silently breaks conditions), WJ3 (a hard delete).
+
+## A CONDITION READS THE STATE OF THE WORLD (TICKET-0113) -- ONE FORM, `attribute`, ON ANY ENTITY IT APPLIES TO; `vital_status` BECOMES ONE OF ITS SYSTEM ATTRIBUTES (BRIEF-0113-b, schema v2.23)
+
+**WG1.** One form reads every attribute: `attribute`, its `target_key` a
+definition id or a system key. A `choice` compares to one of its labels
+(`value`), an `integer` to a threshold (`threshold`, « N or more », any
+integer), an `entity` to an entity (`target_entity_id`) -- or, with none,
+to anyone. Its subject is any entity the attribute applies to
+(`condition_forms.ANY_SUBJECT_TYPES`): « le pont est détruit » judges the
+bridge. A subject the attribute does not apply to, or a role bound to such
+an entity, makes the leaf `unknown`, never `unmet`. The vocabulary grows by
+data -- a new state is a definition, never a form.
+
+**WE1.** The form `vital_status` is retired: `migrate_v2_23_attribute_leaves.py`
+turns its leaves into `attribute` leaves on `sys:vital_status`, subject and
+value kept (measured on the production database before the lot: none),
+refusing a leaf it cannot convert. The column stays where it is (G3).
+`NO_TARGET_TYPES` and `VITAL_STATUSES` go with it; `FORM_VALUES` keeps
+`quest_state` alone.
+
+**WH1, INV-62.** A leaf on a hidden attribute is `unknown` to a player even
+about his own character (`VerdictNode.seen_by`), written « … est dans un
+état encore caché » (`HIDDEN_STATE_FR`), « quelque chose de caché l'en
+empêche encore » in a blocked step (`HIDDEN_STATE_DETAIL_FR`): neither its
+name nor its value reaches him. `Verdict.hidden` carries it to
+`player_detail_fr`. A hidden attribute its subject cannot hold is `unknown`
+with `HIDDEN_STATE_REASON_FR`, a reason that names nothing, because every
+surface writes the reason out (AMENDMENT-0113-01). AMENDMENT-0111-01's A1
+and V2 and this rule are one invariant, INV-62, in CLAUDE.md.
+
+**The editor.** The offer editor's row lists the world's attributes
+(`editor_choices.attributes`) and, for an attribute, every active entity of
+a type it applies to as a fixed subject (`editor_choices.entities`); what
+it compares to follows the attribute's kind.
+
+**Rejected.** WG2 (two forms, `attribute_is` and `attribute_gte`: the
+vocabulary grows by code), WH2 (V2 alone: « Le personnage est maudit » would
+tell the player), WH3 (a visible attribute readable on others; reactivation:
+TICKET-0114's journal knows who witnessed it, V1's condition).
+
+## THE CREATOR DEFINES THE STATES OF HER WORLD IN CRÉATION (TICKET-0113) -- AN « ÉTATS » TAB, A PANEL ON EVERY SHEET, A NEAR NAME CONFIRMED BEFORE IT IS WRITTEN (BRIEF-0113-c, no schema change)
+
+**WI1.** Création › États lists the world's attributes -- the three system
+ones first, read-only -- and writes one through `AttributeDefinitionForm`
+(name, kind, the types it applies to, an entity's value types, labels and
+default, hidden or not), the one form the interpreter's proposal card
+reuses (BRIEF-0113-E). A definition is retired, refused while a condition
+names it, or restored (WJ2). Every saved entity's sheet carries an
+« États » panel: each attribute that applies to its type, its value or
+« (défaut) », its history; a system attribute is read there and edited in
+its own field. Routes: `cockpit/routes/attributes.py`.
+
+**WD1 at the surface.** Changing a value asks « correction » or
+« changement » every time; neither is preselected, and a change without
+one is not sent.
+
+**WK2 in Création.** A new name near another attribute's
+(`attributes.near_attributes`, scored by `lore_resolve.near_ratio` -- the
+one nearness rule, extracted from `near_in_surfaces` unchanged) is not
+written: the answer is `saved: false` with the near ones, and the creator
+opens the existing one or creates anyway (`confirm_near`). « maudite »
+beside « Maudit » scores 92. An exact duplicate, case and accents aside, is
+refused by the writer outright.
+
+**Rejected.** WI2 (definitions created from the sheet only: the world's
+vocabulary scattered).
+
+## THE INTERPRETER READS THE STATES OF THE WORLD (TICKET-0113) -- AN `a` LIST OF CODED ATTRIBUTES, A CHOICE BY ITS LABEL, THE PROMPT DELIVERED FRAGMENT BY FRAGMENT (BRIEF-0113-d, no schema change)
+
+**ID1a, extended.** The interpreter shows the model every active attribute
+of the world -- the system ones, then the world's, a hidden one included
+(IE1: a creator surface) -- in one more coded list, `a`, through the same
+`fact_refs.code_refs`: each line names the attribute, its kind and what it
+compares to, and the types it applies to. An `attribute` leaf in the
+model's form targets its code; a choice is written by its label (read back
+case- and accent-blind to its key), an integer by its threshold, an entity
+by its name (or null: anyone) -- resolved like any target, an ambiguity
+left to the creator. A label the attribute does not have is an error the
+model gets back once (II1), with the attribute's labels.
+
+**A missing state.** Listed as `state`, it reads « définis-le dans
+Création › États, puis redemande » -- until BRIEF-0113-E lets the
+interpreter propose it.
+
+**Delivery.** `seed_pilot.CONDITION_INTERPRET_FRAGMENTS` holds each change
+to the 0112 text as (field, old, new); the seed's text is the 0112 text
+with them applied, and `apply_ticket_0113_condition_prompt.py` applies them
+to the CURRENT version -- an edit the creator made in the Prompts tab is
+kept, a fragment she rewrote is reported -- after declaring the new
+variable `attributes`. One single source: the two cannot diverge. A new
+text is looked for before its old one, since an old fragment may stand
+inside its new text.
+
+## THE INTERPRETER PROPOSES A STATE THE WORLD LACKS (TICKET-0113) -- THE DEFINITION AND THE CONDITION CONFIRMED TOGETHER, A NEAR NAME PICKED, BOTH WRITTEN BY THE OFFER'S SAVE (BRIEF-0113-e, no schema change)
+
+**WK2.** A state the `a` list lacks is no longer a dead end: the model
+proposes its definition in its answer's `define` block (name, kind, the
+types it applies to, labels and default, an entity's value types, hidden
+or not) and the condition names it `{"define": ...}`. Code cleans it with
+the writer's own `clean_definition`; refused, it goes back to the model once
+with its error (II1). The definition joins the condition's proposal as a
+card the creator reads, retouches in the same `AttributeDefinitionForm` as
+Création › États, and confirms with « Insérer » -- the condition checked
+again against what she confirmed. Never a duplicate unseen: a proposed
+name near an existing attribute's or another proposal's
+(`attributes.near_attributes`, `lore_resolve.near_ratio`) makes the
+proposal `needs_choice`; she uses the existing one -- the leaves move onto
+it, a label read back to its choice, refused if it has no such label -- or
+creates this one. The tool never picks (0092).
+
+**WN2.** Until « Enregistrer », a proposed definition is UNSAVED: it lives
+in the offer draft (`unsaved_attributes`), keyed `new:<ref>`, sent with
+every interpreter request -- the model sees it, a later sentence may name
+it -- and every condition naming it is validated against it by
+`clean_leaf(..., unsaved=...)`; `write_condition` passes none, so no `new:`
+key is ever stored. The offer's save (`attribute_proposals.materialize`)
+writes each definition a condition still names through
+`write_attribute_definition`, in the offer's transaction, before the
+conditions, rewritten to the ids written; one no condition names is not
+written. The journal keeps each proposal (`definitions`: proposed, and
+`confirmed` or `adopted`), and « saved as proposed » compares the saved
+tree with the proposal rewritten the same way.
+
+**Rejected.** WK1 (the interpreter only names the missing state and sends
+the creator to États; reactivation: none -- A1 of the series). WN1 (« Insérer »
+writes the definition at once: two transactions, an abandoned offer
+leaving a definition behind). Adding a missing label to an existing
+attribute from the interpreter: deferred (reactivation: the journal shows
+proposals refused because the existing attribute lacks the label).
+
 ---
 
 *Co-built with Claude, June 2026.*

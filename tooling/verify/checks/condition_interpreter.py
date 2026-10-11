@@ -53,7 +53,7 @@ NC1 -- the interpreter's shape (BRIEF-0112-C; static and import).
    order; every form of `CODE_LISTS` is outside `ENTITY_TARGET_TYPES`;
    `UNSUPPORTED_NOTES_FR` covers exactly state, event, time, cost, reward
    and other -- cost names « Coûts », reward « Récompenses », state
-   TICKET-0113, event TICKET-0114; `ROLE_LABELS_FR` covers
+   « Création › États » (TICKET-0113), event TICKET-0114; `ROLE_LABELS_FR` covers
    `CONDITION_ROLES`; `RESOURCE_KEY` equals the editor's `MONEY_KEY`.
    `condition_interpreter.py` calls `chat` nowhere: `_call` is one return
    of `prompt_call.call_json(..., chat)`; it calls none of `add`, `commit`,
@@ -70,7 +70,7 @@ NC2 -- context and form (fixture). `build_context` codes the current
    (`q`); the four base domains then the world's skill (`s`); the current
    tree's entities (`e`); and lists the named entity. A clean tree using
    every connector, a fixed subject, a code target of each list, an entity
-   target, `resource` and `vital_status` encodes to the model's form and
+   target, `resource` and a fixed subject encodes to the model's form and
    reads back, bound and validated, to the same tree. `form_lines` has one
    line per form carrying its phrase.
 NC3 -- interpretation (fixture, `condition_interpreter.chat` stubbed).
@@ -118,7 +118,9 @@ ND3 -- saving the offer (fixture). An offer saved with its eligibility as
    the save whole and the `proposed` draft unmoved.
 
 NE1 -- the editor (BRIEF-0112-E; static). `ConditionEditor.svelte` renders
-   `<ConditionInterpreter {cond} {role} />`; `QuestOffers.svelte` passes
+   `<ConditionInterpreter {cond} {role}` (with the draft's unsaved
+   attributes since TICKET-0113, `attribute_interpreter.py` AE1);
+   `QuestOffers.svelte` passes
    `role="eligibility"`, `"prerequisite"` and `"completion"`, one each.
    `conditionInterpreter.svelte.js` POSTs `/api/conditions/interpret` with
    `current: conditionBody(cond)` and `attempt_id: state.attemptId`,
@@ -393,7 +395,7 @@ def check_nb1() -> None:
 
 def _payload(**over) -> dict:
     base = {"current": None, "pending": None, "mentions": [], "bindings": {}, "proposed": None,
-            "notes": [], "errors": []}
+            "notes": [], "errors": [], "definitions": []}
     base.update(over)
     return base
 
@@ -590,7 +592,7 @@ def _nc1_tables() -> None:
         fail(f"NC1: CODE_LISTS is {ci.CODE_LISTS}")
     notes = ci.UNSUPPORTED_NOTES_FR
     if set(notes) != {"state", "event", "time", "cost", "reward", "other"} or "« Coûts »" not in notes["cost"] \
-            or "« Récompenses »" not in notes["reward"] or "TICKET-0113" not in notes["state"] \
+            or "« Récompenses »" not in notes["reward"] or "Création › États" not in notes["state"] \
             or "TICKET-0114" not in notes["event"]:
         fail(f"NC1: UNSUPPORTED_NOTES_FR reads {notes}")
     if set(ci.ROLE_LABELS_FR) != set(CONDITION_ROLES):
@@ -650,7 +652,7 @@ def _value_keys() -> set[str]:
     from world_engine.fact_refs import CodedRefs
 
     empty = CodedRefs(codes={}, lines=())
-    ctx = ci.InterpreterContext(entity_lines=(), lists={k: empty for k in "efqs"}, current=None)
+    ctx = ci.InterpreterContext(entity_lines=(), lists={k: empty for k in "efqsa"}, current=None)
     return set(ci.prompt_values(ctx, "eligibility", "x", []))
 
 
@@ -735,7 +737,7 @@ def _full_tree(ids) -> dict:
         {"op": "not", "children": [_leafd("faction_member", target_entity_id=ids["guild"])]},
         {"op": "at_least", "n": 1, "children": [
             _leafd("resource", target_key="monnaie", threshold=30),
-            _leafd("vital_status", subject_role=None, subject_entity_id=ids["garde"], value="alive"),
+            _leafd("has_met", subject_role=None, subject_entity_id=ids["garde"], target_entity_id=ids["tower"]),
             _leafd("location_reachable", target_entity_id=ids["tower"])]},
     ]}
 
@@ -1143,7 +1145,7 @@ def _front(name: str) -> str:
 
 def check_ne1() -> None:
     editor = _front("ConditionEditor.svelte")
-    if "<ConditionInterpreter {cond} {role} />" not in editor:
+    if "<ConditionInterpreter {cond} {role} " not in editor:
         fail("NE1: ConditionEditor.svelte does not render the interpreter with its role")
     offers = _front("QuestOffers.svelte")
     for role in ("eligibility", "prerequisite", "completion"):
@@ -1151,11 +1153,11 @@ def check_ne1() -> None:
             fail(f"NE1: QuestOffers.svelte does not pass role={role!r} to one ConditionEditor")
     state = _front("conditionInterpreter.svelte.js")
     for needle in ("'/api/conditions/interpret'", "current: conditionBody(cond)", "attempt_id: state.attemptId",
-                   "'/resolve'", "bindings: state.picks", "'/decision'", "decide(state, 'discarded')"):
+                   "'/resolve'", "{ ...state.picks }", "'/decision'", "decide(state, 'discarded')"):
         if needle not in state:
             fail(f"NE1: conditionInterpreter.svelte.js lacks {needle!r}")
     body = state[state.find("export async function insertProposal"):]
-    inserted, assigned = body.find("decide(state, 'inserted')"), body.find(
+    inserted, assigned = body.find("decide(state, 'inserted'"), body.find(
         "Object.assign(cond, conditionDraft(proposal.view), { draftId: proposal.draft_id })")
     if inserted < 0 or assigned < 0 or assigned < inserted:
         fail("NE1: insertProposal does not record `inserted` before it fills the condition")

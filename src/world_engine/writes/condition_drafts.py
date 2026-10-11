@@ -22,7 +22,7 @@ fails as a `ValueError` naming the field rather than as an `IntegrityError`.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from fastapi.encoders import jsonable_encoder
 from sqlmodel import Session
@@ -40,9 +40,12 @@ CONDITION_DRAFT_MOVES: dict[str, tuple[str, ...]] = {
 # of `conditions.node_to_dict`, or None), the model's tree as code read it
 # with names still to pick (`pending`), the names it mentions and the picks
 # made, the tree code validated (`proposed`, dict form), the notes and the
-# errors shown to the creator.
+# errors shown to the creator; since TICKET-0113 (BRIEF-0113-E) the
+# attributes it proposed (`definitions`: `{ref, definition, near}`, and
+# once inserted `confirmed`, the definition as the creator confirmed it --
+# the dashboard of TICKET-0115 compares the two).
 PAYLOAD_KEYS: frozenset[str] = frozenset({
-    "current", "pending", "mentions", "bindings", "proposed", "notes", "errors",
+    "current", "pending", "mentions", "bindings", "proposed", "notes", "errors", "definitions",
 })
 WORLD_NAME_UNKNOWN = "(monde introuvable)"
 
@@ -99,11 +102,15 @@ def move_condition_draft(
 
 def mark_draft_saved(
     db: Session, *, world_id: str, draft_id: Optional[str], offer_id: str, tree: Optional[dict],
+    proposed_as_saved: Optional[Callable[[Optional[dict]], Optional[dict]]] = None,
 ) -> bool:
     """The offer `offer_id` was saved holding `tree` (dict form) where the
     creator inserted `draft_id`. True when the draft was marked; False --
     and nothing written -- when there is no such draft in `world_id`, or it
-    is not `inserted`."""
+    is not `inserted`. `proposed_as_saved` (TICKET-0113, BRIEF-0113-E): the
+    proposed tree as the save rewrote it -- its unsaved attributes' keys
+    and labels to the ids written -- so « as proposed » compares like with
+    like."""
     if not draft_id:
         return False
     draft = db.get(ConditionDraft, draft_id)
@@ -111,7 +118,10 @@ def mark_draft_saved(
         return False
     draft.outcome = "saved"
     draft.offer_ref = offer_id
-    draft.saved_as_proposed = jsonable_encoder(tree) == draft.payload.get("proposed")
+    proposed = draft.payload.get("proposed")
+    if proposed_as_saved is not None:
+        proposed = proposed_as_saved(proposed)
+    draft.saved_as_proposed = jsonable_encoder(tree) == proposed
     draft.decided_at = datetime.now(UTC)
     db.add(draft)
     return True

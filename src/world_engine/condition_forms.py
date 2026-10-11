@@ -38,6 +38,7 @@ from typing import Callable, Optional
 
 from sqlmodel import Session, func, select
 
+from .attributes import AttributeView, applies_to, current_value, value_label, view_of
 from .models import (
     Agenda,
     Character,
@@ -64,11 +65,15 @@ from .skill_access import held_rank, skill_label
 # `no_debt_to`, creator only as well. Twelve since v2.20 (TICKET-0111,
 # BRIEF-0111-C, S1): `quest_state` replaces `quest_completed` (a quest in
 # any of its four states, `completed` among them), `item_held` and
-# `vital_status` read data the canon already keeps.
+# `vital_status` read data the canon already keeps. Since v2.23
+# (TICKET-0113, BRIEF-0113-B, WE1, WG1): `attribute` reads one attribute of
+# its subject -- a world's definition or a system attribute, `vital_status`
+# among them -- and replaces the `vital_status` form (`attributes.ATTRIBUTE_FORM`
+# names it there, `attribute_conditions.py` AB1 keeps the two equal).
 REQUIREMENT_TYPES: tuple[str, ...] = (
     "knowledge", "relation_gte", "resource", "location_reachable",
     "has_met", "faction_member", "skill_rank_gte", "quest_state",
-    "has_debt_to", "no_debt_to", "item_held", "vital_status",
+    "has_debt_to", "no_debt_to", "item_held", "attribute",
 )
 
 # What `emit_plan`'s parser accepts from the model (TICKET-0108): the four
@@ -81,14 +86,12 @@ MODEL_REQUIREMENT_TYPES: tuple[str, ...] = ("knowledge", "relation_gte", "resour
 ENTITY_TARGET_TYPES: tuple[str, ...] = (
     "relation_gte", "location_reachable", "has_met", "faction_member", "has_debt_to", "no_debt_to", "item_held",
 )
-KEY_TARGET_TYPES: tuple[str, ...] = ("knowledge", "resource", "skill_rank_gte", "quest_state")
+KEY_TARGET_TYPES: tuple[str, ...] = ("knowledge", "resource", "skill_rank_gte", "quest_state", "attribute")
 THRESHOLD_TYPES: tuple[str, ...] = ("relation_gte", "resource", "skill_rank_gte", "item_held")
-# v2.20: a form with no target judges its subject alone; a form with a
-# value compares to one of its own closed set.
-NO_TARGET_TYPES: tuple[str, ...] = ("vital_status",)
-# `character.vital_status` has no CHECK: its values are the creator form's
-# (`cockpit/crud/entities.py`, the character fields' `vital_status` select).
-VITAL_STATUSES: tuple[str, ...] = ("alive", "dead", "missing", "unknown")
+# v2.23 (TICKET-0113, WG1): the forms whose subject may be any entity of
+# the world -- an attribute applies to the types its definition names; every
+# other form judges a character.
+ANY_SUBJECT_TYPES: tuple[str, ...] = ("attribute",)
 # A quest's state is its agenda's (M1 of TICKET-0108); `open` is `active` or
 # `paused`, the player's « en cours ».
 QUEST_STATES: tuple[str, ...] = ("open", "completed", "failed", "abandoned")
@@ -96,7 +99,10 @@ QUEST_STATE_AGENDA_STATUSES: dict[str, tuple[str, ...]] = {
     "open": ("active", "paused"), "completed": ("completed",), "failed": ("failed",),
     "abandoned": ("abandoned",),
 }
-FORM_VALUES: dict[str, tuple[str, ...]] = {"vital_status": VITAL_STATUSES, "quest_state": QUEST_STATES}
+# A form whose `value` is one of a closed set. An `attribute` leaf's value is
+# one of its definition's choices: its writer checks it against the
+# definition, never a set here.
+FORM_VALUES: dict[str, tuple[str, ...]] = {"quest_state": QUEST_STATES}
 
 
 @dataclass(frozen=True)
@@ -129,6 +135,9 @@ class Verdict:
     # TICKET-0097: the player-facing text of `required` when it is an id
     # (a `knowledge` gate's fact); None when `required` is already readable.
     required_label: Optional[str] = None
+    # TICKET-0113 (BRIEF-0113-B, WH1): the leaf reads a hidden attribute --
+    # never written out, nor its state shown, on a player surface.
+    hidden: bool = False
 
 
 
@@ -326,15 +335,72 @@ def _eval_item_held(req: RequirementSpec, character: Character, db: Session, rea
     return Verdict(type=req.type, met=met, current=held, required=threshold, reason=reason, required_label=name)
 
 
-def _eval_vital_status(req: RequirementSpec, character: Character, db: Session, reachable_ids) -> Verdict:
-    """No target: the subject's own `vital_status` equals `value`."""
+def _attribute_required(db: Session, req: RequirementSpec, view: AttributeView) -> object:
+    if view.kind == "choice":
+        return req.value
+    if view.kind == "integer":
+        return req.threshold
+    return req.target_entity_id
+
+
+def _attribute_wanted(db: Session, req: RequirementSpec, view: AttributeView) -> str:
+    """What the leaf asks, in French: a label, « N ou plus », an entity's
+    name, or « quelqu'un » for an `entity` kind that must only be set."""
+    if view.kind == "choice":
+        return value_label(db, view, req.value)
+    if view.kind == "integer":
+        return f"{req.threshold} ou plus"
+    return value_label(db, view, req.target_entity_id) if req.target_entity_id else "quelqu'un"
+
+
+# WH1 (TICKET-0113): why a leaf on a hidden attribute shows `?` to a player,
+# even about himself (`conditions.VerdictNode.seen_by`) -- and why it is
+# `unknown` when its subject cannot hold it (`attribute_unjudged`): never
+# its name, which a player surface would write out (INV-62,
+# AMENDMENT-0113-01).
+HIDDEN_STATE_REASON_FR = "c'est un état encore caché"
+
+
+def attribute_unjudged(req: RequirementSpec, holder, db: Session) -> Optional[str]:
+    """Why an `attribute` leaf cannot be judged on `holder` (its subject) --
+    the attribute is gone, or does not apply to its type -- in French; None
+    when it can. `conditions._evaluate_leaf` makes such a leaf `unknown`,
+    and every surface writes this reason out: a hidden attribute's is
+    `HIDDEN_STATE_REASON_FR`, which names nothing (INV-62)."""
+    view = view_of(db, req.target_key)
+    entity = db.get(Entity, holder.id)
+    if view is None or entity is None:
+        return "cet état n'existe plus"
+    if not applies_to(view, entity.type):
+        if view.hidden:
+            return HIDDEN_STATE_REASON_FR
+        return f"{entity.name} n'a pas l'état « {view.name} »"
+    return None
+
+
+def _eval_attribute(req: RequirementSpec, character: Character, db: Session, reachable_ids) -> Verdict:
+    """`target_key` names an attribute (a definition id or `sys:<name>`);
+    its subject is any entity it applies to (`ANY_SUBJECT_TYPES`). A
+    `choice` is met when the state is the leaf's `value`, an `integer` when
+    it is at least `threshold`, an `entity` when it is `target_entity_id` --
+    or, with no target, when it names anyone. An entity with no value reads
+    the default (WC1). The caller checks `attribute_unjudged` first."""
     del reachable_ids
-    met = character.vital_status == req.value
-    name = _entity_name(db, character.id)
-    reason = (f"{name} is {req.value}" if met
-              else f"prerequisite not met — {name} is {character.vital_status}, not {req.value}")
-    return Verdict(type=req.type, met=met, current=character.vital_status, required=req.value, reason=reason,
-                   required_label=name)
+    view = view_of(db, req.target_key)
+    entity = db.get(Entity, character.id)
+    state = current_value(db, view, entity)
+    if view.kind == "choice":
+        met = state.raw == req.value
+    elif view.kind == "integer":
+        met = isinstance(state.raw, int) and state.raw >= (req.threshold or 0)
+    else:
+        met = state.raw is not None if req.target_entity_id is None else state.raw == req.target_entity_id
+    wanted = _attribute_wanted(db, req, view)
+    current = state.raw if view.kind == "integer" else state.label
+    reason = (f"{entity.name}: {view.name} is {state.label}" if met
+              else f"prerequisite not met — {entity.name}: {view.name} is {state.label}, not {wanted}")
+    return Verdict(type=req.type, met=met, current=current, required=_attribute_required(db, req, view),
+                   reason=reason, required_label=f"{entity.name} — {view.name} : {wanted}", hidden=view.hidden)
 
 
 def _open_debt(db: Session, debtor_id: str, creditor_id: Optional[str]) -> bool:
@@ -381,7 +447,7 @@ _EVALUATORS: dict[str, Callable[[RequirementSpec, Character, Session, object], V
     "has_debt_to": _eval_has_debt_to,
     "no_debt_to": _eval_no_debt_to,
     "item_held": _eval_item_held,
-    "vital_status": _eval_vital_status,
+    "attribute": _eval_attribute,
 }
 
 

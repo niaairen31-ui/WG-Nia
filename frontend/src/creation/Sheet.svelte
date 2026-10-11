@@ -94,6 +94,7 @@
   import PricingEditor from './PricingEditor.svelte';
   import LedgerPanel from './LedgerPanel.svelte';
   import ItemsPanel from './ItemsPanel.svelte';
+  import StatesPanel from './StatesPanel.svelte';
   import { resetPendingDrafts, knowledgeForCreate, goalsForCreate, carrureForCreate } from './pendingDrafts.svelte.js';
   import PendingKnowledgeEditor from './PendingKnowledgeEditor.svelte';
   import PendingGoalsEditor from './PendingGoalsEditor.svelte';
@@ -818,6 +819,12 @@
       {#if !isNew && ['character', 'faction', 'location', 'item'].includes(type)}
         <div class="field-section"><div class="field-section-title">{type === 'item' ? 'Détenu par' : 'Objets'}</div>
           <div id="author-items"><ItemsPanel entityId={detail.id} entityType={type} /></div>
+        </div>
+      {/if}
+
+      {#if !isNew}
+        <div class="field-section"><div class="field-section-title">États</div>
+          <div id="author-states"><StatesPanel entityId={detail.id} /></div>
         </div>
       {/if}
 

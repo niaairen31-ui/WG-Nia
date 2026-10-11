@@ -8,9 +8,11 @@
    alone. TICKET-0110 (BRIEF-0110-A): the two debt forms, whose target is
    a creditor -- a character or a faction (the `givers` list).
    TICKET-0111 (BRIEF-0111-C): `quest_state` replaces `quest_completed`;
-   `item_held` and `vital_status` are new. `column: 'none'` is a form with
-   no target (`NO_TARGET_TYPES`); `values: true` a form that compares to a
-   value, its choices in `choices.form_values[form]`. */
+   `item_held` is new; `values: true` a form that compares to a value, its
+   choices in `choices.form_values[form]`. TICKET-0113 (BRIEF-0113-B):
+   `attribute` replaces `vital_status` -- its key is an attribute of
+   `choices.attributes`, and what it compares to depends on that
+   attribute's kind (`attributeOf`): a label, a threshold, or an entity. */
 
 export const REQUIREMENT_FORMS = {
   knowledge: { label: 'Connaît le fait', list: 'facts', column: 'key', threshold: false },
@@ -24,7 +26,7 @@ export const REQUIREMENT_FORMS = {
   has_debt_to: { label: 'A une dette envers', list: 'givers', column: 'entity', threshold: false },
   no_debt_to: { label: 'N’a aucune dette envers', list: 'givers', column: 'entity', threshold: false },
   item_held: { label: 'Possède au moins (objet)', list: 'items', column: 'entity', threshold: true },
-  vital_status: { label: 'Est dans l’état', list: 'none', column: 'none', threshold: false, values: true },
+  attribute: { label: 'Est dans l’état', list: 'attributes', column: 'key', threshold: false },
 };
 
 // `resource`'s key is a label: one currency per world (the ledger has no
@@ -46,10 +48,41 @@ export function blankRequirement() {
   return { type: 'has_met', subject: 'role:doer', target_entity_id: '', target_key: '', threshold: null, value: '' };
 }
 
-/** The subject options: the three roles, then every character. */
-export function subjectOptions(choices) {
+/** The subject options: the three roles, then every character -- or, for
+    an `attribute` (TICKET-0113), every entity of a type it applies to. */
+export function subjectOptions(choices, req) {
   const roles = Object.entries(SUBJECT_ROLES).map(([role, label]) => ({ value: 'role:' + role, label }));
-  return roles.concat((choices?.characters || []).map((c) => ({ value: 'entity:' + c.id, label: c.name })));
+  const attr = req?.type === 'attribute' ? attributeOf(req.target_key, choices) : null;
+  const people = attr
+    ? (choices?.entities || []).filter((e) => !attr.holder_types || attr.holder_types.includes(e.type))
+    : choices?.characters || [];
+  return roles.concat(people.map((c) => ({ value: 'entity:' + c.id, label: c.name })));
+}
+
+/** TICKET-0113: the attribute a row names, from `choices.attributes`. */
+export function attributeOf(key, choices) {
+  return (choices?.attributes || []).find((a) => a.key === key) || null;
+}
+
+/** TICKET-0113 (BRIEF-0113-E, WN2): the editor's choices with the draft's
+    unsaved attributes -- those the interpreter proposed and the creator
+    confirmed -- listed as `new:<ref>`, their labels as their own keys,
+    until the offer's save writes them. */
+export function withUnsaved(choices, unsaved) {
+  if (!choices || !unsaved?.length) return choices;
+  const extra = unsaved.map((u) => ({
+    key: 'new:' + u.ref, name: u.definition.name + ' (à créer)', kind: u.definition.kind, system: false,
+    hidden: !!u.definition.is_hidden, holder_types: u.definition.holder_types,
+    value_types: u.definition.value_types || [],
+    choices: (u.definition.choices || []).map((c) => ({ value: c.label, label: c.label })),
+  }));
+  return { ...choices, attributes: [...(choices.attributes || []), ...extra] };
+}
+
+/** TICKET-0113: what an `entity` attribute's value may name. */
+export function attributeTargets(attr, choices) {
+  return (choices?.entities || []).filter((e) => attr.value_types.includes(e.type))
+    .map((e) => ({ value: e.id, label: e.name }));
 }
 
 /** The (value, label) options of a form's picker, from the editor's choices. */
@@ -64,6 +97,7 @@ export function targetOptions(form, choices) {
     case 'factions': return choices.factions.map((c) => ({ value: c.id, label: c.name }));
     case 'givers': return choices.givers.map((c) => ({ value: c.id, label: c.name }));
     case 'items': return choices.items.map((c) => ({ value: c.id, label: c.name }));
+    case 'attributes': return (choices.attributes || []).map((a) => ({ value: a.key, label: a.name }));
     default: return [];
   }
 }
@@ -73,10 +107,22 @@ export function valueOptions(form, choices) {
   return (choices?.form_values?.[form] || []).map((v) => ({ value: v.value, label: v.label }));
 }
 
-/** The request body of one requirement row: only the columns its form uses. */
+/** The request body of one requirement row: only the columns its form uses.
+    An `attribute` row sends its label, threshold or entity as set: the row
+    clears the two its attribute's kind does not use (TICKET-0113). */
 export function requirementBody(req) {
   const form = REQUIREMENT_FORMS[req.type];
   const [kind, id] = (req.subject || 'role:doer').split(':');
+  if (req.type === 'attribute') {
+    return {
+      op: 'leaf', type: req.type,
+      subject_role: kind === 'role' ? id : null, subject_entity_id: kind === 'entity' ? id : null,
+      target_entity_id: req.target_entity_id || null, target_key: req.target_key || null,
+      threshold: req.threshold === '' || req.threshold === null || req.threshold === undefined
+        ? null : Number(req.threshold),
+      value: req.value || null,
+    };
+  }
   return {
     op: 'leaf',
     type: req.type,

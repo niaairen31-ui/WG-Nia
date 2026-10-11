@@ -5,12 +5,17 @@
      unchanged. `cond` is a draft object owned by questOffersState
      (conditionDraft in questRequirements.js). TICKET-0112 (BRIEF-0112-E,
      IB1, T1): both are also written and edited in French, through the
-     interpreter under the condition; `role` is the condition's. */
+     interpreter under the condition; `role` is the condition's.
+     TICKET-0113 (BRIEF-0113-E, WN2): `unsaved`, the offer draft's proposed
+     attributes, is listed with the rows' attributes and goes to the
+     interpreter, which adds the ones the creator confirms. */
   import QuestRequirementRow from './QuestRequirementRow.svelte';
   import ConditionInterpreter from './ConditionInterpreter.svelte';
-  import { blankRequirement } from './questRequirements.js';
+  import { blankRequirement, withUnsaved } from './questRequirements.js';
 
-  let { cond, choices, role, emptyLabel, addLabel } = $props();
+  let { cond, choices, role, emptyLabel, addLabel, unsaved = [] } = $props();
+
+  let rowChoices = $derived(withUnsaved(choices, unsaved));
 
   function clearLocked() {
     cond.locked = null;
@@ -29,11 +34,11 @@
 {:else}
   {#if cond.list.length === 0 && emptyLabel}<p class="muted">{emptyLabel}</p>{/if}
   {#each cond.list as req, i (i)}
-    <QuestRequirementRow {req} {choices} onremove={() => cond.list.splice(i, 1)} />
+    <QuestRequirementRow {req} choices={rowChoices} onremove={() => cond.list.splice(i, 1)} />
   {/each}
   <button onclick={() => cond.list.push(blankRequirement())}>{addLabel}</button>
 {/if}
-<ConditionInterpreter {cond} {role} />
+<ConditionInterpreter {cond} {role} {unsaved} types={choices?.entity_types || []} />
 
 <style>
   .cond-locked { border-left: 2px solid var(--border); padding: 2px 0 4px 8px; margin: 3px 0; }

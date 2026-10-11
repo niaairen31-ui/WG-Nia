@@ -8,6 +8,7 @@ npc_schedule condition condition_node fact fact_participant fact_default
 skill_rank quest_offer quest_offer_step quest
 item_holding quest_offer_term quest_term quest_economy
 debt debt_term
+attribute_definition attribute_definition_type attribute_choice attribute_value attribute_change
 
 [ALLOWED_SITES]
 # path::function                                              tables
@@ -67,6 +68,12 @@ src/world_engine/writes/quest_settlement.py::finish_settlement  quest
 # TICKET-0110, BRIEF-0110-B: write_debt writes a debt and its owed terms, once (its fact, participants, knowledge and faction default go through create_fact, attach_participants, write_knowledge and create_fact_default, allow-listed above); _close closes it once -- status, closed_at, closed_note -- never deleted. Creator CRUD, a service, or a settlement on credit.
 src/world_engine/writes/debts.py::write_debt                    debt debt_term
 src/world_engine/writes/debts.py::_close                        debt
+# TICKET-0113, BRIEF-0113-A: the state of the world's one writer -- write_attribute_definition creates or saves a definition, _write_types replaces its types whole (the write_offer_terms full-replace shape), _write_choices adds, renames and retires its labels (never a DELETE), set_attribute_status retires or restores it, write_attribute_value sets one entity's value and appends its attribute_change row. Creator CRUD only (and, from BRIEF-0113-E, the offer save writing a definition the interpreter proposed).
+src/world_engine/writes/attributes.py::write_attribute_definition attribute_definition
+src/world_engine/writes/attributes.py::_write_types             attribute_definition_type
+src/world_engine/writes/attributes.py::_write_choices           attribute_choice
+src/world_engine/writes/attributes.py::set_attribute_status     attribute_definition
+src/world_engine/writes/attributes.py::write_attribute_value    attribute_value attribute_change
 # TICKET-0044, BRIEF-0044-c: create_entity_type is the 26th site — the governed
 # structural-write authority (D2), a NEW sanctioned site distinct from the two
 # canon-write paths (AI-proposal pipeline, creator CRUD). Its `CREATE TABLE

@@ -222,6 +222,11 @@ listed in `tooling/verify/baselines/invariant_ids.retired`. Each ends with
   `zone_map_links.py`
 - **INV-22** A model names a fact only by a code from a
   `fact_refs.code_facts` list; code resolves it. [no check]
+- **INV-62** A player surface shows a condition only as its character may
+  know it (`VerdictNode.seen_by`, `viewer_id`): a leaf about someone else or
+  on a hidden attribute reads `?`; a fact he does not know and a hidden
+  attribute are never written out (`HIDDEN_FACT_FR`, `HIDDEN_STATE_FR`).
+  -- enforced by `conditions.py`, `attribute_conditions.py`
 
 ## Path-scoped rules
 

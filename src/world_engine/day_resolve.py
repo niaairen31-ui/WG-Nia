@@ -276,7 +276,9 @@ _BLOCKED_DETAIL_FR: dict[str, str] = {
     # the label names the quest and the state it must be in.
     "quest_state": "la quête « {required} » n'en est pas là",
     "item_held": "il n'a pas assez de « {required} »",
-    "vital_status": "{required} n'est pas dans l'état voulu",
+    # TICKET-0113 (BRIEF-0113-B, WG1): `attribute` replaces `vital_status`;
+    # its label names the subject, the attribute and the wanted state.
+    "attribute": "« {required} » n'est pas encore le cas",
 }
 
 
@@ -293,13 +295,19 @@ def requirement_detail_fr(verdict: RequirementVerdict) -> str:
 # A1 (AMENDMENT-0111-01): what the player and the narration read for a fact
 # his character does not know, in place of `_BLOCKED_DETAIL_FR["knowledge"]`.
 HIDDEN_KNOWLEDGE_DETAIL_FR = "il lui manque encore un fait à découvrir"
+# WH1 (TICKET-0113): what the player and the narration read for a leaf on a
+# hidden attribute, in place of `_BLOCKED_DETAIL_FR["attribute"]`.
+HIDDEN_STATE_DETAIL_FR = "quelque chose de caché l'en empêche encore"
 
 
 def player_detail_fr(verdict: RequirementVerdict, viewer_id: str, db: Session) -> str:
     """`requirement_detail_fr` as the character `viewer_id` may read it
-    (A1): a `knowledge` leaf names its fact only when he knows it."""
+    (A1): a `knowledge` leaf names its fact only when he knows it; a leaf on
+    a hidden attribute never names it (WH1, TICKET-0113)."""
     if verdict.type == "knowledge" and not known_to(db, viewer_id, verdict.required):
         return HIDDEN_KNOWLEDGE_DETAIL_FR
+    if verdict.hidden:
+        return HIDDEN_STATE_DETAIL_FR
     return requirement_detail_fr(verdict)
 
 

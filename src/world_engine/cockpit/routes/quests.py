@@ -41,10 +41,12 @@ from ...writes import (
     TermSpec, abandon_quest, accept_quest, settle_quest, settle_quest_on_credit, upsert_quest_economy,
     write_quest_offer,
 )
+from ...attribute_proposals import materialize, rewrite
 from ...writes.condition_drafts import mark_draft_saved
 from ...writes.conditions import clean_condition
 from ...writes.quest_terms import ECONOMY_COLUMNS
 from .. import crud as _crud
+from .attributes import UnsavedBody
 from .day import _resolve_player_character
 
 router = APIRouter()
@@ -90,6 +92,9 @@ class OfferBody(BaseModel):
     terms: Optional[list[TermBody]] = None
     # TICKET-0112 (IH1): the interpreter's proposal inserted into the eligibility.
     eligibility_draft_id: Optional[str] = None
+    # TICKET-0113 (BRIEF-0113-E, WN2): the attributes the interpreter proposed
+    # and the creator confirmed; the save writes those a condition names.
+    unsaved_attributes: list[UnsavedBody] = Field(default_factory=list)
 
 
 class ValueBody(BaseModel):
@@ -123,37 +128,44 @@ class CreditBody(BaseModel):
 
 def _save_offer(body: OfferBody, offer: Optional[QuestOffer], world_id: str, db: Session) -> dict:
     try:
+        # WN2 (TICKET-0113): the proposed attributes a condition names are
+        # written first, in this transaction, and the conditions rewritten
+        # to their ids.
+        trees, keys, labels = materialize(
+            db, world_id, [u.model_dump() for u in body.unsaved_attributes],
+            [body.eligibility] + [t for s in body.steps for t in (s.prerequisite, s.completion)])
         steps = [PlanStep(objective=s.objective, cost=s.cost, domain=s.domain or None,
-                          prerequisite=node_from_dict(s.prerequisite), completion=node_from_dict(s.completion))
-                 for s in body.steps]
+                          prerequisite=node_from_dict(trees[1 + 2 * i]), completion=node_from_dict(trees[2 + 2 * i]))
+                 for i, s in enumerate(body.steps)]
         offer = write_quest_offer(
             db, world_id=world_id, offer=offer, giver_entity_id=body.giver_entity_id, title=body.title,
             summary=body.summary, repeatable=body.repeatable, status=body.status,
-            eligibility=node_from_dict(body.eligibility), steps=steps,
+            eligibility=node_from_dict(trees[0]), steps=steps,
             terms=None if body.terms is None else [_term(t) for t in body.terms],
             contact_entity_id=body.contact_entity_id or None,
         )
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    _mark_drafts(body, offer.id, world_id, db)
+    _mark_drafts(body, trees, offer.id, world_id, db, lambda proposed: rewrite(proposed, keys, labels))
     db.commit()
     db.refresh(offer)
     return quest_reads.offer_dict(offer, db)
 
 
-def _mark_drafts(body: OfferBody, offer_id: str, world_id: str, db: Session) -> None:
+def _mark_drafts(body: OfferBody, trees: list, offer_id: str, world_id: str, db: Session, as_saved) -> None:
     """IH1: each inserted proposal is `saved` with the offer, in its
     transaction, compared with the condition as written (its clean dict
-    form). A draft that cannot be marked is skipped: the journal never fails
-    the creator's save."""
-    pairs = [(body.eligibility_draft_id, body.eligibility)] + [
-        pair for step in body.steps
-        for pair in ((step.prerequisite_draft_id, step.prerequisite), (step.completion_draft_id, step.completion))]
-    for draft_id, raw in pairs:
+    form) -- the proposal's unsaved attributes rewritten to the ids the save
+    wrote (`as_saved`, TICKET-0113). A draft that cannot be marked is
+    skipped: the journal never fails the creator's save."""
+    ids = [body.eligibility_draft_id] + [
+        d for step in body.steps for d in (step.prerequisite_draft_id, step.completion_draft_id)]
+    for draft_id, raw in zip(ids, trees):
         if draft_id:
             tree = node_to_dict(clean_condition(db, world_id, node_from_dict(raw)))
-            mark_draft_saved(db, world_id=world_id, draft_id=draft_id, offer_id=offer_id, tree=tree)
+            mark_draft_saved(db, world_id=world_id, draft_id=draft_id, offer_id=offer_id, tree=tree,
+                             proposed_as_saved=as_saved)
 
 
 @router.get("/api/quest-offers")

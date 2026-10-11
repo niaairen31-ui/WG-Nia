@@ -13,7 +13,7 @@ vocabulary is a code-plane property (TICKET-0111, BRIEF-0111-C), held by
 CHECK, which this rule read until v2.19, is gone with its table.)
 R3 (shape groups): every (form, argument) pair of the per-form shape rule
 is in its group constant of `condition_forms.py` -- `ENTITY_TARGET_TYPES`,
-`KEY_TARGET_TYPES`, `THRESHOLD_TYPES`, `NO_TARGET_TYPES` -- the constants
+`KEY_TARGET_TYPES`, `THRESHOLD_TYPES` -- the constants
 the writer checks (the retired `ck_agenda_step_requirement_shape` until
 v2.19).
 R4 (budget derivation): `DAY_BUDGET_SLOTS` is a `len(...)` derivation, never
@@ -205,8 +205,9 @@ EXPECTED_REQUIREMENT_TYPES = (
     # TICKET-0110 (BRIEF-0110-A, G1): ten since v2.19.
     "has_debt_to", "no_debt_to",
     # TICKET-0111 (BRIEF-0111-C, S1): twelve since v2.20; `quest_state`
-    # replaced `quest_completed`.
-    "item_held", "vital_status",
+    # replaced `quest_completed`. TICKET-0113 (BRIEF-0113-B, WG1): `attribute`
+    # replaced `vital_status` at v2.23.
+    "item_held", "attribute",
 )
 EXPECTED_RECONCILE_VERDICTS = ("continue", "modify", "replace")
 EXPECTED_PLAN_ACTIONS = ("continue", "modify", "replace", "resume")
@@ -372,7 +373,7 @@ def check_shape_constraint() -> None:
     if tree is None:
         return
     groups = {}
-    for name in ("ENTITY_TARGET_TYPES", "KEY_TARGET_TYPES", "THRESHOLD_TYPES", "NO_TARGET_TYPES"):
+    for name in ("ENTITY_TARGET_TYPES", "KEY_TARGET_TYPES", "THRESHOLD_TYPES"):
         node = _tuple_assign(tree, name)
         if node is None:
             fail(f"day_plan R3: {_rel(CONDITION_FORMS_FILE)}: {name} not found")
@@ -385,14 +386,14 @@ def check_shape_constraint() -> None:
         ("item_held", "ENTITY_TARGET_TYPES"),
         ("knowledge", "KEY_TARGET_TYPES"), ("resource", "KEY_TARGET_TYPES"),
         ("skill_rank_gte", "KEY_TARGET_TYPES"), ("quest_state", "KEY_TARGET_TYPES"),
+        ("attribute", "KEY_TARGET_TYPES"),
         ("relation_gte", "THRESHOLD_TYPES"), ("resource", "THRESHOLD_TYPES"),
         ("skill_rank_gte", "THRESHOLD_TYPES"), ("item_held", "THRESHOLD_TYPES"),
-        ("vital_status", "NO_TARGET_TYPES"),
     ]
     missing = [pair for pair in required_pairs if pair[0] not in groups[pair[1]]]
     if missing:
         fail(f"day_plan R3: the shape groups miss {missing!r}")
-    targets = groups["ENTITY_TARGET_TYPES"] | groups["KEY_TARGET_TYPES"] | groups["NO_TARGET_TYPES"]
+    targets = groups["ENTITY_TARGET_TYPES"] | groups["KEY_TARGET_TYPES"]
     if targets != set(EXPECTED_REQUIREMENT_TYPES):
         fail(f"day_plan R3: the target groups cover {sorted(targets)!r}, not every form")
 
