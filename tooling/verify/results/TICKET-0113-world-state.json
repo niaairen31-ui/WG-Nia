@@ -1,0 +1,47 @@
+{
+  "ticket": "TICKET-0113-world-state",
+  "when": "2026-10-11T16:05:25.870679+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "attributes.py",
+      "status": "PASS",
+      "msg": "PASS: attributes -- v2.22 keeps a world's attributes, one value per entity of the types each names, its history row by row; the system attributes read the canon's own columns; nothing in use is taken away; Cr\u00c3\u00a9ation defines them, asks before a near name, and sets an entity's value as a correction or a change"
+    },
+    {
+      "check": "attribute_conditions.py",
+      "status": "PASS",
+      "msg": "PASS: attribute_conditions -- the attribute form reads a world's attribute or a system one on any entity it applies to, replaces vital_status (v2.23), keeps every attribute it names in use, and never shows a hidden one to a player"
+    },
+    {
+      "check": "attribute_interpreter.py",
+      "status": "PASS",
+      "msg": "PASS: attribute_interpreter -- the interpreter shows the model every attribute by code, writes an attribute leaf by label, threshold or name and reads it back, proposes a missing state the creator confirms -- a near one picked, never duplicated -- written with the offer's save, and its prompt is delivered fragment by fragment, keeping the creator's edits"
+    },
+    {
+      "check": "conditions.py",
+      "status": "PASS",
+      "msg": "PASS: conditions -- the requirement forms, their evaluators and their BFS live in condition_forms.py alone; a condition is a tree of four connectors over those forms, shape-checked, judged in three values on each leaf's subject, and read back in French without writing anything; v2.20 stores it as rows, one tree per owner and role, converted from the two requirement tables it drops; every agenda judges it, binding a quest's giver; the offer editor edits a flat one as a list and shows a nested one; Journ\u00c3\u00a9e and \u00c2\u00ab d\u00c3\u00a9clarer accomplie \u00c2\u00bb show each step's completion, never acting on it; a player reads neither a fact his character does not know nor a leaf about someone else"
+    },
+    {
+      "check": "condition_interpreter.py",
+      "status": "PASS",
+      "msg": "PASS: condition_interpreter -- one coded list names facts, quest offers and skills by code; one templated JSON call serves the creator's authoring tools; v2.21 journals every proposal of the interpreter, outside any world, its outcome moving one way to \u00c2\u00ab saved \u00c2\u00bb; the interpreter shows the model the language and coded lists, reads its answer back through codes and the name index, validates every leaf, asks once more with the errors, leaves a name to the creator, never writes a condition, and sends a cost back to the offer's terms; its routes journal every proposal that reached the model, move it on the creator's pick and decision, and saving the offer marks what she inserted saved, as proposed or changed; under every condition of the offer editor, a sentence becomes a proposal she inserts or discards"
+    },
+    {
+      "check": "quests.py",
+      "status": "PASS",
+      "msg": "PASS: quests -- v2.17 widens the requirement vocabulary to eight forms the model emits only four of, shared byte for byte by quest offers, migrates from v2.16 only, and judges what the target feels, encounters, memberships, ranks and completed quests; an offer is validated whole and saved whole, accepted only when eligible as a paused plan with its steps, once unless repeatable, abandoned unless a step awaits review, pinned to a day, and shown to the player without an agenda or step id; the editor mirrors the vocabulary, the \u00c2\u00ab Qu\u00c3\u00aates \u00c2\u00bb tab and Journ\u00c3\u00a9e's panel are wired"
+    },
+    {
+      "check": "world_cascade.py",
+      "status": "PASS",
+      "msg": "PASS: world_cascade -- every world-scoped table is deleted or guarded; a populated world deletes under FK enforcement; refusals delete nothing"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u00e2\u20ac\u201d 150 check(s) discovered, 150 executed, 150 passed"
+    }
+  ]
+}
