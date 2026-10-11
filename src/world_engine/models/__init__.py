@@ -17,6 +17,10 @@ Layout, by stratum:
                         knowledge anchor spine) added at BRIEF-0082-b.
                         FactDefault (scoped default knowledge level, G2a)
                         added at BRIEF-0082-c.
+    canon_attribute.py — the state of the world (AttributeDefinition,
+                        AttributeDefinitionType, AttributeChoice,
+                        AttributeValue, AttributeChange; TICKET-0113,
+                        schema v2.22), canon.
     config.py        — canon curated-config tables too new/small to justify
                         growing canon.py at its module_budget cap
                         (ConversationWindowConfig, TICKET-0050).
@@ -39,7 +43,8 @@ This module re-exports the ENTIRE former public surface of the flat
 `models.py` — every class, constant, and the two module functions
 (`_uuid`, `_created_ts`) — so every existing `from .models import X` /
 `from world_engine.models import X` in `src/` and `scripts/` resolves
-unchanged. Import order (canon, canon_faction, canon_knowledge, config,
+unchanged. Import order (canon, canon_faction, canon_knowledge,
+canon_attribute, config,
 ephemeral, pipeline, observation, quests) keeps table registration on
 `SQLModel.metadata` deterministic;
 cross-stratum foreign keys (string table-name references) resolve
@@ -86,6 +91,17 @@ from .canon_faction import (
     FactionRole,
 )
 from .canon_knowledge import Fact, FactDefault, FactParticipant, Knowledge, Relation
+from .canon_attribute import (
+    ATTRIBUTE_CHANGE_KINDS,
+    ATTRIBUTE_KINDS,
+    ATTRIBUTE_STATUSES,
+    ATTRIBUTE_TYPE_SIDES,
+    AttributeChange,
+    AttributeChoice,
+    AttributeDefinition,
+    AttributeDefinitionType,
+    AttributeValue,
+)
 from .config import (
     CONDITION_OPS,
     CONDITION_ROLES,
@@ -177,6 +193,15 @@ __all__ = [
     "Fact",
     "FactParticipant",
     "FactDefault",
+    "AttributeDefinition",
+    "AttributeDefinitionType",
+    "AttributeChoice",
+    "AttributeValue",
+    "AttributeChange",
+    "ATTRIBUTE_KINDS",
+    "ATTRIBUTE_TYPE_SIDES",
+    "ATTRIBUTE_STATUSES",
+    "ATTRIBUTE_CHANGE_KINDS",
     "NpcGoal",
     "GoalPrerequisite",
     "Ledger",

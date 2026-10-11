@@ -13,6 +13,17 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.22** — TICKET-0113, BRIEF-0113-A: the state of the world.
+  `attribute_definition` (a world's attribute: its name, its kind --
+  `choice`, `integer` or `entity` --, its default, hidden or not, active or
+  retired), `attribute_definition_type` (the entity types it applies to, and
+  those an `entity` value may name), `attribute_choice` (a choice's labels,
+  one the default, retired never deleted), `attribute_value` (one entity's
+  value) and `attribute_change` (its history, append-only, each row a
+  `correction` or a `changement`) are added. The states the canon already
+  keeps are read in place as system attributes, never copied.
+  `migrate_v2_22_attributes.py` creates the five tables empty, refuses a
+  database older than v2.21 and moves `schema_meta` to v2.22 only.
 - **v2.21** — TICKET-0112, BRIEF-0112-B: the condition interpreter's
   journal. `condition_draft` (one row per proposal: the creator's
   instruction for one condition of an offer, what the model answered and

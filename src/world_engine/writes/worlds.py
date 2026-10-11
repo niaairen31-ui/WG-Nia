@@ -77,6 +77,8 @@ _DIRECT_WORLD_SCOPED_DELETES: tuple[str, ...] = (
     "world_law", "quest", "quest_offer", "quest_offer_step",
     "item_holding", "quest_offer_term", "quest_term", "quest_economy",
     "debt", "debt_term",
+    "attribute_definition", "attribute_definition_type", "attribute_choice",
+    "attribute_value", "attribute_change",
 )
 
 # Refusing tables (root_table, label_column, guarded_children, message) —

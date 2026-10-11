@@ -19052,6 +19052,52 @@ D2 (compress only, everything in the root; reactivation: a session misses a
 local invariant), D3 (an imported file: loaded at launch anyway), H2 (a
 second full text of each invariant), H3 (cut without keeping the law).
 
+## THE STATE OF THE WORLD IS A WORLD'S OWN ATTRIBUTES (TICKET-0113) -- A DEFINITION PER IDEA, ONE VALUE PER ENTITY, ITS HISTORY ROW BY ROW (BRIEF-0113-a, schema v2.22)
+
+**B1, G1 of the conditions series.** What the canon could not say -- the
+door is open, the bridge destroyed, the throne occupied by Ysa -- is now an
+attribute the creator defines in her world, never a column, never a ticket.
+`attribute_definition` names it and its kind (WA3): `choice` (labels in
+`attribute_choice`, one the default), `integer`, or `entity` (another
+entity, of the types its `value` side names). `attribute_definition_type`
+lists the entity types it applies to (WB2: one « Maudit » for characters and
+items, not three). `attribute_value` holds one entity's value; an entity
+with none reads the default and nothing is written on read (WC1).
+`attribute_change` is its history, append-only -- the rows ARE the history
+-- each row the value before and after and `correction` or `changement`,
+the creator's choice at every write as for facts since TICKET-0105 (WD1).
+`is_hidden` (WH1, off by default) is read by the condition language
+(BRIEF-0113-B). `writes/attributes.py` is the one writer of the five tables.
+
+**WE1.** The states the canon already keeps -- `character.vital_status`,
+`entity.status`, `location.magic_status` -- are SYSTEM attributes
+(`attributes.SYSTEM_ATTRIBUTES`), read where they live and never copied
+(G3 rejected: one state in two places diverges). No definition takes a
+system attribute's name, nor another definition's of its world, compared
+through `lore_resolve.normalize_surface`.
+
+**WJ2.** Nothing in use is taken away: a definition's kind once a value or
+a condition holds it, a subject type an entity holding a value has, a
+value type a value names, a label a value or a condition holds. A label
+dropped is retired, never deleted (a history names it); a definition is
+retired, refused while a condition names it, and can be restored. The
+types are replaced whole (`_write_types`, the full-replace shape of
+`write_offer_terms`, named in `single_canon_write.py`).
+
+**v2.22 moves `schema_meta` to v2.22 only.** `migrate_v2_22_attributes.py`
+converges to its own version, not the code's: v2.23 (BRIEF-0113-B) converts
+condition leaves this one does not, and the boot guard keeps refusing until
+it has run.
+
+**Rejected.** WA1 (choice and integer only; reactivation: none -- « occupé
+par Ysa » needed the `entity` kind), WA2 (choice only), WB1 (one type per
+definition: the same idea defined three times), WB3 (every entity type),
+WC2 (a value written for every entity at definition), WC3 (no value reads
+unknown), WD2 (a JSON history: it is shown), WD3 (the history alone, the
+current value its last row), WE2 (the `vital_status` form kept beside the
+attribute form), WE3 (no system attribute: « détruit » defined twice), WJ1
+(retiring silently breaks conditions), WJ3 (a hard delete).
+
 ---
 
 *Co-built with Claude, June 2026.*

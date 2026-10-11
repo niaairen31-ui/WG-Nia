@@ -106,6 +106,7 @@
 - `migrate_v2_19_debts.py` — Migration v2.19 — debts, two debt requirement forms, an offer's contact (TICKET-0110, BRIEF-0110-A, decisions J2, C2, G1, X1, I2).
 - `migrate_v2_20_conditions.py` — Migration v2.20 — the condition language (TICKET-0111, BRIEF-0111-C, decisions A1, I1, O-a, S1).
 - `migrate_v2_21_condition_draft.py` — Migration v2.21 — `condition_draft`, the condition interpreter's journal (TICKET-0112, BRIEF-0112-B, decision IH1).
+- `migrate_v2_22_attributes.py` — Migration v2.22 — the state of the world (TICKET-0113, BRIEF-0113-A; decisions WA3, WB2, WC1, WD1 and WH1 of the conditions series).
 - `observation_metrics.py` — Observation run metrics (TICKET-0051, BRIEF-0051-g, decision J2/Q).
 - `preview_npc_schedule.py` — Preview `where_is` / `who_is_at` / `unresolved_npcs` — the concrete reader for `world.current_phase` (T-A1) and the live-gate instrument for TICKET-0074, BRIEF-0074-a.
 - `preview_tick_context.py` — Preview the full-interiority briefing a world tick would send to one NPC (TICKET-0014, BRIEF-0014-a; TICKET-0015, BRIEF-0015-a adds --interval) — the concrete reader for `assemble_tick_context` in this brief, and the live-gate instrument for the T1 review.
@@ -124,6 +125,7 @@
 - `__init__.py` — World Engine — local, single-player-first RPG world engine.
 - `analyzer.py` — Conversation analysis — extract proposed mutations from unanalyzed turns.
 - `analyzer_transcript.py` — Conversation-agnostic analysis core (TICKET-0051, BRIEF-0051-c).
+- `attributes.py` — The state of the world, read (TICKET-0113, BRIEF-0113-A; decisions WA3, WB2, WC1, WE1 and WH1 of the conditions series).
 - `condition_forms.py` — The requirement forms: the leaves of the condition language, each with its evaluator (TICKET-0111, BRIEF-0111-A -- a pure move out of `day_plan.py`, which keeps the plan emission and the budget cut; decisions S1 of TICKET-0075, C-01 of TICKET-0108, G1 of TICKET-0110 unchanged).
 - `condition_interpreter.py` — The condition interpreter: a sentence in French -> a condition tree the creator confirms (TICKET-0112, BRIEF-0112-C; decisions A1 and T1 of the conditions series, IA1-IK1 of TICKET-0112).
 - `condition_text.py` — A condition in French, for the creator and the player (TICKET-0111, BRIEF-0111-B, decision T1).
@@ -281,6 +283,7 @@
 
 - `__init__.py` — SQLModel table classes for the World Engine — package entry point (TICKET-0028, BRIEF-0028-c: split of the former flat `models.py` into a package by schema stratum).
 - `canon.py` — Canon SQLModel table classes — every table listed in ``canon_write_policy.txt``'s ``[CANON_TABLES]`` (TICKET-0028, BRIEF-0028-c — package split of the former flat ``models.py``, by schema stratum).
+- `canon_attribute.py` — Canon SQLModel table classes -- the state of the world (TICKET-0113, BRIEF-0113-A, schema v2.22; decisions WA3, WB2, WC1, WD1 and WH1 of the conditions series).
 - `canon_faction.py` — Canon SQLModel table classes — faction domain, extracted from ``canon.py`` (TICKET-0048, BRIEF-0048-a) to keep each stratum module under the `module_budget.py` line cap.
 - `canon_knowledge.py` — Canon SQLModel table classes — perception domain (what an entity holds about the world, and the typed links between entities), extracted from ``canon.py`` (TICKET-0082, BRIEF-0082-a) to keep each stratum module under the `module_budget.py` line cap.
 - `config.py` — Conversation-window curated config (TICKET-0050, BRIEF-0050-a); `AgendaStep` (TICKET-0075, BRIEF-0075-b); `condition` and `condition_node` (TICKET-0111, BRIEF-0111-C), which replaced `agenda_step_requirement`.
@@ -294,6 +297,7 @@
 
 - `__init__.py` — Shared canon-write primitives (TICKET-0028, BRIEF-0028-b — package split of the former `writes.py`, by canon domain).
 - `_shared.py` — Closed shared-helper set for the `writes/` package (TICKET-0028, BRIEF-0028-b — decomposed from `writes.py`).
+- `attributes.py` — The writer of the state of the world (TICKET-0113, BRIEF-0113-A; decisions WA3, WB2, WC1, WD1, WE1 and WJ2 of the conditions series): the one writer of `attribute_definition`, `attribute_definition_type`, `attribute_choice`, `attribute_value` and `attribute_change`.
 - `characters.py` — `character`/`skill`/`ledger` canon-write chokepoints (TICKET-0028, BRIEF-0028-b — decomposed from `writes.py`).
 - `condition_drafts.py` — The condition interpreter's journal writer (TICKET-0112, BRIEF-0112-B, decision IH1).
 - `conditions.py` — The condition writer and reader (TICKET-0111, BRIEF-0111-C, decisions O-a and I1): one `condition` row per owner and role, its tree as `condition_node` rows.
@@ -334,6 +338,7 @@
 
 - `agenda_assist.py` — G1 check for TICKET-0021/BRIEF-0021-b — AI agenda-draft assistant.
 - `analyzer_seam.py` — G1 check for TICKET-0051 (BRIEF-0051-c, decision R1) — the analyzer transcript seam.
+- `attributes.py` — G1 check for TICKET-0113 -- the state of the world: a world's attributes, one value per entity, its history kept.
 - `choice_review.py` — G1 check for TICKET-0095 (K1).
 - `claude_md_contract.py` — G1 check for TICKET-0010 (BRIEF-0010-a), extended by TICKET-0117 -- the instruction corpus: the root CLAUDE.md and every `.claude/rules/*.md`.
 - `condition_interpreter.py` — G1 check for TICKET-0112 -- the condition interpreter.

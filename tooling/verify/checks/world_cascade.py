@@ -208,6 +208,16 @@ _FIXTURE: tuple[tuple[str, dict], ...] = (
               "fact_id": "fa-{w}"}),
     ("debt_term", {"id": "dt-{w}", "world_id": "{w}", "debt_id": "de-{w}", "term_order": 1,
                    "currency": "item", "item_id": "{w}-item", "amount": 2}),
+    # TICKET-0113 (BRIEF-0113-A): an attribute, its type, a choice, a value and its change.
+    ("attribute_definition", {"id": "ad-{w}", "world_id": "{w}", "name": "Maudit", "kind": "choice"}),
+    ("attribute_definition_type", {"id": "adt-{w}", "world_id": "{w}", "definition_id": "ad-{w}",
+                                   "side": "holder", "entity_type": "character"}),
+    ("attribute_choice", {"id": "ac-{w}", "world_id": "{w}", "definition_id": "ad-{w}", "label": "oui",
+                          "is_default": 1}),
+    ("attribute_value", {"id": "av-{w}", "world_id": "{w}", "definition_id": "ad-{w}",
+                         "entity_id": "{w}-char", "choice_id": "ac-{w}"}),
+    ("attribute_change", {"id": "ach-{w}", "world_id": "{w}", "value_id": "av-{w}", "kind": "changement",
+                          "changed_by": "creator_crud", "after_choice_id": "ac-{w}"}),
 )
 
 

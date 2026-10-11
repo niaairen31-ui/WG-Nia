@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.21
+Current schema version: v2.22
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -2605,6 +2605,145 @@ CREATE TABLE debt_term (
   )
 );
 CREATE INDEX idx_debt_term_debt ON debt_term(debt_id);
+```
+
+-----
+
+### `attribute_definition`
+
+One attribute of a world -- the state of the world (v2.22, TICKET-0113,
+BRIEF-0113-A; WA3, WB2, WC1, WH1). « Maudit », « Ouvert », « Niveau
+d'alerte », « Occupé par »: the creator defines it, every entity of a type
+it names holds one value of it. `kind` is `choice` (one of its labels,
+`attribute_choice`), `integer` (`default_integer` its default) or `entity`
+(another entity of a type `attribute_definition_type` names on its `value`
+side; empty by default). WC1: an entity with no `attribute_value` row reads
+the default -- nothing is written on read. `is_hidden` (WH1): a condition on
+it never writes it out on a player surface. A definition is retired, never
+deleted; retiring is refused while a condition names it (WJ2). The states
+the canon already keeps -- `character.vital_status`, `entity.status`,
+`location.magic_status` -- are read in place as system attributes
+(`attributes.SYSTEM_ATTRIBUTES`), never rows here; no definition may take a
+system attribute's name, nor another definition's of its world (compared
+case- and accent-blind by the writer, case-blind by the index). Written
+only by `writes/attributes.py`.
+
+```sql
+CREATE TABLE attribute_definition (
+  id               TEXT PRIMARY KEY,
+  world_id         TEXT NOT NULL REFERENCES world(id),
+  name             TEXT NOT NULL,
+  kind             TEXT NOT NULL CHECK (kind IN ('choice','integer','entity')),
+  default_integer  INTEGER,
+  is_hidden        BOOLEAN NOT NULL DEFAULT 0,
+  status           TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','retired')),
+  created_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CHECK (kind = 'integer' OR default_integer IS NULL)
+);
+CREATE UNIQUE INDEX idx_attribute_definition_name ON attribute_definition(world_id, name COLLATE NOCASE);
+```
+
+-----
+
+### `attribute_definition_type`
+
+The entity types a definition applies to (`side = 'holder'`, WB2: one
+« Maudit » for characters and items alike) and, for an `entity` kind, the
+types its value may name (`side = 'value'`). `entity_type` is a built-in
+type or a runtime type's slug (`entity.type`). Curated config: the writer
+replaces a definition's rows whole, refusing to drop a type an entity
+holding a value, or a condition, still uses.
+
+```sql
+CREATE TABLE attribute_definition_type (
+  id             TEXT PRIMARY KEY,
+  world_id       TEXT NOT NULL REFERENCES world(id),
+  definition_id  TEXT NOT NULL REFERENCES attribute_definition(id),
+  side           TEXT NOT NULL CHECK (side IN ('holder','value')),
+  entity_type    TEXT NOT NULL
+);
+CREATE UNIQUE INDEX idx_attribute_definition_type_unique
+  ON attribute_definition_type(definition_id, side, entity_type);
+```
+
+-----
+
+### `attribute_choice`
+
+The labels of a `choice` definition, in `position` order; exactly one
+active label is the default (`is_default`, the partial index). A label
+dropped from the list is retired, never deleted -- a value's history may
+name it -- and refused while a value or a condition holds it.
+
+```sql
+CREATE TABLE attribute_choice (
+  id             TEXT PRIMARY KEY,
+  world_id       TEXT NOT NULL REFERENCES world(id),
+  definition_id  TEXT NOT NULL REFERENCES attribute_definition(id),
+  label          TEXT NOT NULL,
+  position       INTEGER NOT NULL DEFAULT 0,
+  is_default     BOOLEAN NOT NULL DEFAULT 0,
+  status         TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','retired')),
+  CHECK (is_default = 0 OR status = 'active')
+);
+CREATE UNIQUE INDEX idx_attribute_choice_label ON attribute_choice(definition_id, label COLLATE NOCASE);
+CREATE UNIQUE INDEX idx_attribute_choice_one_default ON attribute_choice(definition_id) WHERE is_default = 1;
+```
+
+-----
+
+### `attribute_value`
+
+One entity's current value of one definition: a choice, an integer, or an
+entity -- none of the three only for an `entity` kind left empty. One row
+per (definition, entity), never deleted; each write appends an
+`attribute_change`.
+
+```sql
+CREATE TABLE attribute_value (
+  id               TEXT PRIMARY KEY,
+  world_id         TEXT NOT NULL REFERENCES world(id),
+  definition_id    TEXT NOT NULL REFERENCES attribute_definition(id),
+  entity_id        TEXT NOT NULL REFERENCES entity(id),
+  choice_id        TEXT REFERENCES attribute_choice(id),
+  integer_value    INTEGER,
+  entity_value_id  TEXT REFERENCES entity(id),
+  updated_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CHECK ((choice_id IS NOT NULL) + (integer_value IS NOT NULL) + (entity_value_id IS NOT NULL) <= 1)
+);
+CREATE UNIQUE INDEX idx_attribute_value_pair ON attribute_value(definition_id, entity_id);
+CREATE INDEX idx_attribute_value_entity ON attribute_value(entity_id);
+```
+
+-----
+
+### `attribute_change`
+
+The history of a value (WD1), append-only -- the rows ARE the history, no
+`change_history` column: the value before (the definition's default when
+the entity held none) and after, in the columns of its kind; `kind` is
+`correction` (it was always so) or `changement` (the world changed), the
+vocabulary of `writes.facts.FACT_CHANGE_KINDS`, chosen by the creator at
+each write; `changed_by` who made it. TICKET-0114's events will append here
+too.
+
+```sql
+CREATE TABLE attribute_change (
+  id                TEXT PRIMARY KEY,
+  world_id          TEXT NOT NULL REFERENCES world(id),
+  value_id          TEXT NOT NULL REFERENCES attribute_value(id),
+  kind              TEXT NOT NULL CHECK (kind IN ('correction','changement')),
+  changed_by        TEXT NOT NULL,
+  before_choice_id  TEXT REFERENCES attribute_choice(id),
+  before_integer    INTEGER,
+  before_entity_id  TEXT REFERENCES entity(id),
+  after_choice_id   TEXT REFERENCES attribute_choice(id),
+  after_integer     INTEGER,
+  after_entity_id   TEXT REFERENCES entity(id),
+  changed_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_attribute_change_value ON attribute_change(value_id, changed_at);
 ```
 
 -----
