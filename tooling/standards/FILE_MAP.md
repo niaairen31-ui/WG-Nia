@@ -405,6 +405,7 @@
 - `event_changes.py` — G1 check for TICKET-0119 -- what an event changes in the world: pre-filled from its type, written with it, all or none.
 - `event_conditions.py` — G1 check for TICKET-0114 -- a condition counts the events its subject lived, and a quest step says when it has failed.
 - `event_contexts.py` — G1 check for TICKET-0114 -- the models read the journal by what is known, and the MJ reads the states a player may see.
+- `event_editor.py` — G1 check for TICKET-0119 -- one event editor for the journal, the review card and Lore; the card approves what the creator edited.
 - `event_effects.py` — G1 check for TICKET-0119 -- what an event type does to the state of the world: its effects, written and read.
 - `event_interpreter.py` — G1 check for TICKET-0114 -- the condition interpreter reads the world's event types and sortes and writes an event leaf.
 - `event_journal.py` — G1 check for TICKET-0114 -- the event journal's vocabulary: a world's event types, their roles, who learns them, its sortes.

@@ -48,6 +48,9 @@ export const queueState = $state({
   loadError: '',
   selectedIds: new Set(),
   batchVerdict: null, // {cls, msg} | null
+  // TICKET-0119 (BRIEF-0119-D, Y2): the world's entities ({id, name, type}),
+  // for the event editor of a proposed event's card.
+  entities: [],
 });
 
 async function api(path, options) {
@@ -80,6 +83,7 @@ export async function loadMutationEntityNames() {
   try {
     const rows = await api('/api/entities');
     _mutationEntityNames = new Map(rows.map((e) => [e.id, e.name]));
+    queueState.entities = rows.filter((e) => e.status === 'active');
   } catch (_err) {
     _mutationEntityNames = new Map();
   }

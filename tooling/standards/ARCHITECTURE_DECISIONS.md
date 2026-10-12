@@ -19558,6 +19558,30 @@ event made.
 **`record_event`.** The journal's writer returns every row it wrote, for
 Lore to record them (INV-57); `write_event` stays its thin form.
 
+## ONE EVENT EDITOR FOR THE JOURNAL, THE REVIEW CARD AND LORE; THE CARD APPROVES WHAT THE CREATOR EDITED (TICKET-0119) -- `EventEditor.svelte` (BRIEF-0119-d, no schema change)
+
+**H1.** `EventEditor.svelte` is the one editor of an event: its type, its
+text and place (on a card), its quantity, its participants role by role
+with their secret, who learns it, and what it changes in the world. The
+journal's sheet, the review card and Lore render it on one draft shape
+(`eventDraft.svelte.js`). A player character is offered no secret box
+(INV-07; the writer forces it anyway). A correction from the journal hides
+the changes: a correction changes no state.
+
+**Y2.** A typed `event_creation` still in review is edited on its card and
+approved as edited (`payloadFromDraft`): type, title, description, place,
+participants and their secret, quantity, its own scopes (a list, even
+empty, replaces the type's -- `event_payloads` reads `scopes` since this
+brief) and its changes. A type proposed with the event (I2) keeps its
+definition; its participants name its roles by name. The raw payload stays
+one click away. An untyped proposal keeps its payload: the tick's typed
+producer is BRIEF-0119-E.
+
+**Pre-fill.** `POST /api/events/changes` makes the type's effects concrete
+on the draft's participants (`event_changes.type_changes`, the one
+pre-fill) and puts each change in French; the editor's « Pré-remplir »
+merges them into the draft's changes. It reads only.
+
 ---
 
 *Co-built with Claude, June 2026.*

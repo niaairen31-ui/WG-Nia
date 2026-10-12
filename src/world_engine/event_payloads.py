@@ -16,7 +16,9 @@ proposal's payload into that writer's `EventSpec`. Two payload shapes:
   applier's savepoint: refused, nothing is written. Since TICKET-0119 a
   typed payload carries its `state_changes` (M-c) -- pre-filled from its
   type's effects, edited by the creator on the card -- read by
-  `event_changes.payload_changes` for the writer to clean.
+  `event_changes.payload_changes` for the writer to clean; and, edited on
+  the review card (Y2, BRIEF-0119-D), its own `scopes` -- a list, even
+  empty, replaces the type's.
 - untyped (the world tick until TICKET-0119, and every proposal written
   before): `type` (a former category), `involved_entities`,
   `knowledge_status`, `location_id`. It is typed by its domain
@@ -107,11 +109,16 @@ def _typed(db: Session, world_id: str, payload: dict) -> EventSpec:
             role_id=str(role_id), entity_id=p.get("entity_id") or None, sorte_id=sorte_id,
             secret=p.get("secret") if isinstance(p.get("secret"), bool) else None))
     quantity = payload.get("quantity")
+    scopes = None
+    if isinstance(payload.get("scopes"), list):
+        scopes = tuple(EventScopeSpec(str(s.get("scope_type") or ""), s.get("scope_id") or None,
+                                      str(s.get("level") or "knows"))
+                       for s in payload["scopes"] if isinstance(s, dict))
     return EventSpec(
         type_id=str(type_id), title=str(payload.get("title") or ""),
         description=payload.get("description"), location_id=payload.get("location_id") or None,
         quantity=quantity if isinstance(quantity, int) and not isinstance(quantity, bool) else None,
-        participants=tuple(participants), changes=payload_changes(payload.get("state_changes")),
+        participants=tuple(participants), scopes=scopes, changes=payload_changes(payload.get("state_changes")),
     )
 
 

@@ -41,10 +41,11 @@ EC6 -- the sheet (static). `EVENT_FIELDS` names `title`, `description`,
    `location_id` and nothing else; `crud/events.py` and
    `cockpit/mutations.py`'s `event_creation` applier name no
    `knowledge_status` and no `EventEntity`; `Evenements.svelte` renders the
+   shared `EventEditor.svelte` on its draft (TICKET-0119), which renders the
    type select `event-f-type_id`, the quantity, each role's participants with
-   their secret, and the scopes; `Sheet.svelte` sends `eventDraftBody()`;
-   `eventDraft.svelte.js` exports `eventDraftBody` and never removes a
-   `saved` participant.
+   their secret, and the scopes; `Sheet.svelte` sends
+   `eventDraftBody(isNewSave)`; `eventDraft.svelte.js` exports
+   `eventDraftBody` and never removes a `saved` participant.
 
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that collects nothing fails.
@@ -399,11 +400,14 @@ def check_ec6() -> None:
         for needle in ("knowledge_status", "EventEntity"):
             if needle in text:
                 fail(f"EC6: {name} names {needle}")
+    # TICKET-0119 (BRIEF-0119-D): the sheet's editing moved into the shared
+    # EventEditor.svelte, which Evenements.svelte renders on its draft.
     needles = {
-        "Evenements.svelte": ('id="event-f-type_id"', 'id="event-f-quantity"', "bind:checked={p.secret}",
-                              "eventDraftState.scopes", "role.accepts_sorte"),
-        "Sheet.svelte": ("eventDraftBody()",),
-        "eventDraft.svelte.js": ("export function eventDraftBody", "!eventDraftState.participants[i].saved"),
+        "Evenements.svelte": ("<EventEditor draft={eventDraftState}",),
+        "EventEditor.svelte": ('id="event-f-type_id"', 'id="event-f-quantity"', "bind:checked={p.secret}",
+                               "draft.scopes", "role.accepts_sorte"),
+        "Sheet.svelte": ("eventDraftBody(isNewSave)",),
+        "eventDraft.svelte.js": ("export function eventDraftBody", "!draft.participants[i].saved"),
     }
     for name, wanted in needles.items():
         path = FRONT / name

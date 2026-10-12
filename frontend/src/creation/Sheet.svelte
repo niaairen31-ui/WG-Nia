@@ -557,7 +557,8 @@
       if (statusEl) { statusEl.className = 'author-status err'; statusEl.textContent = 'Type requis.'; }
       return;
     }
-    Object.assign(body, eventDraftBody());
+    // TICKET-0119 (BRIEF-0119-D): a new event carries its changes; a correction none.
+    Object.assign(body, eventDraftBody(isNewSave));
 
     if (statusEl) { statusEl.className = 'author-status'; statusEl.textContent = isNewSave ? '…' : 'Saving…'; }
     try {
