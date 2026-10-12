@@ -396,7 +396,7 @@ def check_nb1() -> None:
 
 def _payload(**over) -> dict:
     base = {"current": None, "pending": None, "mentions": [], "bindings": {}, "proposed": None,
-            "notes": [], "errors": [], "definitions": []}
+            "notes": [], "errors": [], "definitions": [], "vocabulary": []}  # vocabulary: TICKET-0114
     base.update(over)
     return base
 

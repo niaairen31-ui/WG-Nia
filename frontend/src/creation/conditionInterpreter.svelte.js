@@ -12,14 +12,22 @@
    creates she may retouch (AttributeDefinitionForm) before « Insérer »,
    which confirms the definitions with the condition and adds them to the
    offer draft's `unsaved` list -- the offer's save writes them. Every
-   request carries that list. */
+   request carries that list.
+   TICKET-0114 (BRIEF-0114-G, R1): a proposal may also carry the event
+   types and sortes it proposes (`vocabulary`). Each is a card: the creator
+   uses a near one, or creates this one -- retouched in EventTypeForm --
+   through the vocabulary's own routes; « Appliquer les choix » then binds
+   each ref to the id she chose. Created at once: the vocabulary belongs to
+   the world, not to the offer. */
 import { api } from './sheetRequest.svelte.js';
 import { conditionBody, conditionDraft } from './questRequirements.js';
 import { definitionBody, specDraft } from './attributes.svelte.js';
+import { typeBody, typeDraft } from './eventVocab.svelte.js';
+import { reloadChoices } from './questOffers.svelte.js';
 
 export function interpreterState() {
   return { open: false, instruction: '', attemptId: crypto.randomUUID(), busy: false, error: '',
-           proposal: null, picks: {}, cards: [] };
+           proposal: null, picks: {}, cards: [], vocab: [] };
 }
 
 async function post(path, body) {
@@ -38,6 +46,33 @@ function cardsOf(proposal) {
   }));
 }
 
+/** One card per proposed event type or sorte (TICKET-0114): its near
+    names, the creator's choice (`new` or a near id), its draft, and once
+    chosen or created the id it binds to (`pick`). */
+function vocabCardsOf(proposal) {
+  return (proposal?.vocabulary || []).map((v) => ({
+    ref: v.ref, kind: v.kind, near: v.near || [], choice: (v.near || []).length ? '' : 'new', pick: '',
+    draft: v.kind === 'type' ? typeDraft(v.definition) : { name: v.definition.name }, error: '', busy: false,
+  }));
+}
+
+/** Create the card's type or sorte now (`confirm_near`: she saw the near ones). */
+export async function createVocab(card) {
+  card.busy = true;
+  card.error = '';
+  try {
+    const result = card.kind === 'type'
+      ? await post('/api/event-types', typeBody(card.draft, true))
+      : await post('/api/event-sortes', { name: card.draft.name, confirm_near: true });
+    card.pick = card.kind === 'type' ? result.type.id : result.sorte.id;
+    await reloadChoices(); // the editor's lists now hold it
+  } catch (e) {
+    card.error = e.message;
+  } finally {
+    card.busy = false;
+  }
+}
+
 async function run(state, request) {
   state.busy = true;
   state.error = '';
@@ -45,6 +80,7 @@ async function run(state, request) {
     state.proposal = await request();
     state.picks = {};
     state.cards = cardsOf(state.proposal);
+    state.vocab = vocabCardsOf(state.proposal);
   } catch (e) {
     state.error = e.message;
   } finally {
@@ -65,6 +101,7 @@ export function askInterpreter(state, cond, role, unsaved) {
 export function pickNames(state, unsaved) {
   const bindings = { ...state.picks };
   for (const card of state.cards) if (card.near.length) bindings[card.ref] = card.pick;
+  for (const card of state.vocab) bindings[card.ref] = card.pick;
   return run(state, () => post('/api/conditions/drafts/' + state.proposal.draft_id + '/resolve',
                                { bindings, unsaved_attributes: unsavedBody(unsaved) }));
 }
@@ -88,6 +125,7 @@ export async function insertProposal(state, cond, unsaved) {
   Object.assign(cond, conditionDraft(proposal.view), { draftId: proposal.draft_id });
   state.proposal = null;
   state.cards = [];
+  state.vocab = [];
   state.instruction = '';
   state.open = false;
 }
@@ -101,4 +139,5 @@ export async function discardProposal(state) {
   }
   state.proposal = null;
   state.cards = [];
+  state.vocab = [];
 }

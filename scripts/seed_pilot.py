@@ -2099,11 +2099,27 @@ CONDITION_INTERPRET_FRAGMENTS: tuple[tuple[str, str, str], ...] = (
      "\"step\", \"with\": [{\"role\": \"victime\", \"sorte\": \"Loup\"}]}.\n\nCONNECTEURS. {"),
     ("system_prompt",
      "ce qui s'est passé (\"event\" : tuer, être repéré), ",
-     "un événement qu'aucun type de la liste ne dit (\"event\"), "),
+     "un événement que tu ne sais ni lire dans la liste des types ni proposer dans \"define_events\" "
+     "(\"event\"), "),
     ("user_template",
      "Compétences (code — nom) :\n{skills}",
      "Compétences (code — nom) :\n{skills}\n\nTypes d'événements (code — nom, rôles) :\n{event_types}"
      "\n\nSortes :\n{sortes}"),
+    # TICKET-0114 (BRIEF-0114-G, R1): a type or a sorte the lists lack is
+    # proposed; the creator creates it from the card, or picks a near one.
+    ("system_prompt",
+     "CONDITION ACTUELLE.",
+     "NOUVEAU TYPE D'ÉVÉNEMENT. Si la phrase parle d'un événement qu'aucun type de la liste ne dit, "
+     "propose-le dans \"define_events\" : {\"ref\": \"v1\", \"name\": \"Tuer\", \"domain\": "
+     "\"military\" | \"political\" | \"magical\" | \"criminal\" | \"social\" | \"mystery\" | \"other\", "
+     "\"roles\": [{\"name\": \"tueur\", \"for\": [les types d'entité qu'il accepte, par leur clé], "
+     "\"sorte\": false}, {\"name\": \"victime\", \"for\": [\"character\"], \"sorte\": true}], "
+     "\"quantity\": true s'il se compte (« 3 loups »), sinon false}. La feuille le nomme par "
+     "{\"define\": \"v1\"} comme cible, et ses rôles par leur nom. Une sorte absente de la liste des "
+     "sortes se propose dans \"define_sortes\" : {\"ref\": \"o1\", \"name\": \"Loup\"}, et se nomme "
+     "dans \"with\" par {\"role\": \"victime\", \"sorte\": {\"define\": \"o1\"}}. Ne propose jamais "
+     "un type ou une sorte que les listes contiennent déjà : utilise son code ou son nom.\n\n"
+     "CONDITION ACTUELLE."),
 )
 
 

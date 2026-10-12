@@ -1,6 +1,6 @@
 """G1 check for TICKET-0114 -- the condition interpreter reads the world's event types and sortes and writes an event leaf.
 
-BRIEF-0114-F's rules.
+BRIEF-0114-F's rules (EI1-EI4), then BRIEF-0114-G's (EI5-EI7).
 
 EI1 -- the prompt (static and import). `CODE_LISTS["event"]` is `t`; the
    head declares `event_types` and `sortes`, its template uses exactly its
@@ -24,6 +24,23 @@ EI4 -- interpret and delivery (fixture, stubbed model). A model answer
    carrying the `t` list. On a head holding the 0113 text and variables,
    the delivery script writes one new version equal to the seed's, its
    variables the seed's; a second run is unchanged.
+EI5 -- proposals (fixture, stubbed model). An answer proposing a type in
+   `define_events` and two sortes in `define_sortes`, its leaf naming them
+   by ref, waits (`needs_choice`) with two proposals -- the type `v1` with
+   its cleaned definition and the types whose name is near, the sorte
+   `o1` --, the sorte the world already has (« loup ») bound silently to
+   it; nothing is written. A proposal the writer refuses (a role of an
+   unknown entity type) is an error; a leaf naming an unknown ref is one.
+EI6 -- binding (fixture). Once the creator created the type and the sorte,
+   `resolve` with their ids gives the tree, the role names read on the
+   type; a ref without a pick, or a pick that is no type of the world, is a
+   `ValueError`; a near type picked whose roles lack the leaf's is
+   `refused`, the error naming its roles. Through the routes, the journal
+   keeps the proposals (`vocabulary`) and `resolve` reads them back.
+EI7 -- the card (static). `ConditionInterpreter.svelte` shows a card per
+   proposal with `EventTypeForm` and `createVocab`;
+   `conditionInterpreter.svelte.js` creates through `/api/event-types` and
+   `/api/event-sortes` and sends each card's pick as a binding.
 
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that collects nothing fails.
@@ -40,7 +57,7 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "scripts" / "apply_ticket_0114_condition_prompt.py"
-EVENT_FRAGMENT_MARKS = ("ÉVÉNEMENTS.", "{event_types}", "qu'aucun type de la liste")
+EVENT_FRAGMENT_MARKS = ("ÉVÉNEMENTS.", "{event_types}", "define_events")
 
 FAILURES: list[str] = []
 
@@ -300,6 +317,149 @@ def _check_delivery() -> None:
         fail(f"EI4: a second run: {runs[1].stdout.strip()[-200:]}")
 
 
+# --- EI5 / EI6 -----------------------------------------------------------------
+
+def _proposing_answer(**leaf) -> dict:
+    raw = _model_leaf(target={"define": "d1"}, value="piégeur", place=None,
+                      **{"with": [{"role": "proie", "sorte": {"define": "s1"}}]})
+    raw.update(leaf)
+    return {"condition": {"op": "all", "children": [raw]}, "unsupported": [],
+            "define_events": [{"ref": "d1", "name": "Chasses", "domain": "nope", "quantity": True,
+                               "roles": [{"name": "Piégeur", "for": ["character"]},
+                                         {"name": "Proie", "for": ["character"], "sorte": True}]}],
+            "define_sortes": [{"ref": "s1", "name": "Lapin"}, {"ref": "s2", "name": "loup"}]}
+
+
+def _interpret(ci, db, ids, answer):
+    stub, original = _Stub([answer, answer]), ci.chat
+    ci.chat = stub
+    try:
+        return ci.interpret(db, ids["world"], "completion", "A piégé des lapins", None, [])
+    finally:
+        ci.chat = original
+
+
+def check_ei5(engine, ids: dict) -> None:
+    from sqlmodel import Session, func, select
+
+    from world_engine import condition_interpreter as ci
+    from world_engine.models import EventSorte, EventType
+
+    with Session(engine) as db:
+        before = (db.exec(select(func.count()).select_from(EventType)).one(),
+                  db.exec(select(func.count()).select_from(EventSorte)).one())
+        result = _interpret(ci, db, ids, _proposing_answer(**{"with": [
+            {"role": "proie", "sorte": {"define": "s1"}}, {"role": "Piégeur", "sorte": {"define": "s2"}}]}))
+        kinds = [(v["ref"], v["kind"]) for v in result.vocabulary]
+        piege = result.vocabulary[0] if result.vocabulary else {}
+        if result.outcome != "needs_choice" or kinds != [("v1", "type"), ("o1", "sorte")] \
+                or piege.get("definition", {}).get("domain") != "other" \
+                or [r["name"] for r in piege.get("definition", {}).get("roles", [])] != ["Piégeur", "Proie"] \
+                or "Chasse" not in [n["name"] for n in piege.get("near", [])]:
+            fail(f"EI5: the proposals read {result.outcome}, {result.vocabulary}, {result.errors}")
+        leaf = result.pending["children"][0] if result.pending else {}
+        if leaf.get("type_define") != "v1" or leaf.get("role_name") != "piégeur" \
+                or [f.get("sorte_define") or f.get("sorte_id") for f in leaf.get("filters", [])] != ["o1", ids["loup"]]:
+            fail(f"EI5: the pending leaf is {leaf}")
+        after = (db.exec(select(func.count()).select_from(EventType)).one(),
+                 db.exec(select(func.count()).select_from(EventSorte)).one())
+        if after != before:
+            fail(f"EI5: reading the proposals wrote {before} -> {after}")
+        bad = _proposing_answer()
+        bad["define_events"][0]["roles"][0]["for"] = ["dragon"]
+        refused = _interpret(ci, db, ids, bad)
+        if refused.outcome != "refused" or not any("Chasses" in e for e in refused.errors):
+            fail(f"EI5: a broken proposal gave {refused.outcome}, {refused.errors}")
+        unknown = _interpret(ci, db, ids, _proposing_answer(target={"define": "d9"}))
+        if not any("d9" in e for e in unknown.errors):
+            fail(f"EI5: an unknown ref gave {unknown.errors}")
+        db.rollback()
+
+
+def check_ei6(engine, ids: dict) -> None:
+    from sqlmodel import Session
+
+    from world_engine import condition_interpreter as ci
+    from world_engine.conditions import node_to_dict
+    from world_engine.event_vocab import type_view
+    from world_engine.writes.event_types import EventTypeSpec, RoleSpec, write_event_type, write_sorte
+
+    with Session(engine) as db:
+        result = _interpret(ci, db, ids, _proposing_answer())
+        created = write_event_type(db, world_id=ids["world"], spec=EventTypeSpec(
+            name="Chasses", counts_quantity=True,
+            roles=(RoleSpec("Piégeur", ("character",)), RoleSpec("Proie", ("character",), accepts_sorte=True))))
+        lapin = write_sorte(db, world_id=ids["world"], name="Lapin").id
+        roles = {r.name: r.id for r in type_view(db, created.id).roles}
+        args = (db, ids["world"], result.pending, result.mentions, [])
+        bound = ci.resolve(*args, {"v1": created.id, "o1": lapin}, (), (), tuple(result.vocabulary))
+        leaf = node_to_dict(bound.tree)["children"][0] if bound.tree else {}
+        if bound.outcome != "proposed" or leaf.get("target_key") != created.id or leaf.get("value") != roles["Piégeur"] \
+                or leaf.get("filters") != [{"role_id": roles["Proie"], "entity_id": None, "sorte_id": lapin}]:
+            fail(f"EI6: binding gave {bound.outcome}, {leaf}, {bound.errors}")
+        for what, picks in (("no pick", {"o1": lapin}), ("a foreign pick", {"v1": ids["loup"], "o1": lapin})):
+            try:
+                ci.resolve(*args, picks, (), (), tuple(result.vocabulary))
+                fail(f"EI6: {what} was accepted")
+            except ValueError:
+                pass
+        near = ci.resolve(*args, {"v1": ids["chasse"], "o1": lapin}, (), (), tuple(result.vocabulary))
+        if near.outcome != "refused" or not any("Chasseur, Proie, Témoin" in e for e in near.errors):
+            fail(f"EI6: a near type without the role gave {near.outcome}, {near.errors}")
+        db.rollback()
+    _check_routes(engine, ids)
+
+
+def _check_routes(engine, ids: dict) -> None:
+    from sqlmodel import Session
+
+    from world_engine import condition_interpreter as ci
+    from world_engine.cockpit.routes import conditions as routes
+    from world_engine.models import ConditionDraft, World
+    from world_engine.writes.event_types import EventTypeSpec, RoleSpec, write_event_type, write_sorte
+
+    with Session(engine) as db:
+        world = db.get(World, ids["world"])
+        world.is_active = True
+        db.add(world)
+        db.commit()
+        stub, original = _Stub([_proposing_answer()]), ci.chat
+        ci.chat = stub
+        try:
+            answer = routes.interpret(routes.InterpretBody(instruction="A piégé des lapins", role="completion"),
+                                      db=db)
+        finally:
+            ci.chat = original
+        stored = db.get(ConditionDraft, answer["draft_id"]).payload.get("vocabulary") or []
+        if [v["ref"] for v in answer.get("vocabulary", [])] != ["v1", "o1"] or len(stored) != 2:
+            fail(f"EI6: the route answered {answer.get('vocabulary')}, the journal keeps {stored}")
+            return
+        created = write_event_type(db, world_id=ids["world"], spec=EventTypeSpec(
+            name="Chasses", roles=(RoleSpec("Piégeur", ("character",)),
+                                            RoleSpec("Proie", ("character",), accepts_sorte=True)))).id
+        lapin = write_sorte(db, world_id=ids["world"], name="Lapin").id
+        db.commit()
+        bound = routes.resolve(answer["draft_id"], routes.ResolveBody(bindings={"v1": created, "o1": lapin}), db=db)
+        if bound["outcome"] != "proposed" or not bound["view"]:
+            fail(f"EI6: the resolve route gave {bound['outcome']}, {bound['errors']}")
+
+
+# --- EI7 -----------------------------------------------------------------------
+
+def check_ei7() -> None:
+    front = ROOT / "frontend" / "src" / "creation"
+    wants = {
+        "ConditionInterpreter.svelte": ("<EventTypeForm", "createVocab(card)", "s.vocab"),
+        "conditionInterpreter.svelte.js": ("'/api/event-types'", "'/api/event-sortes'",
+                                           "for (const card of state.vocab) bindings[card.ref] = card.pick;"),
+    }
+    for name, needles in wants.items():
+        text = (front / name).read_text(encoding="utf-8") if (front / name).exists() else ""
+        for needle in needles:
+            if needle not in text:
+                fail(f"EI7: {name} lacks {needle!r}")
+
+
 def main() -> int:
     _fresh_db()
     from world_engine.db import create_db_and_tables, engine
@@ -307,18 +467,20 @@ def main() -> int:
     create_db_and_tables()
     check_ei1()
     ids = _world(engine)
-    for check in (check_ei2, check_ei3, check_ei4):
+    for check in (check_ei2, check_ei3, check_ei4, check_ei5, check_ei6):
         try:
             check(engine, ids)
         except Exception as exc:  # a crash is a failure, never a pass
             fail(f"{check.__name__}: crashed: {type(exc).__name__}: {exc}")
+    check_ei7()
     for msg in FAILURES:
         print(f"FAIL: {msg}")
     if FAILURES:
         return 1
     print("PASS: event_interpreter -- the interpreter shows the model the world's event types with their roles "
           "and its sortes, writes an event leaf by role, place, window and filters and reads it back, waits for "
-          "a pick on an ambiguous name, and its prompt is delivered fragment by fragment")
+          "a pick on an ambiguous name, proposes a missing type or sorte the creator creates or picks -- nothing "
+          "written before -- and its prompt is delivered fragment by fragment")
     return 0
 
 

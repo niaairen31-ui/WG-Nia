@@ -124,6 +124,16 @@ export async function loadOffers(worldId) {
   }
 }
 
+/** The editor's picker lists again -- TICKET-0114 (BRIEF-0114-G): after the
+    interpreter's card created an event type or a sorte. */
+export async function reloadChoices() {
+  try {
+    questOffersState.choices = await api('/api/quest-offers/choices');
+  } catch (e) {
+    questOffersState.loadError = e.message;
+  }
+}
+
 function draftBody(draft) {
   return {
     giver_entity_id: draft.giver_entity_id, contact_entity_id: draft.contact_entity_id || null,

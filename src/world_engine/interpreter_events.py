@@ -10,7 +10,10 @@ it back here: a role or a sorte by its normalized name, an unknown one an
 error listing the right ones; an entity through the interpreter's own
 resolver (`resolve_entity`), so an ambiguous name waits for the creator's
 pick like any other -- a filter's pick is kept as `entity_mention` until
-`bind_filters`.
+`bind_filters`. Since BRIEF-0114-G, a type or a sorte the model proposes
+(`event_proposals`) is named by its ref: the leaf keeps `type_define`, its
+role names (`role_name`) and a filter's `sorte_define` until the creator
+picks (`event_proposals.bind_vocabulary`).
 
 - `event_type_line(view, types)` : one type as the `t` list shows it.
 - `encode_event(spec, out, ...)` : a clean event leaf in the model's form.
@@ -72,12 +75,22 @@ def encode_event(spec, out: dict, view: Optional[EventTypeView], sortes: dict[st
 ResolveEntity = Callable[[Any, str], tuple[Optional[str], Optional[str]]]
 
 
+def _define_ref(value: Any, vocab, errors: list[str], where: str) -> Optional[tuple[str, str]]:
+    """A `{"define": ref}` the model wrote, through its vocabulary's refs."""
+    found = vocab.target(value.get("define")) if vocab is not None else None
+    if found is None:
+        errors.append(f"{where}proposition inconnue {value.get('define')!r} (attendu : un ref de "
+                      "« define_events » ou « define_sortes »)")
+    return found
+
+
 def read_event(raw: dict, out: dict, view: Optional[EventTypeView], sortes: dict[str, str],
-               resolve_entity: ResolveEntity, errors: list[str], where: str) -> None:
+               resolve_entity: ResolveEntity, errors: list[str], where: str, vocab=None) -> None:
     """The rest of an `event` leaf, read into `out` (the generic leaf, its
-    `target_key` the type's id or None): `value` a role's id, the place
-    (`target_entity_id`, or `target_mention` while a pick waits), `since`
-    and `filters`. Every problem is appended to `errors`."""
+    `target_key` the type's id or None, `type_define` a proposed type's
+    ref): `value` a role's id -- its name while the type is a proposal --,
+    the place (`target_entity_id`, or `target_mention` while a pick waits),
+    `since` and `filters`. Every problem is appended to `errors`."""
     out["since"] = raw.get("since") or EVENT_WINDOW_DEFAULT
     if out["since"] not in CONDITION_WINDOWS:
         errors.append(f"{where}fenêtre inconnue {out['since']!r} (attendu : {', '.join(CONDITION_WINDOWS)})")
@@ -87,9 +100,12 @@ def read_event(raw: dict, out: dict, view: Optional[EventTypeView], sortes: dict
         place = {"name": place, "kind": "place"}
     if place:
         out["target_entity_id"], out["target_mention"] = resolve_entity(place, where)
-    if view is None:
+    pending = view is None and "type_define" in out
+    if view is None and not pending:
         return
-    if raw.get("value") not in (None, ""):
+    if pending and raw.get("value") not in (None, ""):
+        out["role_name"] = str(raw["value"])
+    elif raw.get("value") not in (None, ""):
         role = _role_by_name(view, raw["value"])
         if role is None:
             errors.append(f"{where}« {raw['value']} » n'est pas un rôle de « {view.name} » "
@@ -98,13 +114,20 @@ def read_event(raw: dict, out: dict, view: Optional[EventTypeView], sortes: dict
             out["value"] = role.id
     by_name = {normalize_surface(name): sid for sid, name in sortes.items()}
     for item in raw.get("with") if isinstance(raw.get("with"), list) else []:
-        role = _role_by_name(view, item.get("role")) if isinstance(item, dict) else None
-        if role is None:
+        role = _role_by_name(view, item.get("role")) if isinstance(item, dict) and view is not None else None
+        if role is None and not (pending and isinstance(item, dict) and item.get("role")):
             errors.append(f"{where}« {item.get('role') if isinstance(item, dict) else item} » n'est pas un rôle "
-                          f"de « {view.name} » (rôles : {_role_names(view)})")
+                          f"de « {view.name if view else '?'} » (rôles : {_role_names(view) if view else '?'})")
             continue
-        entry: dict[str, Any] = {"role_id": role.id, "entity_id": None, "sorte_id": None}
-        if item.get("sorte") is not None:
+        entry: dict[str, Any] = {"role_id": role.id if role else None, "entity_id": None, "sorte_id": None}
+        if role is None:
+            entry["role_name"] = str(item["role"])
+        if isinstance(item.get("sorte"), dict):
+            found = _define_ref(item["sorte"], vocab, errors, where)
+            if found is None:
+                continue
+            entry["sorte_id" if found[0] == "id" else "sorte_define"] = found[1]
+        elif item.get("sorte") is not None:
             entry["sorte_id"] = by_name.get(normalize_surface(str(item["sorte"])))
             if entry["sorte_id"] is None:
                 known = ", ".join(sortes.values()) or "aucune"

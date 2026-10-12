@@ -158,6 +158,7 @@
 - `entity_author.py` — AI entity-authoring assistant (NPC, Location) — BRIEF-24, BRIEF-25.
 - `event_author.py` — AI event/agenda-authoring assistant — extracted from `entity_author.py` (TICKET-0028, BRIEF-0028-d, decision H1).
 - `event_payloads.py` — A model's event proposal, read into the journal's spec (TICKET-0114, BRIEF-0114-C; decisions D1, E1, I2, N1 and O1 of the conditions series).
+- `event_proposals.py` — The event types and sortes a model proposes (TICKET-0114, BRIEF-0114-G; decisions R1 and I2 of the conditions series).
 - `event_reads.py` — The journal as the models read it (TICKET-0114, BRIEF-0114-D; decisions K-a and Q1 of the conditions series).
 - `event_vocab.py` — The event journal's vocabulary, read (TICKET-0114, BRIEF-0114-A; decisions B1, C1, D1, N1 and W1 of the conditions series).
 - `facet_reads.py` — Facet reads (TICKET-0091, BRIEF-0091-D, C-10): one call to read what is said of an entity, facet by facet.

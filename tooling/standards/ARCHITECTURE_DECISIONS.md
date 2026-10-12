@@ -19432,6 +19432,28 @@ longer unsupported when a type says it), delivered by
 `apply_ticket_0114_condition_prompt.py`, which reuses the 0113 delivery.
 What no type says stays a note pointing to « Vocabulaire du monde ».
 
+## THE INTERPRETER PROPOSES A MISSING EVENT TYPE OR SORTE, CREATED FROM ITS CARD (TICKET-0114) -- `define_events`, `define_sortes` (BRIEF-0114-g, no schema change)
+
+**R1, proposing.** When the sentence speaks of an event no type says, or of
+a sorte the world lacks, the model proposes it (`define_events`,
+`define_sortes`) and its leaf names it by ref. Code reads each proposal
+through the writer's own cleaning (`event_proposals.py`), with the world's
+near names; a proposal whose name the world already has is no proposal --
+it names that type or sorte. The proposal waits (`needs_choice`); the
+journal keeps it (`vocabulary`). Nothing is written by the interpreter.
+
+**Created at once, from the card (drafting decision of the lot).** The
+creator uses a near type or sorte, or creates the proposed one -- a type
+retouched in `EventTypeForm`, the very form of « Vocabulaire du monde » --
+through the vocabulary's own routes; « Appliquer les choix » binds each ref
+to the id she chose and only then reads the leaf's role names on that
+type. Unlike a proposed state (0113, WN2: written with the offer's save),
+a type is created when she says so: the vocabulary is the world's, used by
+the journal, Play and the tick, not a term of one offer -- and binding a
+ref to a real id keeps one validation path (`clean_leaf`), with no unsaved
+type to carry through the offer's save. A type created for a proposal she
+then discards stays in the vocabulary, where she can retire it.
+
 ---
 
 *Co-built with Claude, June 2026.*

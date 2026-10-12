@@ -60,6 +60,7 @@ from .conditions import (
     leaves,
     node_to_dict,
 )
+from .event_proposals import Vocabulary, bind_vocabulary, read_vocabulary, vocab_waiting
 from .event_vocab import EventTypeView, world_event_types, world_sortes
 from .fact_refs import CodedRefs, code_facts, code_refs
 from .interpreter_events import bind_filters, encode_event, event_type_line, filters_waiting, read_event
@@ -282,6 +283,7 @@ class Reading:
     errors: list[str] = field(default_factory=list)
     name_errors: list[str] = field(default_factory=list)
     defined: dict[str, str] = field(default_factory=dict)  # the model's `define` ref -> `new:<ref>` (E)
+    vocab: Optional[Vocabulary] = None  # the event types and sortes it proposes (TICKET-0114, G)
 
 
 def _mention(db: Session, world_id: str, raw: dict, reading: Reading) -> Optional[str]:
@@ -349,13 +351,23 @@ def _leaf(db: Session, world_id: str, raw: dict, ctx: InterpreterContext, readin
         if target["key"] is None:
             reading.errors.append(f"{where}état proposé inconnu {raw['target']['define']!r} (attendu : un "
                                   "ref de « define »)")
+    # TICKET-0114 (BRIEF-0114-G): a type the model proposes -- or one the
+    # world has under that very name.
+    proposed_type = form == EVENT_FORM and isinstance(target, dict) and "define" in target
+    if proposed_type:
+        found = reading.vocab.target(target["define"]) if reading.vocab is not None else None
+        if found is None:
+            reading.errors.append(f"{where}type proposé inconnu {target['define']!r} (attendu : un ref de "
+                                  "« define_events »)")
+        else:
+            out["target_key" if found[0] == "id" else "type_define"] = found[1]
     if isinstance(target, str) and form in ENTITY_TARGET_TYPES:  # a bare name
         target = {"name": target, "kind": "other"}
     if form in ENTITY_TARGET_TYPES:
         out["target_entity_id"], out["target_mention"] = _entity(db, world_id, target, ctx, reading, where)
     elif form == ATTRIBUTE_FORM and isinstance(target, dict) and "key" in target:
         out["target_key"] = target["key"]
-    elif form in CODE_LISTS:
+    elif form in CODE_LISTS and not proposed_type:
         code = target.get("code") if isinstance(target, dict) else target
         out["target_key"] = ctx.lists[CODE_LISTS[form]].resolve(code)
         if out["target_key"] is None:
@@ -366,7 +378,8 @@ def _leaf(db: Session, world_id: str, raw: dict, ctx: InterpreterContext, readin
         _attribute_value(db, world_id, raw, ctx, reading, where, out)
     if form == EVENT_FORM:
         read_event(raw, out, ctx.event_types.get(out["target_key"]), ctx.sortes,
-                   lambda entity, at: _entity(db, world_id, entity, ctx, reading, at), reading.errors, where)
+                   lambda entity, at: _entity(db, world_id, entity, ctx, reading, at), reading.errors, where,
+                   reading.vocab)
     return {k: v for k, v in out.items() if v is not None or not k.endswith("_mention")}
 
 
@@ -418,11 +431,12 @@ def _read(db: Session, world_id: str, raw: Any, ctx: InterpreterContext, reading
 
 
 def read_answer(db: Session, world_id: str, raw: Any, ctx: InterpreterContext,
-                defined: Optional[dict[str, str]] = None) -> Reading:
+                defined: Optional[dict[str, str]] = None, vocab: Optional[Vocabulary] = None) -> Reading:
     """The model's `condition` read back: codes and names resolved, nothing
     validated yet. None reads as no tree. `defined`: the model's `define`
-    refs, already read (`attribute_proposals.read_definitions`)."""
-    reading = Reading(defined=dict(defined or {}))
+    refs, already read (`attribute_proposals.read_definitions`); `vocab`
+    its proposed event types and sortes (`event_proposals.read_vocabulary`)."""
+    reading = Reading(defined=dict(defined or {}), vocab=vocab)
     if raw is not None:
         reading.pending = _read(db, world_id, raw, ctx, reading, "1")
     return reading
@@ -435,7 +449,8 @@ def waiting(pending: Optional[dict]) -> bool:
     if pending is None:
         return False
     if pending.get("op") == "leaf":
-        return "subject_mention" in pending or "target_mention" in pending or filters_waiting(pending)
+        return "subject_mention" in pending or "target_mention" in pending or filters_waiting(pending) \
+            or vocab_waiting(pending)
     return any(waiting(child) for child in pending.get("children", []))
 
 
@@ -511,12 +526,16 @@ class Interpretation:
     # BRIEF-0113-E: the attributes this answer proposes -- `{ref, definition,
     # near}`, `near` the attributes whose name is near (the creator picks).
     definitions: list[dict] = field(default_factory=list)
+    # TICKET-0114 (BRIEF-0114-G): the event types and sortes it proposes --
+    # `{ref, kind, definition, near}` (`event_proposals`).
+    vocabulary: list[dict] = field(default_factory=list)
 
     def payload(self, current: Optional[ConditionTree], bindings: Optional[dict] = None) -> dict:
         """The journal's payload (`writes.condition_drafts.PAYLOAD_KEYS`)."""
         return {"current": node_to_dict(current), "pending": self.pending, "mentions": self.mentions,
                 "bindings": bindings or {}, "proposed": node_to_dict(self.tree),
-                "notes": self.notes, "errors": self.errors, "definitions": self.definitions}
+                "notes": self.notes, "errors": self.errors, "definitions": self.definitions,
+                "vocabulary": self.vocabulary}
 
 
 Exchanges = Optional[list[model_exchange.ModelExchange]]
@@ -562,7 +581,7 @@ def _settle(db: Session, world_id: str, reading: Reading, notes: list[str], retr
 
     def done(outcome, tree=None, errors=()):
         return Interpretation(outcome, tree, reading.pending, reading.mentions, notes, list(errors), retried,
-                              proposals.entries())
+                              proposals.entries(), reading.vocab.proposals if reading.vocab else [])
 
     if reading.errors or reading.name_errors:
         return done("refused", errors=reading.errors + reading.name_errors)
@@ -601,8 +620,9 @@ def _answer(db: Session, world_id: str, parsed: dict, ctx: InterpreterContext, u
     taken = {item.ref for item in unsaved}
     new, defined, errors = read_definitions(db, world_id, parsed.get("define"), taken, list(unsaved))
     ctx.attributes.update(unsaved_views(new))
-    reading = read_answer(db, world_id, parsed.get("condition"), ctx, defined)
-    reading.errors[:0] = errors
+    vocab = read_vocabulary(db, world_id, parsed.get("define_events"), parsed.get("define_sortes"))
+    reading = read_answer(db, world_id, parsed.get("condition"), ctx, defined, vocab)
+    reading.errors[:0] = errors + vocab.errors
     proposals = Proposals(unsaved=unsaved, new=new, near=near_existing(db, world_id, new, list(unsaved)))
     return _settle(db, world_id, reading, _notes(parsed.get("unsupported")), retried, proposals)
 
@@ -634,15 +654,20 @@ def _retryable(result: Interpretation) -> bool:
 
 
 def resolve(db: Session, world_id: str, pending: dict, mentions: list[dict], notes: list[str],
-            bindings: dict[str, str], definitions: tuple = (), unsaved: tuple = ()) -> Interpretation:
+            bindings: dict[str, str], definitions: tuple = (), unsaved: tuple = (),
+            vocabulary: tuple = ()) -> Interpretation:
     """The creator's picks applied to a `needs_choice` proposal; no model
     call. `ValueError` when a pick is missing or outside its choices. A
     proposed attribute near another (BRIEF-0113-E, WK2) is picked by its
     ref: `new` keeps it, an existing key moves its leaves there (`adopt`) --
     a label that attribute does not have refuses the proposal. The adopted
-    one stays in `definitions`, marked `adopted` with its key."""
+    one stays in `definitions`, marked `adopted` with its key. A proposed
+    event type or sorte (TICKET-0114, BRIEF-0114-G) is bound to the one the
+    creator created or picked, by its ref; the leaf's role names are then
+    read on that type."""
+    pending, errors = bind_vocabulary(db, world_id, pending, bindings)
     bound = bind(pending, mentions, bindings)
-    new, errors, adopted = [], [], []
+    new, adopted = [], []
     for entry in definitions:
         pick = bindings.get(entry["ref"])
         if entry.get("adopted"):
@@ -666,7 +691,7 @@ def resolve(db: Session, world_id: str, pending: dict, mentions: list[dict], not
     # An adopted proposal stays in the journal with the key it went to
     # (the dashboard of TICKET-0115 counts them); no card shows it.
     return Interpretation(outcome, tree, bound, mentions, list(notes), errors, False,
-                          proposals.entries() + adopted)
+                          proposals.entries() + adopted, list(vocabulary))
 
 
 def confirm(db: Session, world_id: str, proposed: Optional[dict], unsaved: tuple,
