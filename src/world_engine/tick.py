@@ -23,6 +23,7 @@ from sqlmodel import Session, select
 
 from . import llm_parse, ollama_client
 from .analyzer import load_analysis_prompt
+from .event_analysis import analysis_vocabulary
 from .fact_refs import CodedRefs, knowledge_key
 from .prose_render import fact_texts
 from .models import Agenda, Character, Entity, Fact, FactionMembership, Knowledge, ProposedMutation
@@ -316,16 +317,23 @@ def _tick_scope_setup(db: Session, scope_type: str, scope_id: str, interval_labe
             select(Entity).where(Entity.world_id == setup["world_id"], Entity.status == "active")
         ).all()
     }
+    # TICKET-0119 (BRIEF-0119-E, A1): the world's event types and sortes, read
+    # once per scope call -- shown to the model and used to type its events.
+    setup["vocab"] = analysis_vocabulary(db, setup["world_id"])
     return setup
 
 
-def _tick_call_scope_model(db: Session, briefing: str, interval_label: str, model: str, host: str) -> list:
+def _tick_call_scope_model(db: Session, briefing: str, interval_label: str, model: str, host: str,
+                           vocab: Any = None) -> list:
     events_template = load_analysis_prompt(db, world_id=None, usage="world_tick_events")
     events_version = current_prompt(db, events_template)
+    values = vocab.prompt_values() if vocab is not None else {"event_types": "(aucun)", "sortes": "(aucune)"}
     events_user_message = (
         events_version.user_template
         .replace("{event_context}", briefing)
         .replace("{interval_label}", interval_label)
+        .replace("{event_types}", values["event_types"])
+        .replace("{sortes}", values["sortes"])
     )
     events_llm_messages = [
         {"role": "system", "content": events_version.system_prompt},
@@ -398,7 +406,8 @@ def _tick_normalize_scope_items(
         normalized = _normalize_scope_event(
             raw_item, scope_type=scope_type, scope_id=scope_id, roster=setup["roster"],
             locations=setup["locations_index"], agendas_index=setup["agendas_index"],
-            actives=setup["actives_index"], db=db, notes=event_notes,
+            actives=setup["actives_index"], db=db, notes=event_notes, vocab=setup.get("vocab"),
+            world_id=world_id,
         )
         if normalized is None:
             dropped_events += 1
@@ -432,7 +441,8 @@ def _tick_run_scope_events(
     }
     try:
         setup = _tick_scope_setup(db, scope_type, scope_id, interval_label)
-        event_items = _tick_call_scope_model(db, setup["briefing"], interval_label, model, host)
+        event_items = _tick_call_scope_model(db, setup["briefing"], interval_label, model, host,
+                                             setup.get("vocab"))
     except Exception as exc:  # noqa: BLE001 — degrade-don't-abort (R3), same as the per-NPC loop
         event_notes.append(f"scope event call failed: {exc}")
         event_items = []

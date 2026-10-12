@@ -77,7 +77,9 @@ F1 -- panel (BRIEF-0098-F), static:
       it only under `loreTab === 'write'`;
    b. `frontend/src/lore/writePanel.svelte.js` calls exactly the paths
       `/api/lore/write/questions`, `/api/lore/write/draft`,
-      `/api/lore/write/commit`, `/api/lore/write/entries` and `/api/entities`;
+      `/api/lore/write/commit`, `/api/lore/write/entries`, `/api/entities`,
+      and since TICKET-0119 `/api/event-types` (a proposed type, created
+      before the commit) and `/api/events` (« Déclarer un événement »);
    c. `WritePanel.svelte` lists the facets it offers from `draft.facets`
       (served from `FACETS`), never from a literal list, and offers no free
       text field for an entity id.
@@ -648,8 +650,10 @@ def check_f1() -> None:
         fail("F1a: Lore.svelte does not render WritePanel under the 'write' tab")
     state = (lore / "writePanel.svelte.js").read_text(encoding="utf-8")
     paths = set(re.findall(r"'(/api/[a-z/_-]+)'", state))
+    # TICKET-0119 (BRIEF-0119-G): a proposed type is created before the
+    # commit, and « Déclarer un événement » writes to the journal.
     want = {"/api/lore/write/questions", "/api/lore/write/draft", "/api/lore/write/commit",
-            "/api/lore/write/entries", "/api/entities"}
+            "/api/lore/write/entries", "/api/entities", "/api/event-types", "/api/events"}
     if paths != want:
         fail(f"F1b: writePanel.svelte.js calls {sorted(paths)}")
     panel = (lore / "WritePanel.svelte").read_text(encoding="utf-8")

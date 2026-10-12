@@ -27,6 +27,7 @@ from .analyzer import _GOAL_ACTION_MAP, _MUTATION_TYPE_MAP
 from .fact_refs import CodedRefs
 from .models import Agenda, AgendaStep, Character, Entity, Faction, Relation
 from .tick_context import _perceived_target
+from .tick_events import UNTYPED, typed_tick_payload
 
 _log = logging.getLogger(__name__)
 
@@ -431,12 +432,21 @@ def _tick_normalize_scope_entity_creation(
 def _tick_normalize_scope_event_creation(
     payload_in: dict, rationale: str, *, scope_type: str, scope_id: str,
     roster: dict[str, str], locations: dict[str, str], notes: list[str],
+    typed: Any = UNTYPED,
 ) -> dict | None:
-    """The default shape (TICKET-0017, BRIEF-0017-a)."""
+    """The default shape (TICKET-0017, BRIEF-0017-a). Since TICKET-0119
+    (BRIEF-0119-E) an item naming one of the world's types arrives `typed`
+    (`tick_events.typed_tick_payload`); None drops it; `UNTYPED` keeps the
+    former shape below."""
     title = str(payload_in.get("title") or "").strip()
     if not title:
         notes.append("dropped event_creation: empty title")
         return None
+    if typed is None:
+        return None
+    if typed != UNTYPED:
+        return {"mutation_type": "event_creation", "target_table": "event", "target_id": None,
+                "payload": typed, "rationale": rationale}
 
     description = payload_in.get("description")
     description = str(description).strip() or None if description else None
@@ -497,6 +507,8 @@ def _normalize_scope_event(
     actives: dict[str, str],
     db: Session,
     notes: list[str],
+    vocab: Any = None,
+    world_id: str = "",
 ) -> dict | None:
     """Map one raw model item to the scope-level schema, or None to drop it
     (TICKET-0017, BRIEF-0017-a; grown to four types TICKET-0018/0019,
@@ -516,7 +528,10 @@ def _normalize_scope_event(
     agendas of the faction (empty for a location scope). `actives` is
     name.casefold() -> id for EVERY active entity of the world, any type —
     the entity_creation collision guard. `notes` is the caller's shared
-    notes list — parse-time drops and clamps are appended to it.
+    notes list — parse-time drops and clamps are appended to it. `vocab`
+    (TICKET-0119, BRIEF-0119-E): the world's event vocabulary, read once per
+    scope call; an `event_creation` naming one of its types is typed through
+    `tick_events.typed_tick_payload`.
     """
     if not isinstance(raw_item, dict):
         notes.append(f"dropped scope item: not a dict — {raw_item!r}")
@@ -543,9 +558,17 @@ def _normalize_scope_event(
     if raw_mutation_type == "entity_creation":
         return _tick_normalize_scope_entity_creation(payload_in, rationale, actives=actives, notes=notes)
 
+    title = str(payload_in.get("title") or "").strip()
+    location_id = scope_id if scope_type == "location" else locations.get(
+        str(payload_in.get("location") or "").strip().casefold())
+    typed = typed_tick_payload(
+        payload_in, title=title, description=str(payload_in.get("description") or "").strip() or None,
+        location_id=location_id, roster=roster, actives=actives, vocab=vocab, db=db, world_id=world_id,
+        notes=notes,
+    ) if title else UNTYPED
     return _tick_normalize_scope_event_creation(
         payload_in, rationale, scope_type=scope_type, scope_id=scope_id,
-        roster=roster, locations=locations, notes=notes,
+        roster=roster, locations=locations, notes=notes, typed=typed,
     )
 
 

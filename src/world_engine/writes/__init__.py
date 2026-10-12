@@ -36,7 +36,8 @@ Layout, by canon domain:
                           `agenda_step`/`goal_agenda_link`.
     events.py           — the event journal: `event`, `event_participant`,
                           its fact, scopes and participants' knowledge:
-                          `clean_event`, `write_event`, `write_event_update`
+                          `clean_event`, `write_event`, `record_event`
+                          (TICKET-0119: with its changes), `write_event_update`
                           (TICKET-0114, BRIEF-0114-C).
     prompts.py          — `prompt_version`/`prompt_variable` (non-canon;
                           moved for module hygiene, not policy).
@@ -70,7 +71,8 @@ Layout, by canon domain:
                           (TICKET-0113, BRIEF-0113-A).
     event_types.py      — the event journal's vocabulary: `event_type`,
                           `event_type_role`, `event_type_role_type`,
-                          `event_type_scope`, `event_sorte`:
+                          `event_type_scope`, `event_type_effect`
+                          (TICKET-0119), `event_sorte`:
                           `clean_event_type`, `write_event_type`,
                           `set_event_type_status`, `write_sorte`,
                           `set_sorte_status`, `ensure_domain_type`
@@ -101,7 +103,17 @@ from .config import (
     write_npc_schedule,
     write_world_laws,
 )
-from .events import EventScopeSpec, EventSpec, ParticipantSpec, clean_event, event_fact_text, write_event, write_event_update
+from .events import (
+    EventScopeSpec,
+    EventSpec,
+    ParticipantSpec,
+    StateChangeSpec,
+    clean_event,
+    event_fact_text,
+    record_event,
+    write_event,
+    write_event_update,
+)
 from .facts import (
     attach_participants,
     create_fact,
@@ -240,6 +252,8 @@ __all__ = [
     "write_ledger_entry",
     "write_membership",
     "write_event",
+    "record_event",
+    "StateChangeSpec",
     "write_prompt_version",
     "delete_world_cascade",
     "WorldDeleteRefused",

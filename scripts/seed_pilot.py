@@ -1129,6 +1129,19 @@ absent from the briefing.
 
 === event_creation PAYLOAD ===
   {"title":"…","description":"…",
+   "event_type":"t2",
+   "participants":[{"role":"<a role of the type>","name":"<name from the briefing>"},
+                   {"role":"<a role of the type>","sorte":"<a name from SORTES>"}],
+   "quantity":<int, only when the type counts one>,
+   "location":"<name, faction scope only, optional>"}
+
+"event_type" is the code of one type of TYPES D'ÉVÉNEMENTS (after the
+briefing). Each participant holds one of that type's roles, named exactly
+as listed: a person, place or faction by its NAME as the briefing writes
+it, or an anonymous kind of SORTES ("sorte") when the role accepts one.
+Never invent a type or a code. When no type of the list says what happened,
+use this former shape instead:
+  {"title":"…","description":"…",
    "type":"political|magical|criminal|military|social|mystery|other",
    "knowledge_status":"secret|public",
    "involved_entities":["<name from the briefing>", …],
@@ -1202,10 +1215,57 @@ WORLD_TICK_EVENTS_USER_TEMPLATE = """\
 SCOPE BRIEFING:
 {event_context}
 
+TYPES D'ÉVÉNEMENTS (code — nom, rôles) :
+{event_types}
+
+SORTES :
+{sortes}
+
 INTERVALLE ÉCOULÉ : {interval_label}
 
 Report what changed as a JSON array.\
 """
+
+# TICKET-0119 (BRIEF-0119-E, A1, R1): the tick names an event's type by
+# code and its participants by role and name, from the world's types and
+# sortes. The texts above hold each new fragment;
+# scripts/apply_ticket_0119_tick_prompt.py applies the same (field, old,
+# new) triples to the CURRENT version, so an edit the creator made in the
+# Prompts tab is kept (event_tick.py keeps the triples and the texts above
+# equal).
+WORLD_TICK_EVENTS_VARIABLES: tuple[str, ...] = ("event_context", "interval_label", "event_types", "sortes")
+WORLD_TICK_EVENTS_FRAGMENTS_0119: tuple[tuple[str, str, str], ...] = (
+    ("system_prompt",
+     "=== event_creation PAYLOAD ===\n"
+     '  {"title":"…","description":"…",\n'
+     '   "type":"political|magical|criminal|military|social|mystery|other",\n'
+     '   "knowledge_status":"secret|public",\n'
+     '   "involved_entities":["<name from the briefing>", …],\n'
+     '   "location":"<name, faction scope only, optional>"}\n',
+     "=== event_creation PAYLOAD ===\n"
+     '  {"title":"…","description":"…",\n'
+     '   "event_type":"t2",\n'
+     '   "participants":[{"role":"<a role of the type>","name":"<name from the briefing>"},\n'
+     '                   {"role":"<a role of the type>","sorte":"<a name from SORTES>"}],\n'
+     '   "quantity":<int, only when the type counts one>,\n'
+     '   "location":"<name, faction scope only, optional>"}\n'
+     "\n"
+     '"event_type" is the code of one type of TYPES D\'ÉVÉNEMENTS (after the\n'
+     "briefing). Each participant holds one of that type's roles, named exactly\n"
+     "as listed: a person, place or faction by its NAME as the briefing writes\n"
+     'it, or an anonymous kind of SORTES ("sorte") when the role accepts one.\n'
+     "Never invent a type or a code. When no type of the list says what happened,\n"
+     "use this former shape instead:\n"
+     '  {"title":"…","description":"…",\n'
+     '   "type":"political|magical|criminal|military|social|mystery|other",\n'
+     '   "knowledge_status":"secret|public",\n'
+     '   "involved_entities":["<name from the briefing>", …],\n'
+     '   "location":"<name, faction scope only, optional>"}\n'),
+    ("user_template", "SCOPE BRIEFING:\n{event_context}\n",
+     "SCOPE BRIEFING:\n{event_context}\n\nTYPES D'ÉVÉNEMENTS (code — nom, rôles) :\n{event_types}\n\n"
+     "SORTES :\n{sortes}\n"),
+)
+
 
 # BRIEF-47: World-bible generator. usage = "world_generation". Creator-side
 # draft generator for a NEW world's premise — entity_author.generate_world_draft
@@ -1945,13 +2005,26 @@ entrent dans une faction ({"entity_ref", "faction_ref"}) ; "controls" \
 liste qui possède ou dirige un lieu ({"owner_ref", "location_ref"}). La \
 possession s'écrit aussi comme un fait de facette "statut".
 
+ÉVÉNEMENTS. Quand le texte dit qu'il S'EST PASSÉ quelque chose (un \
+combat, une mort, un pacte, un incendie), liste-le dans "events" : \
+"event_type" est le code d'un type de la liste des types d'événements \
+("t2") ; "participants" nomme chaque participant par le rôle qu'il tient : \
+{"role": "...", "ref": "e1"} pour une entité, {"role": "...", "sorte": \
+"Loup"} pour une sorte de la liste ; "quantity" seulement si le type se \
+compte ; "place_ref" le lieu ; "title" et "description" en une phrase. \
+Si aucun type ne dit ce qui s'est passé, propose-le dans "new_type" \
+({"name": "...", "domain": "military|political|magical|criminal|social|mystery|other", \
+"roles": [{"name": "...", "for": ["character"], "sorte": false}], \
+"quantity": false}) sans "event_type" : la créatrice le crée avant \
+d'écrire.
+
 Suis les réponses de la créatrice à la lettre. Réponds UNIQUEMENT avec ce \
 JSON :
 {"entities": [{"ref": "e1", "name": "...", "category": "person"}],
  "facts": [{"action": "create", "content": "...", "facet": "preference",
    "participants": ["e1"], "defaults": [{"scope_type": "rencontre",
    "scope_ref": "e1"}], "knowers": []}],
- "memberships": [], "controls": []}\
+ "memberships": [], "controls": [], "events": []}\
 """
 
 LORE_STATEMENT_TO_PROPOSAL_USER_TEMPLATE = """\
@@ -1964,12 +2037,40 @@ Entités connues que le texte nomme :
 Faits déjà connus (code — texte) :
 {facts}
 
+Types d'événements (code — nom, rôles) :
+{event_types}
+
+Sortes :
+{sortes}
+
 Texte de la créatrice :
 {statement}
 
 Réponses de la créatrice aux questions :
 {answers}\
 """
+
+
+# TICKET-0119 (BRIEF-0119-G, U1): the proposal call reads the world's event
+# types and sortes and may return events. The texts above hold each new
+# fragment; scripts/apply_ticket_0119_lore_prompt.py applies the same
+# (field, old, new) triples to the CURRENT version of the proposal head, so
+# an edit the creator made in the Prompts tab is kept (event_lore.py keeps
+# the triples and the texts above equal).
+LORE_PROPOSAL_VARIABLES: tuple[str, ...] = ("facets", "entities", "facts", "statement", "answers", "event_types",
+                                            "sortes")
+LORE_PROPOSAL_FRAGMENTS_0119: tuple[tuple[str, str, str], ...] = (
+    ("system_prompt",
+     "Suis les réponses de la créatrice à la lettre. Réponds UNIQUEMENT avec ce JSON :",
+     LORE_STATEMENT_TO_PROPOSAL_SYSTEM_PROMPT[
+         LORE_STATEMENT_TO_PROPOSAL_SYSTEM_PROMPT.index("ÉVÉNEMENTS."):
+         LORE_STATEMENT_TO_PROPOSAL_SYSTEM_PROMPT.index("Suis les réponses de la créatrice")]
+     + "Suis les réponses de la créatrice à la lettre. Réponds UNIQUEMENT avec ce JSON :"),
+    ("system_prompt", ' "memberships": [], "controls": []}', ' "memberships": [], "controls": [], "events": []}'),
+    ("user_template", "{facts}\n\nTexte de la créatrice :",
+     "{facts}\n\nTypes d'événements (code — nom, rôles) :\n{event_types}\n\nSortes :\n{sortes}\n\n"
+     "Texte de la créatrice :"),
+)
 
 
 # The lore writing heads, one tuple read by the seed and by
@@ -1993,7 +2094,7 @@ LORE_WRITE_PROMPT_HEADS = (
         world_id=None,
         system_prompt=LORE_STATEMENT_TO_PROPOSAL_SYSTEM_PROMPT,
         user_template=LORE_STATEMENT_TO_PROPOSAL_USER_TEMPLATE,
-        variables=["facets", "entities", "facts", "statement", "answers"],
+        variables=list(LORE_PROPOSAL_VARIABLES),
         destination="local",
     ),
 )
@@ -3242,7 +3343,7 @@ def seed(session: Session) -> None:
         usage="world_tick_events",
         system_prompt=WORLD_TICK_EVENTS_SYSTEM_PROMPT,
         user_template=WORLD_TICK_EVENTS_USER_TEMPLATE,
-        variables=["event_context", "interval_label"],
+        variables=list(WORLD_TICK_EVENTS_VARIABLES),
         destination="local",
     )
 

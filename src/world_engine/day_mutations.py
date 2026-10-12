@@ -75,6 +75,11 @@ DELIBERATE duplicate of `cockpit/mutations.py`'s `_knowledge_already_
 applied`, not a call into it: that guard is conversation-scoped and scans
 APPLIED rows, a different question with a different key from "is this
 fact already sitting in the open review queue for this world."
+
+`event_creation` (TICKET-0119, BRIEF-0119-F, Bt1): a completed step whose
+completion condition names an event the character has to have lived
+proposes that event, exactly as the condition's leaf describes it
+(`day_events.emit_objective_events`) -- nothing invented, no model asked.
 """
 
 from __future__ import annotations
@@ -84,12 +89,14 @@ from typing import Callable, Optional
 from sqlmodel import Session, select
 
 from .conditions import and_path_leaves, read_condition
+from .day_events import emit_objective_events
 from .day_resolve import BLOCKED_BAND, StepOutcome, outcome_line
 from .models import Character, Fact, PassPlay, ProposedMutation
 from .prose_render import fact_text
 
 EMITTED_MUTATION_TYPES: tuple[str, ...] = (
     "knowledge_change", "relation_change", "agenda_step_change", "entity_creation", "new_knowledge",
+    "event_creation",
 )
 
 # The rendezvous deepens a pre-existing knowledge row to this level on a
@@ -290,6 +297,9 @@ _EMITTERS: dict[str, Callable[[StepOutcome, PassPlay, Character, str, Session], 
     "relation_change": _emit_relation_change,
     "entity_creation": _emit_entity_creation,
     "new_knowledge": _emit_new_knowledge,
+    # TICKET-0119 (BRIEF-0119-F, Bt1): a completed step whose objective is an
+    # event proposes that event (`day_events.py`).
+    "event_creation": emit_objective_events,
 }
 
 

@@ -13,9 +13,14 @@ proposal's payload into that writer's `EventSpec`. Two payload shapes:
   then under that name is used instead), its participants naming its roles
   by `role`; a participant's `sorte_name` is a sorte the world lacked,
   written likewise (`write_sorte`) unless it exists by then. All inside the
-  applier's savepoint: refused, nothing is written.
-- untyped (the world tick until TICKET-0119, and every proposal written
-  before): `type` (a former category), `involved_entities`,
+  applier's savepoint: refused, nothing is written. Since TICKET-0119 a
+  typed payload carries its `state_changes` (M-c) -- pre-filled from its
+  type's effects, edited by the creator on the card -- read by
+  `event_changes.payload_changes` for the writer to clean; and, edited on
+  the review card (Y2, BRIEF-0119-D), its own `scopes` -- a list, even
+  empty, replaces the type's.
+- untyped (a world tick item naming no type of the world -- TICKET-0119,
+  A1 --, and every proposal written before): `type` (a former category), `involved_entities`,
   `knowledge_status`, `location_id`. It is typed by its domain
   (`writes.event_types.ensure_domain_type`, N1), its entities take the one
   role « Impliqué » when that role accepts their type (an entity it does
@@ -39,6 +44,7 @@ from typing import Optional
 
 from sqlmodel import Session
 
+from .event_changes import payload_changes
 from .event_proposals import type_spec
 from .event_vocab import role_accepts, type_view, world_event_types, world_sortes
 from .lore_resolve import normalize_surface
@@ -103,11 +109,16 @@ def _typed(db: Session, world_id: str, payload: dict) -> EventSpec:
             role_id=str(role_id), entity_id=p.get("entity_id") or None, sorte_id=sorte_id,
             secret=p.get("secret") if isinstance(p.get("secret"), bool) else None))
     quantity = payload.get("quantity")
+    scopes = None
+    if isinstance(payload.get("scopes"), list):
+        scopes = tuple(EventScopeSpec(str(s.get("scope_type") or ""), s.get("scope_id") or None,
+                                      str(s.get("level") or "knows"))
+                       for s in payload["scopes"] if isinstance(s, dict))
     return EventSpec(
         type_id=str(type_id), title=str(payload.get("title") or ""),
         description=payload.get("description"), location_id=payload.get("location_id") or None,
         quantity=quantity if isinstance(quantity, int) and not isinstance(quantity, bool) else None,
-        participants=tuple(participants),
+        participants=tuple(participants), scopes=scopes, changes=payload_changes(payload.get("state_changes")),
     )
 
 

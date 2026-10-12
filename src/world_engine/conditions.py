@@ -461,6 +461,12 @@ def _since(spec: RequirementSpec, bindings: Bindings) -> tuple[Optional[datetime
     return (at, None) if at is not None else (None, _SINCE_UNBOUND_FR[spec.since])
 
 
+def leaf_since(spec: RequirementSpec, bindings: Bindings) -> tuple[Optional[datetime], Optional[str]]:
+    """F1 for a reader outside the evaluation (TICKET-0119, `day_events`):
+    when an `event` leaf starts counting, or why it cannot."""
+    return _since(spec, bindings)
+
+
 def _evaluate_leaf(spec: RequirementSpec, bindings: Bindings, db: Session, reachable: dict) -> VerdictNode:
     evaluator = _EVALUATORS.get(spec.type)
     if evaluator is None:

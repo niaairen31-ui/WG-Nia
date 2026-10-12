@@ -131,6 +131,9 @@ _FIXTURE: tuple[tuple[str, dict], ...] = (
     ("event_type_role_type", {"id": "etrt-{w}", "world_id": "{w}", "role_id": "etr-{w}",
                               "entity_type": "character"}),
     ("event_type_scope", {"id": "ets-{w}", "world_id": "{w}", "type_id": "et-{w}", "scope_kind": "world"}),
+    # TICKET-0119 (BRIEF-0119-A): an effect of the type -- the role's entity destroyed.
+    ("event_type_effect", {"id": "ete-{w}", "world_id": "{w}", "type_id": "et-{w}", "role_id": "etr-{w}",
+                           "system_key": "sys:status", "system_value": "destroyed"}),
     ("event", {"id": "ev-{w}", "world_id": "{w}", "title": "t", "type_id": "et-{w}"}),
     ("event_sorte", {"id": "eso-{w}", "world_id": "{w}", "name": "loup"}),
     ("event_participant", {"id": "ep-{w}", "world_id": "{w}", "event_id": "ev-{w}", "role_id": "etr-{w}",

@@ -13,6 +13,16 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.26** — TICKET-0119, BRIEF-0119-A: what an event does to the state of
+  the world. `event_type_effect` (an event type's effects: the role whose
+  entity changes, the state -- a world's definition, or `État vital` /
+  `Statut` --, and the value it takes: a choice, an integer set or added, or
+  the entity of another role; they pre-fill an event's proposal).
+  `attribute_change` gains `event_id` (the event that made a change) and
+  `idx_attribute_change_event`. `lore_entry_row` is rebuilt, its
+  `row_table` CHECK gaining `event`, `event_participant`, `attribute_value`
+  and `attribute_change`. `migrate_v2_26_event_effects.py` writes no data,
+  refuses a database older than v2.25, and moves `schema_meta` to v2.26.
 - **v2.25** — TICKET-0114, BRIEF-0114-D: the journal drops what it no
   longer reads. `event` is rebuilt without `type` (a type's `domain` now),
   `knowledge_status` (who knows an event is its fact's knowledge and

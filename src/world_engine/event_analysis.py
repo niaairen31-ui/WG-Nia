@@ -19,6 +19,11 @@ it is created with the event. A payload with neither `event_type` nor
 `new_type` is the former, untyped shape (`event_payloads` types it by its
 domain).
 
+Since TICKET-0119 (BRIEF-0119-C, M-c), a payload of an existing type
+carries its `state_changes`: its type's effects made concrete on its
+participants (`event_changes.type_changes`), which the creator keeps, edits
+or drops on the card. A proposed type has no effects yet.
+
 Reads only; writes nothing.
 """
 
@@ -30,6 +35,7 @@ from typing import Any, Optional
 
 from sqlmodel import Session
 
+from .event_changes import type_changes
 from .event_proposals import type_definition, type_spec
 from .event_vocab import EventTypeView, role_accepts, world_event_types, world_sortes
 from .fact_refs import CodedRefs, code_refs
@@ -159,4 +165,7 @@ def typed_payload(db: Session, world_id: str, payload: dict, vocab: AnalysisVoca
     }
     if definition is not None:
         out["new_type"] = definition
+    else:
+        out["state_changes"] = type_changes(db, world_id, vocab.types[type_id],
+                                            [(p["role_id"], p["entity_id"]) for p in participants])
     return out

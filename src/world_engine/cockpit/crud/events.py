@@ -7,7 +7,12 @@ by role (an entity or a sorte, each entity keeping it secret or not, X1),
 and who learns it besides them (its fact's scopes, the type's by default,
 W1). `POST /api/events` writes one, `PUT /api/events/{id}` corrects one --
 its type stays and no participant is taken away -- both through
-`writes.events`; every refusal is a 422.
+`writes.events`; every refusal is a 422. Since TICKET-0119 (BRIEF-0119-C,
+M-c) a new event carries its `state_changes` -- what it changes in the
+world, written with it, all or none; a correction carries none. `POST
+/api/events/changes` is the shared event editor's read (BRIEF-0119-D): the
+changes a type's effects pre-fill on given participants, each with its
+French line, and the French of the changes a card already holds.
 
 `_event_dict` is what the journal shows: the participants with their role
 and their secret (read from their own knowledge row), the scopes with what
@@ -16,19 +21,21 @@ they name.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Union
 
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import Session as DbSession, select
 
 from ...db import get_session
+from ...event_changes import change_line, type_changes
 from ...event_vocab import DOMAIN_LABELS_FR, type_view
 from ...models import Entity, Event, EventParticipant, EventSorte, FactDefault, Knowledge
 from ...writes.events import (
     EventScopeSpec,
     EventSpec,
     ParticipantSpec,
+    StateChangeSpec,
     event_fact,
     write_event,
     write_event_update,
@@ -100,6 +107,15 @@ class EventScopeBody(BaseModel):
     level: str = "knows"
 
 
+class StateChangeBody(BaseModel):
+    """One change of a new event (M-c): `value` a choice key, an integer,
+    an entity id, or None."""
+    entity_id: str
+    attribute: str
+    mode: str = "set"
+    value: Optional[Union[int, str]] = None
+
+
 class EventBody(BaseModel):
     title: str
     description: Optional[str] = None
@@ -109,6 +125,15 @@ class EventBody(BaseModel):
     participants: list[ParticipantBody] = Field(default_factory=list)
     # None: the type's scopes (W1); a list, even empty: exactly these.
     scopes: Optional[list[EventScopeBody]] = None
+    state_changes: list[StateChangeBody] = Field(default_factory=list)
+
+
+class ChangesBody(BaseModel):
+    """The editor's question: a type and its participants (role id, entity
+    id), and the changes it already holds."""
+    type_id: Optional[str] = None
+    participants: list[ParticipantBody] = Field(default_factory=list)
+    changes: list[StateChangeBody] = Field(default_factory=list)
 
 
 def event_spec(body: EventBody) -> EventSpec:
@@ -118,6 +143,7 @@ def event_spec(body: EventBody) -> EventSpec:
         participants=tuple(ParticipantSpec(p.role_id, p.entity_id, p.sorte_id, p.secret) for p in body.participants),
         scopes=None if body.scopes is None else tuple(EventScopeSpec(s.scope_type, s.scope_id, s.level)
                                                        for s in body.scopes),
+        changes=tuple(StateChangeSpec(c.entity_id, c.attribute, c.value, c.mode) for c in body.state_changes),
     )
 
 
@@ -140,6 +166,21 @@ def list_events(db: DbSession = Depends(get_session)) -> list[dict]:
 @router.get("/events/{event_id}")
 def get_event(event_id: str, db: DbSession = Depends(get_session)) -> dict:
     return _event_dict(_event(db, event_id), db)
+
+
+@router.post("/events/changes")
+def event_changes(body: ChangesBody, db: DbSession = Depends(get_session)) -> dict:
+    """`prefilled`: the changes the type's effects make on the participants
+    (none without a type); `described`: the changes given, each with its
+    French `line` (None when it names nothing of this world). Reads only."""
+    world_id = _world_id(db)
+    view = type_view(db, body.type_id) if body.type_id else None
+    if view is not None and view.world_id != world_id:
+        raise HTTPException(404, f"Event type {body.type_id!r} not found")
+    prefilled = type_changes(db, world_id, view, [(p.role_id, p.entity_id) for p in body.participants])
+    given = [c.model_dump() for c in body.changes]
+    return {"prefilled": [dict(c, line=change_line(db, world_id, c)) for c in prefilled],
+            "described": [dict(c, line=change_line(db, world_id, c)) for c in given]}
 
 
 @router.post("/events", status_code=201)
@@ -167,4 +208,5 @@ def update_event(event_id: str, body: EventBody, db: DbSession = Depends(get_ses
     return _event_dict(event, db)
 
 
-__all__ = ["EVENT_FIELDS", "EventBody", "_event_dict", "create_event", "get_event", "list_events", "update_event"]
+__all__ = ["EVENT_FIELDS", "EventBody", "_event_dict", "create_event", "event_changes", "get_event", "list_events",
+           "update_event"]

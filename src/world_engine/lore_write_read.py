@@ -2,7 +2,8 @@
 
 The panel's history view: the world's `lore_entry` rows, newest first, each
 with what it wrote, labelled for the creator (an entity's current name, a
-fact's rendered text, who knows which fact, a membership, a possession).
+fact's rendered text, who knows which fact, a membership, a possession;
+since TICKET-0119 an event, its participants and the states it changed).
 A row whose target was deleted since is labelled as such, never dropped.
 Reads only.
 """
@@ -13,9 +14,10 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
+from .attributes import attribute_view, raw_of, value_label
 from .models import (
-    Entity, Fact, FactDefault, FactionMembership, FactParticipant, Knowledge, LoreEntry,
-    LoreEntryRow, Relation,
+    AttributeChange, AttributeValue, Entity, Event, EventParticipant, Fact, FactDefault, FactionMembership,
+    FactParticipant, Knowledge, LoreEntry, LoreEntryRow, Relation,
 )
 from .prose_render import fact_text
 
@@ -33,10 +35,31 @@ def _fact_label(db: Session, fact_id: str) -> str:
     return fact_text(db, fact) if fact is not None else _DELETED
 
 
+def _event_label(db: Session, table: str, target) -> str:
+    """TICKET-0119 (U1): an event, a participant, a state it set."""
+    if table == "event":
+        return target.title
+    if table == "event_participant":
+        event = db.get(Event, target.event_id)
+        who = _name(db, target.entity_id) if target.entity_id else "une sorte"
+        return f"{who} — {event.title if event else _DELETED}"
+    value = target if table == "attribute_value" else db.get(AttributeValue, target.value_id)
+    view = attribute_view(db, value.world_id, value.definition_id) if value is not None else None
+    if view is None:
+        return _DELETED
+    if table == "attribute_value":
+        raw = raw_of(value)
+    else:
+        raw = next((v for v in (target.after_choice_id, target.after_integer, target.after_entity_id)
+                    if v is not None), None)
+    return f"{_name(db, value.entity_id)} : {view.name} -> {value_label(db, view, raw)}"
+
+
 def _label(db: Session, row: LoreEntryRow) -> str:
     model = {"entity": Entity, "fact": Fact, "fact_participant": FactParticipant,
              "fact_default": FactDefault, "knowledge": Knowledge, "relation": Relation,
-             "faction_membership": FactionMembership}[row.row_table]
+             "faction_membership": FactionMembership, "event": Event, "event_participant": EventParticipant,
+             "attribute_value": AttributeValue, "attribute_change": AttributeChange}[row.row_table]
     target = db.get(model, row.row_id)
     if target is None:
         return _DELETED
@@ -54,6 +77,8 @@ def _label(db: Session, row: LoreEntryRow) -> str:
         flags = "".join((" (secret)" if target.is_secret else "",
                          " (croyance fausse)" if target.is_incorrect else ""))
         return f"{_name(db, target.entity_id)} [{target.level}]{flags} — {_fact_label(db, target.fact_id)}"
+    if row.row_table in ("event", "event_participant", "attribute_value", "attribute_change"):
+        return _event_label(db, row.row_table, target)
     if row.row_table == "relation":
         return f"{_name(db, target.entity_a_id)} possède {_name(db, target.entity_b_id)}"
     return f"{_name(db, target.entity_id)} membre de {_name(db, target.faction_id)}"

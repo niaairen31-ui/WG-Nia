@@ -1,0 +1,42 @@
+{
+  "ticket": "TICKET-0119-event-producers",
+  "when": "2026-10-12T22:11:57.079252+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "event_effects.py",
+      "status": "PASS",
+      "msg": "PASS: event_effects -- v2.26 keeps what an event type does to the state of the world: the role whose entity changes, the state, and a value of its kind; a state an effect names is never taken away, and a change keeps the event that made it; Cr\u00c3\u00a9ation edits a type's effects"
+    },
+    {
+      "check": "event_changes.py",
+      "status": "PASS",
+      "msg": "PASS: event_changes -- an event's type pre-fills what it changes in the world; an event writes its changes with it, all or none, each naming it; the vital state and the status are written by their own writer, closing a gathering seat, and an approved proposal keeps their before and after"
+    },
+    {
+      "check": "event_editor.py",
+      "status": "PASS",
+      "msg": "PASS: event_editor -- one editor for the journal, the review card and Lore; it pre-fills an event's changes from its type; the card approves its edits, scopes and secrets included"
+    },
+    {
+      "check": "event_tick.py",
+      "status": "PASS",
+      "msg": "PASS: event_tick -- the world tick shows the model the world's event types and sortes, reads its events by code, role and name into typed proposals with their changes pre-filled, never proposes a new type, and its prompt is delivered fragment by fragment"
+    },
+    {
+      "check": "event_day.py",
+      "status": "PASS",
+      "msg": "PASS: event_day -- a completed step whose objective is an event proposes that event, as its leaf says it: its type, the one who acts in his role, its filters, its place, what is still lacking, its changes pre-filled; nothing else is invented"
+    },
+    {
+      "check": "event_lore.py",
+      "status": "PASS",
+      "msg": "PASS: event_lore -- Lore's proposal reads the world's event types and declares events by type, role and ref, its changes pre-filled; a proposed type is created before the commit; the commit writes each event through the journal's writer, every row recorded, all or nothing; a button declares one straight to the journal"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u00e2\u20ac\u201d 162 check(s) discovered, 162 executed, 162 passed"
+    }
+  ]
+}

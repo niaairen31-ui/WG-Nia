@@ -16,6 +16,16 @@ Entities are created through a callable the caller injects
 (`create_entity(name, type) -> Entity`, flushed): the commit-free creation
 core lives with the creator CRUD, which this module does not import.
 Every id in a proposal is re-read here against the proposal's world.
+
+TICKET-0119 (BRIEF-0119-G, U1): a proposal may hold EVENTS, each naming
+the entities of the statement by their ref -- its participants, its place,
+its scopes, the entities its changes name and an entity a change's value
+names. They are written after everything else, each through the journal's
+one writer (`event_payloads.spec_from_payload`, `writes.events.record_event`:
+its fact, its participants' knowledge, its changes), and every row it wrote
+is recorded against the entry. A type the world lacks is created from the
+panel before the commit, never here: an event still carrying `new_type` is
+refused. A refused event refuses the whole proposal (INV-57).
 """
 
 from __future__ import annotations
@@ -25,6 +35,7 @@ from typing import Any, Callable, Optional
 
 from sqlmodel import Session, select
 
+from .event_payloads import spec_from_payload
 from .facets import DESCRIPTIVE_FACETS, FACETS
 from .fact_refs import find_held
 from .models import Entity, Fact, FactDefault, FactionMembership, FactParticipant, Relation
@@ -33,6 +44,7 @@ from .writes.facts import FACT_CHANGE_KINDS
 from .writes.facts import attach_participants, create_fact_default
 from .writes.factions import write_membership
 from .writes.knowledge import KNOWLEDGE_LEVEL_LADDER, write_knowledge
+from .writes.events import record_event
 from .writes.lore_entries import record_entry_row, write_lore_entry
 from .writes.relations import write_relation
 
@@ -194,9 +206,34 @@ def validate(db: Session, world_id: str, proposal: dict) -> dict[str, dict]:
     for item in _list(proposal, "controls"):
         _entity_ref(refs, item.get("owner_ref"), "Possession")
         _entity_ref(refs, item.get("location_ref"), "Possession", "location")
-    if not (fact_refs or proposal.get("memberships") or proposal.get("controls")):
+    for item in _list(proposal, "events"):
+        _validate_event(refs, item)
+    if not (fact_refs or proposal.get("memberships") or proposal.get("controls") or proposal.get("events")):
         raise ProposalError("La proposition n'écrit rien.")
     return refs
+
+
+def _validate_event(refs: dict[str, dict], item: dict) -> None:
+    where = f"Événement {item.get('ref') or '?'}"
+    if item.get("new_type") is not None:
+        raise ProposalError(f"{where} : crée d'abord le type proposé.")
+    if not isinstance(item.get("type_id"), str) or not item["type_id"]:
+        raise ProposalError(f"{where} : choisis son type.")
+    _text(item, "title", where)
+    for p in item.get("participants") or []:
+        if not isinstance(p, dict):
+            raise ProposalError(f"{where} : un participant doit être un objet.")
+        if p.get("entity_ref") is not None:
+            _entity_ref(refs, p["entity_ref"], where)
+    if item.get("location_ref") is not None:
+        _entity_ref(refs, item["location_ref"], where, "location")
+    for change in item.get("state_changes") or []:
+        if not isinstance(change, dict):
+            raise ProposalError(f"{where} : un changement doit être un objet.")
+        _entity_ref(refs, change.get("entity_ref"), where)
+    for scope in item.get("scopes") or []:
+        if isinstance(scope, dict) and scope.get("scope_ref") is not None:
+            _entity_ref(refs, scope["scope_ref"], where)
 
 
 class _Writer:
@@ -292,6 +329,16 @@ class _Writer:
             self.add_defaults(fact, self.scopes(item))
         self.knowers(fact, item)
 
+    def event(self, item: dict) -> None:
+        """U1: one event through the journal's writer, every row recorded."""
+        spec = spec_from_payload(self.db, self.world_id, _event_payload(item, self.ids))
+        written = record_event(self.db, world_id=self.world_id, spec=spec, created_by=CREATED_BY)
+        seen: set[tuple[str, str]] = set()
+        for table, row_id, action in written.rows:
+            if (table, row_id) not in seen:
+                seen.add((table, row_id))
+                self.record(table, row_id, action)
+
     def membership(self, item: dict) -> None:
         entity_id, faction_id = self.ids[item["entity_ref"]], self.ids[item["faction_ref"]]
         held = self.db.exec(select(FactionMembership).where(
@@ -320,6 +367,31 @@ class _Writer:
         self.record("relation", row.id)
 
 
+def _event_payload(item: dict, ids: dict[str, str]) -> dict:
+    """An event of the proposal as a typed `event_creation` payload, its refs
+    made ids."""
+    def value(raw: Any) -> Any:
+        return ids.get(raw, raw) if isinstance(raw, str) else raw
+
+    payload = {
+        "title": item["title"], "description": item.get("description"), "type_id": item["type_id"],
+        "quantity": item.get("quantity"),
+        "location_id": ids[item["location_ref"]] if item.get("location_ref") else None,
+        "participants": [{"role_id": p.get("role_id"), "role": p.get("role"),
+                          "entity_id": ids[p["entity_ref"]] if p.get("entity_ref") else None,
+                          "sorte_id": p.get("sorte_id"), "secret": p.get("secret")}
+                         for p in item.get("participants") or []],
+        "state_changes": [{"entity_id": ids[c["entity_ref"]], "attribute": c.get("attribute"),
+                           "mode": c.get("mode") or "set", "value": value(c.get("value"))}
+                          for c in item.get("state_changes") or []],
+    }
+    if isinstance(item.get("scopes"), list):
+        payload["scopes"] = [{"scope_type": s.get("scope_type"), "level": s.get("level") or "knows",
+                              "scope_id": ids[s["scope_ref"]] if s.get("scope_ref") else None}
+                             for s in item["scopes"] if isinstance(s, dict)]
+    return payload
+
+
 def apply_proposal(
     db: Session, world_id: str, proposal: dict,
     create_entity: Callable[[str, str], Entity],
@@ -340,6 +412,8 @@ def apply_proposal(
             writer.membership(item)
         for item in _list(proposal, "controls"):
             writer.control(item)
+        for item in _list(proposal, "events"):
+            writer.event(item)
     except ProposalError:
         raise
     except ValueError as exc:

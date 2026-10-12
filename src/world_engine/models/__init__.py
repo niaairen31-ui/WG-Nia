@@ -24,7 +24,8 @@ Layout, by stratum:
     canon_event.py   — the event journal's vocabulary and participants
                         (EventType, EventTypeRole, EventTypeRoleType,
                         EventTypeScope, EventSorte, EventParticipant;
-                        TICKET-0114, schema v2.24), canon.
+                        TICKET-0114, schema v2.24; EventTypeEffect,
+                        TICKET-0119, schema v2.26), canon.
     config.py        — canon curated-config tables too new/small to justify
                         growing canon.py at its module_budget cap
                         (ConversationWindowConfig, TICKET-0050).
@@ -107,6 +108,7 @@ from .canon_attribute import (
 )
 from .canon_event import (
     EVENT_DOMAINS,
+    EVENT_EFFECT_MODES,
     EVENT_SCOPE_KINDS,
     EVENT_SCOPE_LEVELS,
     EVENT_VOCAB_STATUSES,
@@ -114,6 +116,7 @@ from .canon_event import (
     EventSorte,
     EventType,
     EventTypeRole,
+    EventTypeEffect,
     EventTypeRoleType,
     EventTypeScope,
 )
@@ -225,6 +228,8 @@ __all__ = [
     "EventTypeScope",
     "EventSorte",
     "EventParticipant",
+    "EventTypeEffect",
+    "EVENT_EFFECT_MODES",
     "EVENT_DOMAINS",
     "EVENT_SCOPE_KINDS",
     "EVENT_SCOPE_LEVELS",

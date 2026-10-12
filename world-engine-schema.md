@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.25
+Current schema version: v2.26
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -1183,7 +1183,8 @@ CREATE INDEX idx_lore_entry_world ON lore_entry(world_id, created_at);
 One row per canon row a `lore_entry` commit created or updated (schema v2.11,
 TICKET-0098, BRIEF-0098-B, M1), so a story can be reread with everything it
 produced. `row_id` carries no FK: it points into the table `row_table` names.
-`updated` marks a `bloc` fact rewritten in place. Append-only; the bulk undo
+`updated` marks a `bloc` fact rewritten in place, or a state an event Lore
+declared changed (`attribute_value`, v2.26, TICKET-0119). Append-only; the bulk undo
 of an entry is a later ticket (M2).
 
 ```sql
@@ -1191,7 +1192,8 @@ CREATE TABLE lore_entry_row (
   id         TEXT PRIMARY KEY,
   entry_id   TEXT NOT NULL REFERENCES lore_entry(id),
   row_table  TEXT NOT NULL CHECK (row_table IN ('entity','fact','fact_participant',
-               'fact_default','knowledge','relation','faction_membership')),
+               'fact_default','knowledge','relation','faction_membership','event',
+               'event_participant','attribute_value','attribute_change')),
   row_id     TEXT NOT NULL,
   action     TEXT NOT NULL CHECK (action IN ('created','updated'))
 );
@@ -1786,6 +1788,46 @@ CREATE UNIQUE INDEX idx_event_participant_unique_entity
   ON event_participant(event_id, role_id, entity_id) WHERE entity_id IS NOT NULL;
 CREATE UNIQUE INDEX idx_event_participant_unique_sorte
   ON event_participant(event_id, role_id, sorte_id) WHERE sorte_id IS NOT NULL;
+```
+
+-----
+
+### `event_type_effect`
+
+What an event of the type does to the state of the world (M-c, schema
+v2.26, TICKET-0119): the entity in `role_id` takes, for the state
+`definition_id` (one of the world's) or `system_key` (`sys:vital_status`,
+`sys:status` -- E1; `Magie` stays the creator's), exactly one value:
+`choice_id` (a definition's choice), `system_value` (a system state's stored
+value), `integer_value` (set, or added when `mode` is `add`, D3), or the
+entity of the role `value_role_id` (« Occupé par = l'Usurpateur »). Which
+value fits the state's kind is `writes/event_types.py`'s rule. An effect only
+PRE-FILLS the changes of an event's proposal, which the creator keeps, edits
+or drops; nothing holds it, so a type's effects are replaced whole. A
+definition an effect names is not retired, its kind does not change, and a
+choice it names stays (`writes/attributes.py`).
+
+```sql
+CREATE TABLE event_type_effect (
+  id             TEXT PRIMARY KEY,
+  world_id       TEXT NOT NULL REFERENCES world(id),
+  type_id        TEXT NOT NULL REFERENCES event_type(id),
+  role_id        TEXT NOT NULL REFERENCES event_type_role(id),
+  definition_id  TEXT REFERENCES attribute_definition(id),
+  system_key     TEXT,
+  mode           TEXT NOT NULL DEFAULT 'set' CHECK (mode IN ('set','add')),
+  choice_id      TEXT REFERENCES attribute_choice(id),
+  system_value   TEXT,
+  integer_value  INTEGER,
+  value_role_id  TEXT REFERENCES event_type_role(id),
+  position       INTEGER NOT NULL DEFAULT 0,
+  CHECK ((definition_id IS NOT NULL) + (system_key IS NOT NULL) = 1),
+  CHECK ((choice_id IS NOT NULL) + (system_value IS NOT NULL) + (integer_value IS NOT NULL)
+         + (value_role_id IS NOT NULL) = 1),
+  CHECK (mode = 'set' OR integer_value IS NOT NULL)
+);
+CREATE INDEX idx_event_type_effect_type ON event_type_effect(type_id, position);
+CREATE INDEX idx_event_type_effect_definition ON event_type_effect(definition_id);
 ```
 
 -----
@@ -2890,8 +2932,8 @@ The history of a value (WD1), append-only -- the rows ARE the history, no
 the entity held none) and after, in the columns of its kind; `kind` is
 `correction` (it was always so) or `changement` (the world changed), the
 vocabulary of `writes.facts.FACT_CHANGE_KINDS`, chosen by the creator at
-each write; `changed_by` who made it. TICKET-0114's events will append here
-too.
+each write; `changed_by` who made it; `event_id` the event that made a
+`changement` (M-c, v2.26, TICKET-0119), NULL for the creator's own edit.
 
 ```sql
 CREATE TABLE attribute_change (
@@ -2906,9 +2948,11 @@ CREATE TABLE attribute_change (
   after_choice_id   TEXT REFERENCES attribute_choice(id),
   after_integer     INTEGER,
   after_entity_id   TEXT REFERENCES entity(id),
-  changed_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  changed_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  event_id          TEXT REFERENCES event(id)
 );
 CREATE INDEX idx_attribute_change_value ON attribute_change(value_id, changed_at);
+CREATE INDEX idx_attribute_change_event ON attribute_change(event_id);
 ```
 
 -----

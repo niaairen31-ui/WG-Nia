@@ -12,7 +12,12 @@
      resync -- the same one-shot-seed reasoning RoleRow.svelte's own
      header describes, just without that component's resync effect
      because this card never needs one. */
-  import { mutationEntityName, mutationAgendaName, mutationDayInfo, shortId, approveMutation, rejectMutation, toggleSelected } from './queue.svelte.js';
+  import { mutationEntityName, mutationAgendaName, mutationDayInfo, shortId, approveMutation, rejectMutation, toggleSelected, queueState } from './queue.svelte.js';
+  import { draftFromPayload, payloadFromDraft } from './eventDraft.svelte.js';
+  import { vocabState, loadVocabulary } from './eventVocab.svelte.js';
+  import { creationState } from './state.svelte.js';
+  import { serverState } from '../lib/serverState.svelte.js';
+  import EventEditor from './EventEditor.svelte';
 
   let { mutation, selected } = $props();
 
@@ -30,6 +35,21 @@
   let resultMsg = $state('');
 
   let editable = $derived(mutation.status === 'proposed');
+
+  /* TICKET-0119 (BRIEF-0119-D, Y2): a typed event proposal still in review is
+     edited in the shared EventEditor -- its type, text, participants and
+     their secret, quantity, scopes, and what it changes in the world -- and
+     approved as edited (`payloadFromDraft`). Seeded once, like payloadText:
+     the card never resyncs from the prop. An untyped proposal keeps its
+     payload. */
+  const typedEvent = mutation.mutation_type === 'event_creation' && mutation.status === 'proposed'
+    && !!(mutation.payload && mutation.payload.type_name);
+  let eventDraft = $state(typedEvent ? draftFromPayload(mutation.payload, mutationEntityName) : null);
+  let showJson = $state(!typedEvent);
+
+  $effect(() => {
+    if (typedEvent) loadVocabulary(serverState.worldId);
+  });
 
   function fmtDate(iso) {
     if (!iso) return '—';
@@ -135,6 +155,7 @@
   }
 
   async function onApprove() {
+    if (eventDraft) payloadText = JSON.stringify(payloadFromDraft(eventDraft, mutation.payload, vocabState.types), null, 2);
     // Validate JSON before sending -- saves a round trip.
     try {
       JSON.parse(payloadText);
@@ -225,7 +246,12 @@
     </div>
   {/if}
 
-  {#if eventLegs}
+  {#if eventDraft && editable}
+    <div class="card-fields" style="margin-bottom:8px;">
+      <EventEditor draft={eventDraft} entities={queueState.entities} playerCharIds={creationState.playerCharIds}
+                   withText={true} />
+    </div>
+  {:else if eventLegs}
     <div class="card-fields" style="margin-bottom:8px;">
       <div class="field-label">Événement</div>
       <div class="row-card" style="flex-direction:row; align-items:center; gap:10px; flex-wrap:wrap;">
@@ -266,10 +292,14 @@
   {/if}
 
   <div class="card-fields">
-    <div>
-      <div class="field-label">Payload</div>
-      <textarea class="payload" rows="5" spellcheck="false" readonly={!editable} bind:value={payloadText}></textarea>
-    </div>
+    {#if showJson}
+      <div>
+        <div class="field-label">Payload</div>
+        <textarea class="payload" rows="5" spellcheck="false" readonly={!editable || !!eventDraft} bind:value={payloadText}></textarea>
+      </div>
+    {:else}
+      <button class="btn-icon" style="font-size:12px" onclick={() => (showJson = true)}>Voir le JSON</button>
+    {/if}
     <div>
       <div class="field-label">Creator notes</div>
       <input class="notes" type="text" placeholder={editable ? 'optional note…' : ''} readonly={!editable} bind:value={notesText}>

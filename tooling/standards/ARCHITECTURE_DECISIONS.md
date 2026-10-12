@@ -19481,6 +19481,191 @@ typed shape, an EVENT_CREATION RUBRIC, the two lists in the message),
 delivered by `apply_ticket_0114_analysis_prompt.py`, fragment by fragment:
 the creator's edits are kept.
 
+## WHAT AN EVENT DOES TO THE STATE OF THE WORLD IS PART OF ITS TYPE (TICKET-0119) -- `event_type_effect`, AND A CHANGE KEEPS ITS EVENT (BRIEF-0119-a, schema v2.26)
+
+**M-c, C1.** An event type declares its effects as data: « Ouvrir : Cible
+-> Ouvert = oui », « Usurper : Trône -> Occupé par = l'Usurpateur ». An
+effect names a role of the type that holds an entity, a state -- one of
+the world's definitions, or a system state -- that applies to an entity
+type the role accepts, and one value of the state's kind: a choice, an
+integer, or the entity of another role. An effect only PRE-FILLS the
+changes of an event's proposal (TICKET-0119's later briefs); the creator
+keeps, edits or drops each, so nothing holds an effect and a type's effects
+are replaced whole.
+
+**D3.** An integer effect sets its value or ADDS to it (« Alerte + 1 »).
+A count of events stays the journal's: an integer state is for what is not
+a number of events.
+
+**E1.** An effect may change `État vital` and `Statut`, the two system
+states play may move (`EFFECT_SYSTEM_KEYS`); `Magie` stays the creator's.
+Their columns keep their own writers and no history table; the reason of a
+change is the event and its fact.
+
+**What an effect holds.** A definition an effect names is not retired, its
+kind does not change, and a choice it names stays (the WJ2 rule, extended).
+
+**A change keeps its event.** `attribute_change.event_id` names the event
+that made a `changement`; a creator's own correction names none, and an
+event never makes a `correction`.
+
+**Lore records an event (U1).** `lore_entry_row` may name `event`,
+`event_participant`, `attribute_value` and `attribute_change`, so an event
+Lore declares (BRIEF-0119-G) is recorded with every row it wrote.
+
+## « VOCABULAIRE DU MONDE » EDITS WHAT A TYPE DOES TO THE STATE OF THE WORLD (TICKET-0119) -- A TYPE'S EFFECTS IN ITS FORM (BRIEF-0119-b, no schema change)
+
+**The form.** `EventTypeForm` lists a type's effects, each « role -> state
+= value »: the role is one of the type's that holds an entity; the state
+one that applies to an entity the role accepts; the value a choice of the
+state, an integer that the effect sets or adds to (D3), or another role
+whose entity the state may name. The same form serves the tab and the
+proposal cards of TICKET-0114, so a type proposed there may carry effects
+too.
+
+**The routes.** `GET /api/event-vocabulary` lists `states`: the two system
+states an effect may change (E1) and the world's active definitions, each
+with its kind, holder and value types and choices. A type's dict carries
+its `effects`, a role's NAME for an entity state; `EventTypeBody.effects`
+is read into the writer's `EffectSpec`. Every rule stays in
+`writes/event_types.py`; a refused effect is a 422.
+
+## AN EVENT WRITES WHAT IT CHANGES IN THE WORLD, ALL OR NONE (TICKET-0119) -- ITS TYPE PRE-FILLS THE CHANGES; `record_event`, `write_system_state` (BRIEF-0119-c, no schema change)
+
+**M-c.** An event carries its CHANGES (`EventSpec.changes`, a payload's
+`state_changes`): each names an entity of the world, a state that applies
+to it, and a value of the state's kind. They are PRE-FILLED from its type's
+effects (`event_changes.type_changes`: each entity in the effect's role; a
+sorte changes nothing; an entity state takes the first entity of its value
+role), and the creator keeps, edits or drops them. Play's typed proposal
+carries them from this brief on; the tick, Journée and Lore follow.
+
+**F1.** One change refused and the whole event is refused: nothing is
+written -- in the applier's savepoint, the journal's route, Lore's
+transaction. A correction of an event changes no state (L1): the event
+already did, or never did.
+
+**The writes.** A definition's change is a `changement` naming its event
+(`write_attribute_value`); an integer `add` is added to the current value
+(D3). A system state is written by `writes.entity_states.write_system_state`
+(E1): a location is never made active again by an event (its fiche asks
+about a zone promotion, TICKET-0101), and an entity leaving `active`, or a
+character leaving `alive`, leaves its gatherings (INV-25's repair). Those
+columns keep no history: the approved proposal keeps their before and after
+(`applied_changes`), so a later history table can recover every change an
+event made.
+
+**`record_event`.** The journal's writer returns every row it wrote, for
+Lore to record them (INV-57); `write_event` stays its thin form.
+
+## ONE EVENT EDITOR FOR THE JOURNAL, THE REVIEW CARD AND LORE; THE CARD APPROVES WHAT THE CREATOR EDITED (TICKET-0119) -- `EventEditor.svelte` (BRIEF-0119-d, no schema change)
+
+**H1.** `EventEditor.svelte` is the one editor of an event: its type, its
+text and place (on a card), its quantity, its participants role by role
+with their secret, who learns it, and what it changes in the world. The
+journal's sheet, the review card and Lore render it on one draft shape
+(`eventDraft.svelte.js`). A player character is offered no secret box
+(INV-07; the writer forces it anyway). A correction from the journal hides
+the changes: a correction changes no state.
+
+**Y2.** A typed `event_creation` still in review is edited on its card and
+approved as edited (`payloadFromDraft`): type, title, description, place,
+participants and their secret, quantity, its own scopes (a list, even
+empty, replaces the type's -- `event_payloads` reads `scopes` since this
+brief) and its changes. A type proposed with the event (I2) keeps its
+definition; its participants name its roles by name. The raw payload stays
+one click away. An untyped proposal keeps its payload: the tick's typed
+producer is BRIEF-0119-E.
+
+**Pre-fill.** `POST /api/events/changes` makes the type's effects concrete
+on the draft's participants (`event_changes.type_changes`, the one
+pre-fill) and puts each change in French; the editor's « Pré-remplir »
+merges them into the draft's changes. It reads only.
+
+## THE WORLD TICK PROPOSES TYPED EVENTS -- THE WORLD'S TYPES BY CODE, PARTICIPANTS BY ROLE AND NAME; NEVER A NEW TYPE (TICKET-0119) -- `tick_events.py` (BRIEF-0119-e, no schema change)
+
+**R1 in the tick.** The scope-level tick call shows the model the world's
+event types as Play does (`analysis_vocabulary`, read once per scope call:
+the coded `t` list with each type's roles, the sortes by name). Its
+`event_creation` names a type by code and each participant by the role it
+holds -- a person, place or faction by its NAME as the briefing writes it,
+a sorte by name. `tick_events.typed_tick_payload` resolves a name through
+the scope's roster, then every active entity of the world; a name nobody
+bears is left out with a note, never guessed. The payload is Play's
+(`event_analysis.typed_payload`), fail-closed the same way, its changes
+pre-filled from its type's effects (M-c); the review card edits it (Y2).
+
+**A1.** The tick proposes no new type: it runs unattended, three events per
+scope, and its vocabulary would drift. A `new_type` is set aside with a
+note; an item naming no type of the world keeps the former untyped shape,
+typed by its domain at approval (N1). Reactivation: the dashboard (0115)
+shows the creator retyping the tick's domain-typed events often.
+
+**Prompt.** Two fragments of `WORLD_TICK_EVENTS_FRAGMENTS_0119` (the typed
+shape beside the former one, the two lists after the briefing), delivered by
+`apply_ticket_0119_tick_prompt.py` fragment by fragment: the creator's
+edits are kept.
+
+## JOURNÉE PROPOSES THE EVENT A COMPLETED STEP'S OBJECTIVE NAMES (TICKET-0119) -- `day_events.py`, NOTHING INVENTED (BRIEF-0119-f, no schema change)
+
+**Bt1.** A quest step's objective may be an event (« Chasse : Brakk en
+chasseur, 3 loups »). When the day resolves the step as completed, its
+completion condition already says what has to have happened, so Journée
+proposes that very event beside the step's `agenda_step_change` -- both
+reviewed by the creator (V1). No model is asked: every key comes from the
+leaf. This is the foundation TICKET-0121 builds on (Journée proposing a
+quest, B-b): the planner will write such objectives.
+
+**Which leaves.** An `event` leaf of the completion reached through `all`
+only (Q1), on the one who acts (`doer`), not met yet. The character fills
+the leaf's role (« any role »: the type's first role accepting a
+character), each filter fills its role, the leaf's place is the event's
+when it is an active location, and when the type counts a quantity the
+event carries what the leaf still lacks in its window. Its changes are
+pre-filled from the type's effects (M-c).
+
+**The title.** The step's objective and the day's number: the approval's
+duplicate guard compares titles and places, and a step may take several
+days.
+
+**Replay.** `resolve_day` already refuses while the standing agenda holds a
+proposed step change (BB1), so a day is never proposed twice.
+
+## LORE DECLARES EVENTS -- IN THE WRITING PANEL'S PROPOSAL, AND BY A BUTTON STRAIGHT TO THE JOURNAL (TICKET-0119) -- U1, G3 (BRIEF-0119-g, no schema change)
+
+**U1 in the panel.** The lore writing call reads the world's event types
+(the coded `t` list) and its sortes, and may return events: a type by code,
+participants by role -- an entity of the statement by its ref, a sorte by
+name --, a quantity, a place by ref. `lore_write_draft._event` reads each
+fail-closed: an unknown code drops the event, an unknown role or a sorte the
+world lacks drops that participant, each with a note. A known type's
+effects pre-fill the event's changes on the entities the world already has
+(M-c). The panel edits each event in the shared `EventEditor`, its entities
+being the statement's refs until the commit (so its « Pré-remplir » is
+hidden: the draft arrives pre-filled).
+
+**A proposed type.** When no type fits, the model proposes one; the panel
+shows it in `EventTypeForm` and creates it with « Créer ce type » (the
+vocabulary's routes) before the commit -- the interpreter's rule (0114, G).
+An event still carrying `new_type` refuses the proposal: the commit never
+writes vocabulary.
+
+**The commit.** Events are written after the entities, facts, memberships
+and controls, each through the journal's one writer (`spec_from_payload`,
+`record_event`), its refs made ids; every row it wrote is recorded against
+the entry (INV-57: `lore_entry_row` names `event`, `event_participant`,
+`attribute_value`, `attribute_change` since v2.26). One refused event
+refuses the whole proposal. The history labels an event by its title, a
+state by « entité : état -> valeur ».
+
+**G3.** « Déclarer un événement » opens the editor on a blank event with
+the world's entities and writes it straight to the journal (`POST
+/api/events`): no statement, no lore entry -- the journal is its record.
+
+**Prompt.** Three fragments of `LORE_PROPOSAL_FRAGMENTS_0119`, delivered by
+`apply_ticket_0119_lore_prompt.py` fragment by fragment: the creator's
+edits are kept.
+
 ---
 
 *Co-built with Claude, June 2026.*

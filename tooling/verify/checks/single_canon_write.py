@@ -86,6 +86,8 @@ single-row correction): `write_npc_prices`, `write_world_laws`,
 attribute definition's entity types) and `writes/event_types.py::_write_roles`
 / `_write_scopes` (TICKET-0114, BRIEF-0114-A: a role's entity types, an
 event type's scopes -- never a role itself, retired instead) and
+`writes/event_types.py::_write_effects` (TICKET-0119, BRIEF-0119-A: an
+event type's effects, which only pre-fill a proposal) and
 `writes/events.py::_write_scopes` (TICKET-0114, BRIEF-0114-C: an event's
 fact's scopes, from the journal or an approved proposal) each
 `DELETE FROM` their table(s) scoped to one parent (NPC / world / location /

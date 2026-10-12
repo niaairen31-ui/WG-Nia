@@ -5,7 +5,8 @@ text only, no DB — same FAILURES/fail()/`_parse`/`_rel` idiom as
 
 R1 (bijection, corrected vocabulary): `EMITTED_MUTATION_TYPES` in
 `day_mutations.py` equals `("knowledge_change", "relation_change",
-"agenda_step_change", "entity_creation")` exactly, and `_EMITTERS`'s key
+"agenda_step_change", "entity_creation", "new_knowledge", "event_creation")`
+exactly, and `_EMITTERS`'s key
 set equals it, both directions (the `_SOURCE_LOOKUPS` precedent,
 `schedule_reads.py`).
 R2: `"npc_move"` appears nowhere in `day_mutations.py`, `day_resolve.py` or
@@ -52,7 +53,8 @@ type/status, raises a 409, and is actually called from `resolve_day`.
 
 R13 (BRIEF-0078-c, D3): `_EMITTERS`' key set equals `EMITTED_MUTATION_TYPES`
 in both directions (re-asserts R1 now that the vocabulary is five-valued)
-and is exactly five-valued.
+and is exactly six-valued since TICKET-0119 (BRIEF-0119-F: `event_creation`,
+a completed step's objective event, `day_events.py`).
 R14: `_emit_new_knowledge` exists; its body references `BLOCKED_BAND` and
 returns early (`outcome.band != BLOCKED_BAND` -> `[]`) when the band does
 not match; it references `_BLOCKED_LEAD_LEVEL` and contains no bare
@@ -86,12 +88,16 @@ DAY_ROUTE_FILE = SRC / "cockpit" / "routes" / "day.py"
 MUTATIONS_ROUTE_FILE = SRC / "cockpit" / "routes" / "mutations.py"
 JOURNEE_SVELTE_FILE = FRONTEND_SRC / "journee" / "Journee.svelte"
 
+DAY_EVENTS_FILE = SRC / "day_events.py"
+
 DAY_CHAIN_FILES = (
     DAY_MUTATIONS_FILE, DAY_RESOLVE_FILE, DAY_PLAN_FILE, DAY_CONCORDANCE_FILE, DAY_EXTRACT_FILE,
+    DAY_EVENTS_FILE,
 )
 
 EXPECTED_EMITTED_MUTATION_TYPES = (
     "knowledge_change", "relation_change", "agenda_step_change", "entity_creation", "new_knowledge",
+    "event_creation",
 )
 REMOVED_MUTATION_TYPES = ("resource_change", "agenda_creation")
 
@@ -182,8 +188,8 @@ def check_bijection() -> None:
             f"day_mutations R1: _EMITTERS keys {sorted(set(emitters_keys))!r} do not match "
             f"EMITTED_MUTATION_TYPES {sorted(set(constant_tuple))!r}"
         )
-    if len(constant_tuple) != 5:
-        fail(f"day_mutations R13: EMITTED_MUTATION_TYPES has {len(constant_tuple)} entries, expected 5")
+    if len(constant_tuple) != 6:
+        fail(f"day_mutations R13: EMITTED_MUTATION_TYPES has {len(constant_tuple)} entries, expected 6")
 
 
 def check_npc_move_absent() -> None:
