@@ -34,15 +34,20 @@ from ..condition_forms import (
     FORM_VALUES,
     REQUIREMENT_TYPES,
     THRESHOLD_TYPES,
+    EventFilter,
     RequirementSpec,
 )
-from ..conditions import SUBJECT_ROLES, ConditionTree, check_shape, owner_of, stored_condition
+from ..conditions import SUBJECT_ROLES, ConditionTree, check_shape, leaves, owner_of, stored_condition
+from ..event_vocab import EVENT_FORM, role_accepts, type_view
 from ..models import (
     BASE_SKILL_DOMAINS,
     CONDITION_ROLES,
+    CONDITION_WINDOWS,
     Condition,
     ConditionNode,
+    ConditionNodeFilter,
     Entity,
+    EventSorte,
     Fact,
     QuestOffer,
     SkillDefinition,
@@ -167,6 +172,62 @@ def _clean_attribute(db: Session, world_id: str, where: str, req: RequirementSpe
     )
 
 
+def _clean_filter(db: Session, world_id: str, where: str, view, f: EventFilter) -> EventFilter:
+    role = view.role(f.role_id)
+    if role is None or role.status != "active":
+        raise ValueError(f"{where}{f.role_id!r} is no role of « {view.name} »")
+    if (f.entity_id is None) == (f.sorte_id is None):
+        raise ValueError(f"{where}the filter on « {role.name} » names an entity or a sorte, exactly one")
+    if f.sorte_id is not None:
+        sorte = db.get(EventSorte, f.sorte_id)
+        if sorte is None or sorte.world_id != world_id or not role.accepts_sorte:
+            raise ValueError(f"{where}the role « {role.name} » takes no sorte {f.sorte_id!r}")
+        return EventFilter(role.id, sorte_id=sorte.id)
+    entity = db.get(Entity, f.entity_id)
+    if entity is None or entity.world_id != world_id or not role_accepts(role, entity.type):
+        raise ValueError(f"{where}the role « {role.name} » takes no {f.entity_id!r}")
+    return EventFilter(role.id, entity_id=entity.id)
+
+
+def _clean_event(db: Session, world_id: str, where: str, req: RequirementSpec) -> RequirementSpec:
+    """An `event` leaf (TICKET-0114, G1, F1): `target_key` an active event
+    type of the world; `value` the subject's role (an active role of it) or
+    None for any; a fixed subject of a type that role accepts; `threshold`
+    how many (1 or more, 1 when unsaid); `since` one of
+    `CONDITION_WINDOWS` (`always` when unsaid); `target_entity_id` a
+    location of the world or none; each filter one other active role,
+    filled by an entity it accepts or a sorte, never twice the same role."""
+    view = type_view(db, req.target_key)
+    if view is None or view.world_id != world_id or view.status != "active":
+        raise ValueError(f"{where}unknown event type {req.target_key!r}")
+    role = view.role(req.value) if req.value else None
+    if req.value and (role is None or role.status != "active"):
+        raise ValueError(f"{where}{req.value!r} is no role of « {view.name} »")
+    if role is not None and req.subject_entity_id is not None and not role_accepts(
+            role, db.get(Entity, req.subject_entity_id).type):
+        raise ValueError(f"{where}the role « {role.name} » takes no {req.subject_entity_id!r}")
+    threshold = 1 if req.threshold is None else req.threshold
+    if not isinstance(threshold, int) or isinstance(threshold, bool) or threshold < 1:
+        raise ValueError(f"{where}an event leaf counts 1 or more, got {req.threshold!r}")
+    since = req.since or "always"
+    if since not in CONDITION_WINDOWS:
+        raise ValueError(f"{where}unknown window {req.since!r}")
+    place = req.target_entity_id
+    if place is not None:
+        entity = db.get(Entity, place)
+        if entity is None or entity.world_id != world_id or entity.type != "location":
+            raise ValueError(f"{where}{place!r} is not a location of this world")
+    filters = tuple(_clean_filter(db, world_id, where, view, f) for f in req.filters)
+    roles = [f.role_id for f in filters] + ([role.id] if role else [])
+    if len(set(roles)) != len(roles):
+        raise ValueError(f"{where}a role of « {view.name} » is named twice")
+    return RequirementSpec(
+        type=req.type, subject_role=req.subject_role, subject_entity_id=req.subject_entity_id,
+        target_entity_id=place, target_key=view.id, threshold=threshold, value=role.id if role else None,
+        since=since, filters=filters,
+    )
+
+
 def clean_leaf(db: Session, world_id: str, req: RequirementSpec, where: str = "",
                unsaved: Optional[dict] = None) -> RequirementSpec:
     """One leaf as it will be stored: the arguments its form uses, nothing
@@ -177,6 +238,8 @@ def clean_leaf(db: Session, world_id: str, req: RequirementSpec, where: str = ""
     _clean_subject(db, world_id, where, req)
     if req.type == ATTRIBUTE_FORM:
         return _clean_attribute(db, world_id, where, req, unsaved)
+    if req.type == EVENT_FORM:
+        return _clean_event(db, world_id, where, req)
     target_entity_id, target_key = _clean_target(db, world_id, where, req)
     return RequirementSpec(
         type=req.type, subject_role=req.subject_role, subject_entity_id=req.subject_entity_id,
@@ -216,8 +279,12 @@ def write_condition(db: Session, *, world_id: str, role: str, tree: Optional[Con
     if role not in CONDITION_ROLES or (column == "quest_offer_id") != (role == "eligibility"):
         raise ValueError(f"a {column} owner cannot hold a {role!r} condition")
     clean = clean_condition(db, world_id, tree)
+    if role == "eligibility" and any(leaf.since in ("quest", "step") for leaf in leaves(clean)):
+        raise ValueError("an eligibility counts no event since a quest or a step: none is taken yet")
     previous = stored_condition(db, role, column, owner_id)
     if previous is not None:
+        db.execute(text("DELETE FROM condition_node_filter WHERE node_id IN "
+                        "(SELECT id FROM condition_node WHERE condition_id = :cid)"), {"cid": previous.id})
         db.execute(text("DELETE FROM condition_node WHERE condition_id = :cid"), {"cid": previous.id})
         db.execute(text("DELETE FROM condition WHERE id = :cid"), {"cid": previous.id})
         db.expunge(previous)
@@ -243,9 +310,13 @@ def _write_node(db: Session, world_id: str, condition_id: str, tree: ConditionTr
         target_key=spec.target_key if spec else None,
         threshold=spec.threshold if spec else None,
         value=spec.value if spec else None,
+        since=spec.since if spec else None,
     )
     db.add(row)
     db.flush()
+    for index, f in enumerate(spec.filters if spec else ()):
+        db.add(ConditionNodeFilter(world_id=world_id, node_id=row.id, role_id=f.role_id, entity_id=f.entity_id,
+                                   sorte_id=f.sorte_id, position=index))
     for index, child in enumerate(tree.children):
         _write_node(db, world_id, condition_id, child, row.id, index)
 
@@ -256,5 +327,7 @@ def delete_offer_conditions(db: Session, offer_id: str) -> None:
     shape, TICKET-0108)."""
     owned = ("SELECT id FROM condition WHERE quest_offer_id = :oid OR quest_offer_step_id IN "
              "(SELECT id FROM quest_offer_step WHERE offer_id = :oid)")
+    db.execute(text(f"DELETE FROM condition_node_filter WHERE node_id IN (SELECT id FROM condition_node "
+                    f"WHERE condition_id IN ({owned}))"), {"oid": offer_id})
     db.execute(text(f"DELETE FROM condition_node WHERE condition_id IN ({owned})"), {"oid": offer_id})
     db.execute(text(f"DELETE FROM condition WHERE id IN ({owned})"), {"oid": offer_id})

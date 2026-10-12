@@ -60,10 +60,13 @@ class OfferStepBody(BaseModel):
     # `conditions.node_to_dict`; null is none.
     prerequisite: Optional[dict] = None
     completion: Optional[dict] = None
+    # TICKET-0114 (H1): when the step has failed -- shown, never acting.
+    failure: Optional[dict] = None
     # TICKET-0112 (IH1): the interpreter's proposal the creator inserted into
     # each condition, if any; saving marks it `saved` (`mark_draft_saved`).
     prerequisite_draft_id: Optional[str] = None
     completion_draft_id: Optional[str] = None
+    failure_draft_id: Optional[str] = None
 
 
 class TermBody(BaseModel):
@@ -133,9 +136,10 @@ def _save_offer(body: OfferBody, offer: Optional[QuestOffer], world_id: str, db:
         # to their ids.
         trees, keys, labels = materialize(
             db, world_id, [u.model_dump() for u in body.unsaved_attributes],
-            [body.eligibility] + [t for s in body.steps for t in (s.prerequisite, s.completion)])
+            [body.eligibility] + [t for s in body.steps for t in (s.prerequisite, s.completion, s.failure)])
         steps = [PlanStep(objective=s.objective, cost=s.cost, domain=s.domain or None,
-                          prerequisite=node_from_dict(trees[1 + 2 * i]), completion=node_from_dict(trees[2 + 2 * i]))
+                          prerequisite=node_from_dict(trees[1 + 3 * i]), completion=node_from_dict(trees[2 + 3 * i]),
+                          failure=node_from_dict(trees[3 + 3 * i]))
                  for i, s in enumerate(body.steps)]
         offer = write_quest_offer(
             db, world_id=world_id, offer=offer, giver_entity_id=body.giver_entity_id, title=body.title,
@@ -160,7 +164,8 @@ def _mark_drafts(body: OfferBody, trees: list, offer_id: str, world_id: str, db:
     wrote (`as_saved`, TICKET-0113). A draft that cannot be marked is
     skipped: the journal never fails the creator's save."""
     ids = [body.eligibility_draft_id] + [
-        d for step in body.steps for d in (step.prerequisite_draft_id, step.completion_draft_id)]
+        d for step in body.steps for d in (step.prerequisite_draft_id, step.completion_draft_id,
+                                           step.failure_draft_id)]
     for draft_id, raw in zip(ids, trees):
         if draft_id:
             tree = node_to_dict(clean_condition(db, world_id, node_from_dict(raw)))

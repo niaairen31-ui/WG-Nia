@@ -206,8 +206,8 @@ EXPECTED_REQUIREMENT_TYPES = (
     "has_debt_to", "no_debt_to",
     # TICKET-0111 (BRIEF-0111-C, S1): twelve since v2.20; `quest_state`
     # replaced `quest_completed`. TICKET-0113 (BRIEF-0113-B, WG1): `attribute`
-    # replaced `vital_status` at v2.23.
-    "item_held", "attribute",
+    # replaced `vital_status` at v2.23. TICKET-0114 (BRIEF-0114-E, G1): `event`.
+    "item_held", "attribute", "event",
 )
 EXPECTED_RECONCILE_VERDICTS = ("continue", "modify", "replace")
 EXPECTED_PLAN_ACTIONS = ("continue", "modify", "replace", "resume")
@@ -386,7 +386,7 @@ def check_shape_constraint() -> None:
         ("item_held", "ENTITY_TARGET_TYPES"),
         ("knowledge", "KEY_TARGET_TYPES"), ("resource", "KEY_TARGET_TYPES"),
         ("skill_rank_gte", "KEY_TARGET_TYPES"), ("quest_state", "KEY_TARGET_TYPES"),
-        ("attribute", "KEY_TARGET_TYPES"),
+        ("attribute", "KEY_TARGET_TYPES"), ("event", "KEY_TARGET_TYPES"),
         ("relation_gte", "THRESHOLD_TYPES"), ("resource", "THRESHOLD_TYPES"),
         ("skill_rank_gte", "THRESHOLD_TYPES"), ("item_held", "THRESHOLD_TYPES"),
     ]

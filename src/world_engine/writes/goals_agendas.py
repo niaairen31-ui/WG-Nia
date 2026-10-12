@@ -316,6 +316,8 @@ def write_agenda_step(
         cost=cost,
         domain=domain,
         change_history=[],
+        # TICKET-0114 (BRIEF-0114-E, F1): when it became active.
+        started_at=datetime.now(UTC) if status == "active" else None,
     )
     db.add(step)
     return step
@@ -355,6 +357,8 @@ def write_agenda_step_status(
     history.append(entry)
     step.change_history = history
     sa_attrs.flag_modified(step, "change_history")
+    if status == "active" and step.status != "active":
+        step.started_at = datetime.now(UTC)  # TICKET-0114 (BRIEF-0114-E, F1)
     step.status = status
     if outcome is not None:
         step.outcome = outcome

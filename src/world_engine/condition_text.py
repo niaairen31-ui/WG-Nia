@@ -23,9 +23,9 @@ from sqlmodel import Session
 
 from .attributes import ATTRIBUTE_FORM, value_label, view_of
 from .condition_forms import RequirementSpec
-from .conditions import ConditionTree, VerdictNode
+from .conditions import ConditionTree, VerdictNode, known_event_facts
 from .knowledge_resolve import resolve_knowledge_level
-from .models import Entity, Fact, QuestOffer
+from .models import Entity, EventSorte, EventType, EventTypeRole, Fact, QuestOffer
 from .prose_render import fact_text
 from .skill_access import skill_label
 
@@ -44,6 +44,14 @@ FORM_PHRASES_FR: dict[str, str] = {
     "no_debt_to": "{who} n'a aucune dette envers {target}",
     "item_held": "{who} possède au moins {threshold} × « {target} »",
     "attribute": "{who} — {target} : {value}",
+    # TICKET-0114 (G1): what happened, counted; `_event_text` adds its
+    # filters, its place and its window.
+    "event": "{who} a vécu « {target} » {value}, au moins {threshold} fois",
+}
+
+# F1 (TICKET-0114): an `event` leaf's window, in French.
+SINCE_LABELS_FR: dict[str, str] = {
+    "always": "", "quest": "depuis l'acceptation de la quête", "step": "depuis le début de l'étape",
 }
 
 # The French of a form's value (`condition_forms.FORM_VALUES`), one label per
@@ -107,6 +115,9 @@ def _target(db: Session, spec: RequirementSpec, unsaved: Optional[dict] = None) 
     if spec.type == ATTRIBUTE_FORM:
         view = _view(db, spec.target_key, unsaved)
         return view.name if view is not None else str(spec.target_key)
+    if spec.type == "event":
+        event_type = db.get(EventType, spec.target_key) if spec.target_key else None
+        return event_type.name if event_type is not None else str(spec.target_key)
     return str(spec.target_key or "")
 
 
@@ -130,7 +141,28 @@ def leaf_text(db: Session, spec: RequirementSpec, viewer_id: Optional[str] = Non
     value = _value(db, spec, unsaved)
     text = phrase.format(who=_subject(db, spec), target=_target(db, spec, unsaved), threshold=spec.threshold,
                          value=value)
+    if spec.type == "event":
+        text += _event_details(db, spec)
     return text[0].upper() + text[1:]
+
+
+def _role_name(db: Session, role_id: Optional[str]) -> str:
+    role = db.get(EventTypeRole, role_id) if role_id else None
+    return role.name if role is not None else str(role_id)
+
+
+def _event_details(db: Session, spec: RequirementSpec) -> str:
+    """An `event` leaf's filters (« victime : loup »), place and window."""
+    parts = []
+    for f in spec.filters:
+        sorte = db.get(EventSorte, f.sorte_id) if f.sorte_id else None
+        parts.append(f"{_role_name(db, f.role_id)} : {sorte.name if sorte else _entity_name(db, f.entity_id)}")
+    if spec.target_entity_id:
+        parts.append(f"à {_entity_name(db, spec.target_entity_id)} ou dedans")
+    since = SINCE_LABELS_FR.get(spec.since or "always", "")
+    if since:
+        parts.append(since)
+    return (" (" + ", ".join(parts) + ")") if parts else ""
 
 
 def _hidden(db: Session, spec: RequirementSpec) -> bool:
@@ -141,6 +173,8 @@ def _hidden(db: Session, spec: RequirementSpec) -> bool:
 def _value(db: Session, spec: RequirementSpec, unsaved: Optional[dict] = None) -> object:
     """The French of what a leaf compares to: a form's value label, or an
     attribute's label, « N ou plus », an entity or « quelqu'un »."""
+    if spec.type == "event":
+        return f"comme {_role_name(db, spec.value)}" if spec.value else "à un titre ou un autre"
     if spec.type != ATTRIBUTE_FORM:
         return VALUE_LABELS_FR.get(spec.type, {}).get(spec.value, spec.value)
     view = _view(db, spec.target_key, unsaved)
@@ -193,7 +227,8 @@ def verdict_lines(db: Session, verdict: Optional[VerdictNode], viewer_id: Option
     leaf is written as he may read it (A1)."""
     lines: list[dict] = []
     if verdict is not None:
-        seen = verdict.seen_by(viewer_id) if viewer_id is not None else verdict
+        seen = verdict.seen_by(viewer_id, known_event_facts(db, verdict, viewer_id)) \
+            if viewer_id is not None else verdict
         _verdict_lines(db, seen, 0, lines, viewer_id)
     return lines
 

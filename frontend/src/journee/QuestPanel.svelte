@@ -8,7 +8,9 @@
      recap (SettlementRecap) and settles from it (D1). TICKET-0111
      (BRIEF-0111-D, M1): the active step shows where its objective stands,
      each line of its completion condition marked ✓, ✗ or ?, with its
-     progress (« 3/15 ») -- shown, never acted on. */
+     progress (« 3/15 ») -- shown, never acted on. TICKET-0114 (BRIEF-0114-E,
+     H1): its failure condition the same way; met, it is flagged, the
+     creator decides. */
   import { questState, loadQuests, acceptOffer, abandonQuest, openSettlement } from './quests.svelte.js';
   import SettlementRecap from './SettlementRecap.svelte';
 
@@ -63,6 +65,16 @@
                 <div class="objective">
                   <span class="muted">Objectif{step.completion_met ? ' atteint' : ''} :</span>
                   {#each step.completion as line, i (i)}
+                    <div class={'cl-' + line.state} style={'padding-left:' + line.depth * 14 + 'px'}>
+                      {line.mark} {line.text}{#if line.progress} — {line.progress}{/if}
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+              {#if step.status === 'active' && step.failure?.length}
+                <div class="objective">
+                  <span class="muted">{step.failure_met ? 'Échouée — à vous de trancher' : 'Échoue si'} :</span>
+                  {#each step.failure as line, i (i)}
                     <div class={'cl-' + line.state} style={'padding-left:' + line.depth * 14 + 'px'}>
                       {line.mark} {line.text}{#if line.progress} — {line.progress}{/if}
                     </div>

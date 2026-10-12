@@ -68,7 +68,7 @@ from sqlmodel import Session, select
 
 from .condition_forms import Verdict as RequirementVerdict
 from .condition_text import known_to, leaf_text
-from .conditions import VerdictNode, leaves
+from .conditions import VerdictNode, known_event_facts, leaves
 from .day_concordance import ConcordanceResult
 from .day_plan import (
     DAY_BUDGET_SLOTS,
@@ -279,6 +279,8 @@ _BLOCKED_DETAIL_FR: dict[str, str] = {
     # TICKET-0113 (BRIEF-0113-B, WG1): `attribute` replaces `vital_status`;
     # its label names the subject, the attribute and the wanted state.
     "attribute": "« {required} » n'est pas encore le cas",
+    # TICKET-0114 (BRIEF-0114-E, G1): its label names the type and the count.
+    "event": "il n'a pas encore vécu assez de « {required} »",
 }
 
 
@@ -321,7 +323,7 @@ def blocked_details_fr(verdict: Optional[VerdictNode], db: Session, viewer_id: s
     if verdict is None or verdict.met:
         return []
     details: list[str] = []
-    _blocked(verdict.seen_by(viewer_id), db, viewer_id, False, details)
+    _blocked(verdict.seen_by(viewer_id, known_event_facts(db, verdict, viewer_id)), db, viewer_id, False, details)
     return details
 
 

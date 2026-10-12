@@ -92,6 +92,7 @@ TARGET_HINTS_FR: dict[str, str] = {
     "attribute": "un état, par son code a ; pour un choix, valeur = un de ses libellés ; pour un nombre, "
                  "seuil = le minimum ; pour une entité, valeur = une entité par son nom, ou null pour "
                  "« quelqu'un »",
+    "event": "un type d'événement, par son nom ; seuil = le nombre minimal (quantités additionnées)",
 }
 # The forms whose target is a code, and the list each code comes from.
 CODE_LISTS: dict[str, str] = {"knowledge": "f", "quest_state": "q", "skill_rank_gte": "s", "attribute": "a"}

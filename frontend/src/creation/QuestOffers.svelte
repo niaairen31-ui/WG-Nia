@@ -161,6 +161,9 @@
             <div class="muted">Objectif atteint quand</div>
             <ConditionEditor cond={step.completion} {choices} unsaved={draft.unsavedAttributes} role="completion"
                              emptyLabel="Rien de vérifiable : c'est vous qui le déclarez." addLabel="+ condition d'objectif" />
+            <div class="muted">Échouée quand (affiché, n'agit jamais)</div>
+            <ConditionEditor cond={step.failure} {choices} unsaved={draft.unsavedAttributes} role="failure"
+                             emptyLabel="Aucune condition d'échec." addLabel="+ condition d'échec" />
           </div>
         {/each}
         <button onclick={() => draft.steps.push(blankStep())}>+ étape</button>

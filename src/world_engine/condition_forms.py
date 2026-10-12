@@ -44,11 +44,15 @@ from .models import (
     Character,
     Debt,
     Entity,
+    Event,
+    EventParticipant,
+    EventType,
     Fact,
     FactionMembership,
     ItemHolding,
     Knowledge,
     Ledger,
+    Location,
     Quest,
     QuestOffer,
     Relation,
@@ -69,11 +73,15 @@ from .skill_access import held_rank, skill_label
 # (TICKET-0113, BRIEF-0113-B, WE1, WG1): `attribute` reads one attribute of
 # its subject -- a world's definition or a system attribute, `vital_status`
 # among them -- and replaces the `vital_status` form (`attributes.ATTRIBUTE_FORM`
-# names it there, `attribute_conditions.py` AB1 keeps the two equal).
+# names it there, `attribute_conditions.py` AB1 keeps the two equal). Since
+# v2.24 (TICKET-0114, BRIEF-0114-E, G1): `event` counts what happened --
+# the events of one type its subject took part in, in one role or any, with
+# filters on the other roles and a place, since a window (F1);
+# `event_vocab.EVENT_FORM` names it there.
 REQUIREMENT_TYPES: tuple[str, ...] = (
     "knowledge", "relation_gte", "resource", "location_reachable",
     "has_met", "faction_member", "skill_rank_gte", "quest_state",
-    "has_debt_to", "no_debt_to", "item_held", "attribute",
+    "has_debt_to", "no_debt_to", "item_held", "attribute", "event",
 )
 
 # What `emit_plan`'s parser accepts from the model (TICKET-0108): the four
@@ -86,12 +94,12 @@ MODEL_REQUIREMENT_TYPES: tuple[str, ...] = ("knowledge", "relation_gte", "resour
 ENTITY_TARGET_TYPES: tuple[str, ...] = (
     "relation_gte", "location_reachable", "has_met", "faction_member", "has_debt_to", "no_debt_to", "item_held",
 )
-KEY_TARGET_TYPES: tuple[str, ...] = ("knowledge", "resource", "skill_rank_gte", "quest_state", "attribute")
-THRESHOLD_TYPES: tuple[str, ...] = ("relation_gte", "resource", "skill_rank_gte", "item_held")
+KEY_TARGET_TYPES: tuple[str, ...] = ("knowledge", "resource", "skill_rank_gte", "quest_state", "attribute", "event")
+THRESHOLD_TYPES: tuple[str, ...] = ("relation_gte", "resource", "skill_rank_gte", "item_held", "event")
 # v2.23 (TICKET-0113, WG1): the forms whose subject may be any entity of
 # the world -- an attribute applies to the types its definition names; every
 # other form judges a character.
-ANY_SUBJECT_TYPES: tuple[str, ...] = ("attribute",)
+ANY_SUBJECT_TYPES: tuple[str, ...] = ("attribute", "event")
 # A quest's state is its agenda's (M1 of TICKET-0108); `open` is `active` or
 # `paused`, the player's « en cours ».
 QUEST_STATES: tuple[str, ...] = ("open", "completed", "failed", "abandoned")
@@ -103,6 +111,15 @@ QUEST_STATE_AGENDA_STATUSES: dict[str, tuple[str, ...]] = {
 # one of its definition's choices: its writer checks it against the
 # definition, never a set here.
 FORM_VALUES: dict[str, tuple[str, ...]] = {"quest_state": QUEST_STATES}
+
+
+@dataclass(frozen=True)
+class EventFilter:
+    """An `event` leaf's filter on one other role of its type (TICKET-0114):
+    an entity or a sorte fills it (`condition_node_filter`)."""
+    role_id: str
+    entity_id: Optional[str] = None
+    sorte_id: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -119,6 +136,12 @@ class RequirementSpec:
     subject_role: Optional[str] = "doer"
     subject_entity_id: Optional[str] = None
     value: Optional[str] = None
+    # `event` (TICKET-0114): since when it counts (`models.CONDITION_WINDOWS`)
+    # and its filters on the other roles; `value` is the subject's role id
+    # (None: any role), `target_key` the type, `target_entity_id` a place,
+    # `threshold` how many.
+    since: Optional[str] = None
+    filters: tuple[EventFilter, ...] = ()
 
 
 
@@ -138,6 +161,10 @@ class Verdict:
     # TICKET-0113 (BRIEF-0113-B, WH1): the leaf reads a hidden attribute --
     # never written out, nor its state shown, on a player surface.
     hidden: bool = False
+    # TICKET-0114 (BRIEF-0114-E): an `event` leaf's counted events, as
+    # (fact id, quantity) -- a player surface recounts the ones its viewer
+    # knows (`conditions.VerdictNode.seen_by`).
+    events: tuple = ()
 
 
 
@@ -435,6 +462,66 @@ def _eval_no_debt_to(req: RequirementSpec, character: Character, db: Session, re
     )
 
 
+def _places_within(db: Session, place_id: str) -> set[str]:
+    """`place_id` and every location under it (`parent_location_id`), its own
+    cycle-safe reader: « à Ombreval » counts an event in a house of it."""
+    found, frontier = {place_id}, [place_id]
+    while frontier:
+        children = db.exec(select(Location.id).where(Location.parent_location_id.in_(frontier))).all()
+        frontier = [c for c in children if c not in found]
+        found.update(frontier)
+    return found
+
+
+def counted_events(db: Session, req: RequirementSpec, subject_id: str, since_at) -> list[tuple]:
+    """The (event id, fact id, quantity) an `event` leaf counts for its
+    subject: events of the type `target_key` the subject took part in -- in
+    the role `value`, or any --, each filter's role filled as it says, at the
+    place `target_entity_id` or under it, recorded at or after `since_at`."""
+    query = (select(Event.id, Fact.id, Event.quantity).join(Fact, Fact.event_id == Event.id)
+             .where(Event.type_id == req.target_key))
+    taking_part = select(EventParticipant.event_id).where(EventParticipant.entity_id == subject_id)
+    if req.value:
+        taking_part = taking_part.where(EventParticipant.role_id == req.value)
+    query = query.where(Event.id.in_(taking_part))
+    for f in req.filters:
+        filled = select(EventParticipant.event_id).where(EventParticipant.role_id == f.role_id)
+        filled = filled.where(EventParticipant.entity_id == f.entity_id) if f.entity_id else filled.where(
+            EventParticipant.sorte_id == f.sorte_id)
+        query = query.where(Event.id.in_(filled))
+    if req.target_entity_id:
+        query = query.where(Event.location_id.in_(_places_within(db, req.target_entity_id)))
+    if since_at is not None:
+        query = query.where(Event.recorded_at >= since_at)
+    return list(db.exec(query).all())
+
+
+def evaluate_event(req: RequirementSpec, taker, db: Session, since_at) -> Verdict:
+    """TICKET-0114 (G1, F1): met when the counted events add up to
+    `threshold` (an event's quantity, 1 when it has none). Its subject
+    (`taker`) is any entity -- a faction takes part too. The caller resolves `since_at`
+    from the leaf's window (`conditions._evaluate_leaf`)."""
+    rows = counted_events(db, req, taker.id, since_at)
+    total = sum(quantity or 1 for _event, _fact, quantity in rows)
+    need = req.threshold or 1
+    event_type = db.get(EventType, req.target_key)
+    name = event_type.name if event_type is not None else str(req.target_key)
+    entity = db.get(Entity, taker.id)
+    who = entity.name if entity is not None else taker.id
+    met = total >= need
+    reason = (f"{who}: {total} « {name} », meets requires >= {need}" if met
+              else f"prerequisite not met — {who}: {total} « {name} », requires >= {need}")
+    return Verdict(type=req.type, met=met, current=total, required=need, reason=reason,
+                   required_label=f"{name} ({need})", events=tuple((fact, quantity or 1) for _e, fact, quantity in rows))
+
+
+def _eval_event(req: RequirementSpec, character: Character, db: Session, reachable_ids) -> Verdict:
+    """The table's entry for `event` (no window: every event counts);
+    `conditions._evaluate_leaf` calls `evaluate_event` with its window."""
+    del reachable_ids
+    return evaluate_event(req, character, db, None)
+
+
 _EVALUATORS: dict[str, Callable[[RequirementSpec, Character, Session, object], Verdict]] = {
     "knowledge": _eval_knowledge,
     "relation_gte": _eval_relation_gte,
@@ -448,6 +535,7 @@ _EVALUATORS: dict[str, Callable[[RequirementSpec, Character, Session, object], V
     "no_debt_to": _eval_no_debt_to,
     "item_held": _eval_item_held,
     "attribute": _eval_attribute,
+    "event": _eval_event,
 }
 
 

@@ -12,7 +12,11 @@
    choices in `choices.form_values[form]`. TICKET-0113 (BRIEF-0113-B):
    `attribute` replaces `vital_status` -- its key is an attribute of
    `choices.attributes`, and what it compares to depends on that
-   attribute's kind (`attributeOf`): a label, a threshold, or an entity. */
+   attribute's kind (`attributeOf`): a label, a threshold, or an entity.
+   TICKET-0114 (BRIEF-0114-E, G1): `event` counts the events of one type
+   its subject took part in -- its key an event type of
+   `choices.event_types`, its value the subject's role (empty: any), its
+   entity the place, plus a window (`since`) and filters on other roles. */
 
 export const REQUIREMENT_FORMS = {
   knowledge: { label: 'Connaît le fait', list: 'facts', column: 'key', threshold: false },
@@ -27,6 +31,15 @@ export const REQUIREMENT_FORMS = {
   no_debt_to: { label: 'N’a aucune dette envers', list: 'givers', column: 'entity', threshold: false },
   item_held: { label: 'Possède au moins (objet)', list: 'items', column: 'entity', threshold: true },
   attribute: { label: 'Est dans l’état', list: 'attributes', column: 'key', threshold: false },
+  event: { label: 'A vécu l’événement', list: 'eventTypes', column: 'key', threshold: true },
+};
+
+// TICKET-0114 (F1): an `event` leaf's window. Mirrors
+// `models.CONDITION_WINDOWS` (kept equal by `event_conditions.py`).
+export const EVENT_WINDOWS = {
+  always: 'depuis toujours',
+  quest: 'depuis l’acceptation de la quête',
+  step: 'depuis le début de l’étape',
 };
 
 // `resource`'s key is a label: one currency per world (the ledger has no
@@ -45,7 +58,24 @@ export const SUBJECT_ROLES = {
 };
 
 export function blankRequirement() {
-  return { type: 'has_met', subject: 'role:doer', target_entity_id: '', target_key: '', threshold: null, value: '' };
+  return { type: 'has_met', subject: 'role:doer', target_entity_id: '', target_key: '', threshold: null, value: '',
+           since: 'always', filters: [] };
+}
+
+/** TICKET-0114: the event type a row names, from `choices.event_types`. */
+export function eventTypeOf(key, choices) {
+  return (choices?.event_types || []).find((t) => t.id === key) || null;
+}
+
+/** TICKET-0114: what may fill a filter on `role` -- the entities of a type
+    it accepts, then the sortes when it takes one (`sorte:<id>`). */
+export function fillerOptions(role, choices) {
+  if (!role) return [];
+  const people = (choices?.entities || []).filter((e) => role.entity_types.includes(e.type))
+    .map((e) => ({ value: 'entity:' + e.id, label: e.name }));
+  const sortes = role.accepts_sorte
+    ? (choices?.sortes || []).map((s) => ({ value: 'sorte:' + s.id, label: s.name + ' (sorte)' })) : [];
+  return people.concat(sortes);
 }
 
 /** The subject options: the three roles, then every character -- or, for
@@ -98,6 +128,7 @@ export function targetOptions(form, choices) {
     case 'givers': return choices.givers.map((c) => ({ value: c.id, label: c.name }));
     case 'items': return choices.items.map((c) => ({ value: c.id, label: c.name }));
     case 'attributes': return (choices.attributes || []).map((a) => ({ value: a.key, label: a.name }));
+    case 'eventTypes': return (choices.event_types || []).map((t) => ({ value: t.id, label: t.name }));
     default: return [];
   }
 }
@@ -121,6 +152,20 @@ export function requirementBody(req) {
       threshold: req.threshold === '' || req.threshold === null || req.threshold === undefined
         ? null : Number(req.threshold),
       value: req.value || null,
+    };
+  }
+  if (req.type === 'event') {
+    return {
+      op: 'leaf', type: req.type,
+      subject_role: kind === 'role' ? id : null, subject_entity_id: kind === 'entity' ? id : null,
+      target_entity_id: req.target_entity_id || null, target_key: req.target_key || null,
+      threshold: req.threshold === '' || req.threshold === null || req.threshold === undefined
+        ? null : Number(req.threshold),
+      value: req.value || null, since: req.since || 'always',
+      filters: (req.filters || []).filter((f) => f.role_id && f.filler).map((f) => {
+        const [fk, fid] = f.filler.split(':');
+        return { role_id: f.role_id, entity_id: fk === 'entity' ? fid : null, sorte_id: fk === 'sorte' ? fid : null };
+      }),
     };
   }
   return {
@@ -149,6 +194,10 @@ export function conditionDraft(view) {
       ...r,
       subject: r.subject_entity_id ? 'entity:' + r.subject_entity_id : 'role:' + (r.subject_role || 'doer'),
       target_entity_id: r.target_entity_id || '', target_key: r.target_key || '', value: r.value || '',
+      since: r.since || 'always',
+      filters: (r.filters || []).map((f) => ({
+        role_id: f.role_id, filler: f.entity_id ? 'entity:' + f.entity_id : f.sorte_id ? 'sorte:' + f.sorte_id : '',
+      })),
     })),
     locked: null,
     lines: [],

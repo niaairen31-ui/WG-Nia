@@ -56,10 +56,10 @@ src/world_engine/writes/items.py::write_holding                item_holding
 src/world_engine/writes/quests.py::write_quest_offer           quest_offer quest_offer_step
 # TICKET-0108, BRIEF-0108-B: accept_quest writes the quest row; its agenda and steps go through write_agenda/write_agenda_step, allow-listed above, and since TICKET-0111 its steps' conditions through write_condition.
 src/world_engine/writes/quests.py::accept_quest                quest
-# TICKET-0111, BRIEF-0111-C: the condition language's one writer -- write_condition replaces one owner's condition whole (the full-replace shape), _write_node writes its nodes, delete_offer_conditions clears an offer's before write_quest_offer replaces them. Every caller (write_day_plan, write_quest_offer, accept_quest) calls them, never the tables.
-src/world_engine/writes/conditions.py::write_condition         condition condition_node
-src/world_engine/writes/conditions.py::_write_node             condition_node
-src/world_engine/writes/conditions.py::delete_offer_conditions condition condition_node
+# TICKET-0111, BRIEF-0111-C: the condition language's one writer (TICKET-0114, BRIEF-0114-E: and of an event leaf's condition_node_filter rows) -- write_condition replaces one owner's condition whole (the full-replace shape), _write_node writes its nodes, delete_offer_conditions clears an offer's before write_quest_offer replaces them. Every caller (write_day_plan, write_quest_offer, accept_quest) calls them, never the tables.
+src/world_engine/writes/conditions.py::write_condition         condition condition_node condition_node_filter
+src/world_engine/writes/conditions.py::_write_node             condition_node condition_node_filter
+src/world_engine/writes/conditions.py::delete_offer_conditions condition condition_node condition_node_filter
 # TICKET-0109, BRIEF-0109-B: write_offer_terms replaces an offer's costs and rewards whole (write_quest_offer's full-replace shape); copy_terms_to_quest gives an accepted quest its own copy; upsert_quest_economy sets a world's rates (curated config, upsert-one).
 src/world_engine/writes/quest_terms.py::write_offer_terms      quest_offer_term
 src/world_engine/writes/quest_terms.py::copy_terms_to_quest    quest_term

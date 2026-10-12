@@ -19375,6 +19375,42 @@ and refuses when a link has no participant twin.
 the MJ would not remember that the player killed the wolf), L2 (keep the
 columns dormant).
 
+## A CONDITION COUNTS THE EVENTS ITS SUBJECT LIVED, AND A QUEST STEP SAYS WHEN IT HAS FAILED (TICKET-0114) -- THE `event` FORM AND THE `failure` ROLE (BRIEF-0114-e, no schema change)
+
+**G1.** One form, `event`: the events of one type (`target_key`) its
+subject took part in -- in one role (`value`) or any --, each filter's
+other role filled by an entity or a sorte (`condition_node_filter`, several
+per leaf), at a place or anywhere under it (`target_entity_id`, the
+parent chain), added up by quantity (an event without one counts 1) and
+met at `threshold` (1 by default). Its subject may be any entity: a
+faction takes part too. Code counts; the model never does.
+
+**F1.** A leaf counts `always`, since its quest's acceptance (`quest`) or
+since its step began (`step`: `agenda_step.started_at`, set when a step
+becomes active, its quest's acceptance for a step activated before
+v2.24). An eligibility has no quest yet: a `quest` or `step` window is
+refused there; judged without one, the leaf is `unknown`.
+
+**V1 for events.** A player surface recounts an event leaf from the events
+whose fact the character knows (`known_event_facts`, the 0105 resolver):
+what he never learned neither counts nor shows -- Brakk's secret hunt is
+met for the canon and « 0 » for Mira. Unlike other leaves, an event leaf
+about someone else is still recounted: the events are facts he may know.
+
+**H1.** A quest step may carry a `failure` condition, written with the
+offer and copied on acceptance like the others. Journée shows it, marked
+like the completion, and flags it when met; nothing acts on it -- the
+creator decides, as for completion. Only `quest_reads.py` and
+`writes/quests.py` read or write one (`event_conditions.py` EE5).
+
+**Editor.** The offer editor edits an event leaf in the list (type, role or
+any, count, place, window, filters on the type's other roles) and every
+step has a « Échouée quand » editor. A non-event leaf's dict is unchanged:
+`since` and `filters` appear on an event leaf only.
+
+**Rejected.** A window on every form (only events have dates), a failure
+that closes the quest by itself (the creator stays the judge, as M1).
+
 ---
 
 *Co-built with Claude, June 2026.*
