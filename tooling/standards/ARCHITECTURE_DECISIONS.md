@@ -19227,6 +19227,260 @@ leaving a definition behind). Adding a missing label to an existing
 attribute from the interpreter: deferred (reactivation: the journal shows
 proposals refused because the existing attribute lacks the label).
 
+## WHAT HAPPENS IN A WORLD IS ONE OF ITS OWN EVENT TYPES (TICKET-0114) -- TYPES, ROLES, SORTES AND WHO LEARNS THEM, AS DATA; EVERY EARLIER EVENT TYPED BY ITS CATEGORY (BRIEF-0114-a, schema v2.24)
+
+**F1, B1, C1, D1 of the conditions series.** The `event` table stays the one
+journal; what it lacked was a vocabulary. A world names its own event types
+(`event_type`): « Tuer », « Repérer », « Pacte » -- each with a domain (one
+of the seven former `event.type` categories), whether it counts a quantity,
+whether it enters the chronicle the models read, whether its participants
+keep it secret by default (X1). A type has roles in order
+(`event_type_role`, C1), each accepting the entity types it names
+(`event_type_role_type`, the `attribute_definition_type` shape) and, when
+`accepts_sorte`, a sorte (`event_sorte`, D1): « 3 loups » needs no wolf to
+be an entity. `event_participant` (V1) says who took part in which role --
+an entity or a sorte, exactly one -- and replaces `event_entity` (dropped at
+v2.25): one way to say « took part ». The vocabulary grows by data, never by
+code.
+
+**K-a, W1.** Who learns an event besides its participants is declared by its
+type (`event_type_scope`): its place, everyone, the acquaintances of a
+role's entity, the faction a role names, each at a level. They become
+`fact_default` rows on the event's own fact when it is written
+(BRIEF-0114-C); no row is the participants only.
+
+**Nothing in use is taken away.** A role an event or a condition names, an
+entity type a participant holds, a sorte role's sorte, a quantity an event
+carries. A role dropped is retired, never deleted, and named again comes
+back; a type or a sorte is retired, refused while a condition names it.
+`_write_roles` / `_write_scopes` replace a role's types and a type's scopes
+whole, named in `single_canon_write.py`. Names are compared through
+`lore_resolve.normalize_surface`; `event_vocab.near_event_types` /
+`near_sortes` let the creator pick before a near duplicate.
+`writes/event_types.py` is the one writer, `event_vocab.py` the reader.
+
+**N1, O1, V1: the events written before.** `migrate_v2_24_event_journal.py`
+types each by its former category -- the world's type named after that
+domain (« Social », « Autre »), with one role « Impliqué » accepting every
+entity type of the world (`writes.event_types.ensure_domain_type` makes the
+same type at run time for what still arrives untyped) --, moves its
+`event_entity` rows into `event_participant`, and gives it its fact
+(`fact.event_id`, facet `evenement`): a `public` or `confirmed` event a
+`world` default at `knows`, a `secret` one none -- known by no one, as
+before. No knowledge row is written.
+
+**The language's side, ahead of its readers.** `condition` and
+`condition_draft` gain the role `failure` (H1), `condition_node` a `since`
+column (F1: `always`, `quest`, `step`) and `condition_node_filter` (a leaf's
+filters on the other roles), `agenda_step` a `started_at`: the `event` form
+of BRIEF-0114-D reads them. v2.24 moves `schema_meta` to v2.24 only: v2.25
+(BRIEF-0114-C) drops what this one keeps.
+
+**Rejected.** V2 (keep `event_entity` beside a roles table: two ways to say
+« took part »), N2 (an optional type: two sorts of events forever), C2 (fixed
+universal roles), D2 (an entity standing for a species: it pollutes the
+NPC lists and `name_index`), D3 (named entities only), W2 (three scopes).
+
+## THE WORLD'S VOCABULARY LIVES IN ONE CRÉATION TAB (TICKET-0114) -- STATES, EVENT TYPES AND SORTES SIDE BY SIDE, A NEAR NAME PICKED BEFORE IT IS WRITTEN (BRIEF-0114-b, no schema change)
+
+**T3.** What a world can say grows by data, so the creator keeps it in one
+place: the « Vocabulaire du monde » tab (`tabs.js` `vocabulaire`, the
+`vocabulary` island, `Vocabulary.svelte`) shows one section at a time --
+its states (TICKET-0113's `States.svelte`, unchanged, no longer an island of
+its own), its event types (`EventTypes.svelte`, one type edited through
+`EventTypeForm.svelte`) and its sortes (`Sortes.svelte`). The tab's
+« + Nouveau » goes to the section shown. The « Événements » tab keeps the
+journal itself (BRIEF-0114-C).
+
+**The routes** (`cockpit/routes/event_types.py`, creator CRUD):
+`GET /api/event-vocabulary` and the type and sorte writes, each refusal a
+422 and one commit. A name near another type's or sorte's answers
+`saved: false` with the near ones until the creator confirms
+(`confirm_near`) -- the WK2 rule of TICKET-0113: she opens the existing one
+or creates anyway, the tool never picks. A type or a sorte is retired or
+restored, never deleted. `event_type_spec` / `typeDraft` / `typeBody` are
+shared with the journal and with the interpreter's and analyzer's proposal
+cards.
+
+**Rejected.** T1 (a tab of its own for event types: the bar grows, the
+sortes need another), T2 (types inside the « Événements » tab: the
+vocabulary split from the states it sits beside).
+
+## AN EVENT IS WRITTEN WITH ITS PARTICIPANTS, ITS FACT AND WHO LEARNS IT (TICKET-0114) -- ONE WRITER FOR THE JOURNAL AND FOR AN APPROVED PROPOSAL, TYPED OR NOT (BRIEF-0114-c, no schema change)
+
+**One writer.** `writes/events.py` writes an event and everything that
+makes it known: its participants by role (`event_participant`, V1), its fact
+(`fact.event_id`, facet `evenement`, its title then its description), the
+fact's scopes (`fact_default`: the type's made concrete -- its place, the
+world, the acquaintances of a role's entity, a faction filling a role --
+unless the event says its own, W1) and one `knowledge` row at `knows` for
+each character taking part (K-a). The creator's journal
+(`cockpit/crud/events.py`) and `_apply_mutation`'s `event_creation` both
+call it; `event_payloads.py` turns a proposal's payload into its spec.
+
+**X1: secrecy belongs to each participant.** The type gives the default; each
+character's own knowledge row carries his `is_secret`, so one participant
+may speak of what the others keep. A player character's row is never
+secret (INV-07). Who learns an event is a separate matter (its scopes):
+a secret pact may still be seen by whoever passes through the tavern.
+
+**A correction keeps what happened.** The journal corrects an event's
+title, description, place and quantity -- its fact's text rewritten as a
+`correction`, the former text in its history --, adds a participant, sets
+a participant's secret, and replaces its scopes whole (`_write_scopes`,
+named in `single_canon_write.py`). Its type does not change and no
+participant is taken away: write another event. A retraction empties its
+scopes; the row is never deleted (C3).
+
+**The untyped proposal (N1, O1).** The world tick, and every proposal
+written before, still sends a former category, `involved_entities` and a
+`knowledge_status`: it is typed by its domain (`ensure_domain_type`, made
+for the world when missing), its entities take the role « Impliqué » when
+it accepts them, and `public`/`confirmed` means known by everyone at
+`knows`, `secret` by its participants only -- the meaning the column had.
+TICKET-0119 makes the tick propose typed events.
+
+**E1.** An event keeps the session, and the day, it was proposed in (the
+mutation's conversation or declared action): the calendar of TICKET-0120
+will place every event on it without guessing.
+
+## THE MODELS READ THE JOURNAL BY WHAT IS KNOWN, AND THE MJ SEES THE STATES A PLAYER MAY SEE (TICKET-0114) -- `knowledge_status` RETIRED, v2.25 DROPS WHAT NOBODY READS (BRIEF-0114-d, schema v2.25)
+
+**Q1.** Who knows an event is its fact's knowledge and scopes; no reader
+filters a status any more (`event_reads.py`). The MJ of Play reads the
+chronicle events the player knows (`known_chronicle_events`: his own rows,
+then the scopes he is in contact with, the 0105 resolver) -- the MJ
+context's `public_events` and the return-visit delta. The world tick reads
+what everyone knows (`public_chronicle_events`: a `world` scope) at a
+place, or with a faction taking part. Only a type that enters the
+chronicle (`in_chronicle`) is told to a model: an event that only counts --
+« un loup tué » -- is known as a fact, never told as news. An event the
+player knows also reaches the MJ as his knowledge, as every fact he holds.
+
+**WL1.** The MJ reads the states a player may see
+(`attributes.perceived_states`): the place's and each co-present's, every
+active world definition that applies and is not hidden (WH1), its value or
+its default, written « États : Ouvert : oui ». Visual, so none blindfolded
+(BRIEF-12). A system attribute is left out: its column reaches the MJ, or
+never does, through its own reader.
+
+**L1, v2.25.** `event` loses `type`, `knowledge_status`,
+`has_magic_impact`, `consequences` and `occurred_at` (the four production
+events carried none of them for real: `consequences` was the JSON `null`);
+`type_id` is required; `event_entity` is dropped. The migration first types
+what was left untyped, exactly as v2.24 does (its `_backfill`, imported),
+and refuses when a link has no participant twin.
+
+**Rejected.** Q2 (the strict equivalent everywhere -- `world` scope only:
+the MJ would not remember that the player killed the wolf), L2 (keep the
+columns dormant).
+
+## A CONDITION COUNTS THE EVENTS ITS SUBJECT LIVED, AND A QUEST STEP SAYS WHEN IT HAS FAILED (TICKET-0114) -- THE `event` FORM AND THE `failure` ROLE (BRIEF-0114-e, no schema change)
+
+**G1.** One form, `event`: the events of one type (`target_key`) its
+subject took part in -- in one role (`value`) or any --, each filter's
+other role filled by an entity or a sorte (`condition_node_filter`, several
+per leaf), at a place or anywhere under it (`target_entity_id`, the
+parent chain), added up by quantity (an event without one counts 1) and
+met at `threshold` (1 by default). Its subject may be any entity: a
+faction takes part too. Code counts; the model never does.
+
+**F1.** A leaf counts `always`, since its quest's acceptance (`quest`) or
+since its step began (`step`: `agenda_step.started_at`, set when a step
+becomes active, its quest's acceptance for a step activated before
+v2.24). An eligibility has no quest yet: a `quest` or `step` window is
+refused there; judged without one, the leaf is `unknown`.
+
+**V1 for events.** A player surface recounts an event leaf from the events
+whose fact the character knows (`known_event_facts`, the 0105 resolver):
+what he never learned neither counts nor shows -- Brakk's secret hunt is
+met for the canon and « 0 » for Mira. Unlike other leaves, an event leaf
+about someone else is still recounted: the events are facts he may know.
+
+**H1.** A quest step may carry a `failure` condition, written with the
+offer and copied on acceptance like the others. Journée shows it, marked
+like the completion, and flags it when met; nothing acts on it -- the
+creator decides, as for completion. Only `quest_reads.py` and
+`writes/quests.py` read or write one (`event_conditions.py` EE5).
+
+**Editor.** The offer editor edits an event leaf in the list (type, role or
+any, count, place, window, filters on the type's other roles) and every
+step has a « Échouée quand » editor. A non-event leaf's dict is unchanged:
+`since` and `filters` appear on an event leaf only.
+
+**Rejected.** A window on every form (only events have dates), a failure
+that closes the quest by itself (the creator stays the judge, as M1).
+
+## THE CONDITION INTERPRETER READS THE WORLD'S EVENT TYPES AND WRITES AN EVENT LEAF (TICKET-0114) -- THE `t` LIST (BRIEF-0114-f, no schema change)
+
+**R1, reading.** The model sees the world's active event types as a coded
+list `t`, each line its roles, what each takes (entity types, « une
+sorte ») and whether it counts a quantity; the sortes by name. It writes an
+`event` leaf with the type's code, the subject's role by NAME (null: any),
+a `place` named like any entity, `since` and, in `with`, each other role
+filled by a sorte or an entity, both by name. Code reads it back
+(`interpreter_events.py`): a role or a sorte by its normalized name -- an
+unknown one is an error naming the right ones, sent back to the model once
+(II1) --, an entity through the interpreter's resolver, so an ambiguous
+witness waits for the creator's pick like any name. Roles and sortes are
+read by name, not code: the lists are short, the names are the creator's
+words, and the type's code already scopes the roles.
+
+**Prompt.** Three fragments of `CONDITION_INTERPRET_FRAGMENTS` (the
+paragraph « ÉVÉNEMENTS. », the two lists in the message, « event » no
+longer unsupported when a type says it), delivered by
+`apply_ticket_0114_condition_prompt.py`, which reuses the 0113 delivery.
+What no type says stays a note pointing to « Vocabulaire du monde ».
+
+## THE INTERPRETER PROPOSES A MISSING EVENT TYPE OR SORTE, CREATED FROM ITS CARD (TICKET-0114) -- `define_events`, `define_sortes` (BRIEF-0114-g, no schema change)
+
+**R1, proposing.** When the sentence speaks of an event no type says, or of
+a sorte the world lacks, the model proposes it (`define_events`,
+`define_sortes`) and its leaf names it by ref. Code reads each proposal
+through the writer's own cleaning (`event_proposals.py`), with the world's
+near names; a proposal whose name the world already has is no proposal --
+it names that type or sorte. The proposal waits (`needs_choice`); the
+journal keeps it (`vocabulary`). Nothing is written by the interpreter.
+
+**Created at once, from the card (drafting decision of the lot).** The
+creator uses a near type or sorte, or creates the proposed one -- a type
+retouched in `EventTypeForm`, the very form of « Vocabulaire du monde » --
+through the vocabulary's own routes; « Appliquer les choix » binds each ref
+to the id she chose and only then reads the leaf's role names on that
+type. Unlike a proposed state (0113, WN2: written with the offer's save),
+a type is created when she says so: the vocabulary is the world's, used by
+the journal, Play and the tick, not a term of one offer -- and binding a
+ref to a real id keeps one validation path (`clean_leaf`), with no unsaved
+type to carry through the offer's save. A type created for a proposal she
+then discards stays in the vocabulary, where she can retire it.
+
+## PLAY'S ANALYZER PROPOSES TYPED EVENTS, AND MAY PROPOSE THEIR TYPE, APPROVED WITH THE EVENT (TICKET-0114) -- `event_analysis.py` (BRIEF-0114-h, no schema change)
+
+**R1 in Play.** The conversation analysis shows the model the world's event
+types as a coded list (`t`, each with its roles) and its sortes by name.
+Its `event_creation` names the type by code, each participant by the name
+of the role it holds -- an entity by id, a sorte by name -- and a quantity
+when the type counts one. `event_analysis.typed_payload` reads it
+fail-closed: an unknown code drops the proposal; a participant whose role
+the type lacks, or whose entity is not one the role accepts in this world,
+is left out, never guessed; a quantity the type does not count is dropped.
+A payload naming no type keeps the former shape (typed by its domain at
+apply, as the tick's until TICKET-0119).
+
+**I2.** When no type says what happened, the model proposes one
+(`new_type`), cleaned by the writer's own rules when it is read -- refused,
+the proposal is dropped. The queue's card names the proposed type and its
+roles: the creator approves the type with the event, and the applier
+writes both in its one savepoint (`event_payloads`): refused, neither is
+written. A sorte the world lacks keeps its name and is written likewise. A
+type or sorte the world has by then under that very name is used, never
+duplicated.
+
+**Prompt.** Three fragments of `CONVERSATION_ANALYSIS_FRAGMENTS_0114` (the
+typed shape, an EVENT_CREATION RUBRIC, the two lists in the message),
+delivered by `apply_ticket_0114_analysis_prompt.py`, fragment by fragment:
+the creator's edits are kept.
+
 ---
 
 *Co-built with Claude, June 2026.*

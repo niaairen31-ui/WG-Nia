@@ -10,7 +10,9 @@
    of the interpreter's proposal inserted into it, which the save marks.
    Since TICKET-0113 (BRIEF-0113-E, WN2): `unsavedAttributes`, the
    attributes the interpreter proposed and the creator confirmed, sent with
-   the save, which writes those a condition names. */
+   the save, which writes those a condition names. Since TICKET-0114
+   (BRIEF-0114-E, H1): each step's failure condition, shown on the quest
+   and never acting. */
 import { api } from './sheetRequest.svelte.js';
 import { blankCondition, conditionBody, conditionDraft } from './questRequirements.js';
 import { blankTerm, termBody } from './questTerms.js';
@@ -29,7 +31,8 @@ export const questOffersState = $state({
 });
 
 export function blankStep() {
-  return { objective: '', cost: 1, domain: '', prerequisite: blankCondition(), completion: blankCondition() };
+  return { objective: '', cost: 1, domain: '', prerequisite: blankCondition(), completion: blankCondition(),
+           failure: blankCondition() };
 }
 
 export function newDraft() {
@@ -51,6 +54,7 @@ export function editOffer(offer) {
     steps: offer.steps.map((s) => ({
       objective: s.objective, cost: s.cost, domain: s.domain || '',
       prerequisite: conditionDraft(s.prerequisite), completion: conditionDraft(s.completion),
+      failure: conditionDraft(s.failure),
     })),
     terms: (offer.terms || []).map((t) => ({
       direction: t.direction, currency: t.currency, counterparty_entity_id: t.counterparty_entity_id || '',
@@ -120,6 +124,16 @@ export async function loadOffers(worldId) {
   }
 }
 
+/** The editor's picker lists again -- TICKET-0114 (BRIEF-0114-G): after the
+    interpreter's card created an event type or a sorte. */
+export async function reloadChoices() {
+  try {
+    questOffersState.choices = await api('/api/quest-offers/choices');
+  } catch (e) {
+    questOffersState.loadError = e.message;
+  }
+}
+
 function draftBody(draft) {
   return {
     giver_entity_id: draft.giver_entity_id, contact_entity_id: draft.contact_entity_id || null,
@@ -131,6 +145,7 @@ function draftBody(draft) {
       objective: s.objective, cost: Number(s.cost), domain: s.domain || null,
       prerequisite: conditionBody(s.prerequisite), completion: conditionBody(s.completion),
       prerequisite_draft_id: s.prerequisite.draftId || null, completion_draft_id: s.completion.draftId || null,
+      failure: conditionBody(s.failure), failure_draft_id: s.failure.draftId || null,
     })),
     terms: draft.terms.map(termBody),
     unsaved_attributes: draft.unsavedAttributes.map((u) => ({ ref: u.ref, definition: u.definition })),

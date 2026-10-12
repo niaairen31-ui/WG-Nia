@@ -32,6 +32,7 @@ from .conditions import (
     all_of,
     drop_leaves,
     evaluate,
+    for_step,
     map_leaves,
     read_condition,
 )
@@ -79,12 +80,14 @@ class PlanStep:
     (TICKET-0111, I1) -- `all` of the model's leaves for a day plan, any
     tree for a quest step; None when nothing gates it. `completion` (M1,
     BRIEF-0111-D) says when a quest step's objective is reached: shown,
-    never acted on; a day plan has none."""
+    never acted on; a day plan has none. `failure` (TICKET-0114, H1) says
+    when it has failed, shown likewise, never acting."""
     objective: str
     cost: Optional[int]
     domain: Optional[str]
     prerequisite: Optional[ConditionTree] = None
     completion: Optional[ConditionTree] = None
+    failure: Optional[ConditionTree] = None
 
 
 @dataclass(frozen=True)
@@ -131,7 +134,9 @@ def plan_bindings(agenda_id: Optional[str], character: Character, db: Session) -
     offer = db.get(QuestOffer, quest.offer_id) if quest is not None else None
     if offer is None:
         return Bindings(doer=character)
-    return Bindings(doer=character, giver_id=offer.giver_entity_id, contact_id=offer.contact_entity_id)
+    # TICKET-0114 (F1): an `event` leaf may count since the quest's acceptance.
+    return Bindings(doer=character, giver_id=offer.giver_entity_id, contact_id=offer.contact_entity_id,
+                    quest_since=quest.accepted_at)
 
 
 def evaluate_agenda_step(agenda_step: AgendaStep, character: Character, db: Session) -> EvaluatedStep:
@@ -148,7 +153,7 @@ def evaluate_agenda_step(agenda_step: AgendaStep, character: Character, db: Sess
         domain=agenda_step.domain,
         prerequisite=read_condition(db, role="prerequisite", agenda_step_id=agenda_step.id),
     )
-    bindings = plan_bindings(agenda_step.agenda_id, character, db)
+    bindings = for_step(plan_bindings(agenda_step.agenda_id, character, db), agenda_step)
     return EvaluatedStep(step=plan_step, verdict=evaluate_requirements(plan_step, bindings, db))
 
 

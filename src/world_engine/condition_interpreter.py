@@ -6,7 +6,8 @@ The model proposes, code validates, the creator confirms (A1): nothing here
 writes. `interpret` shows the model the language (`form_lines`), the
 entities the instruction names, coded lists of the world's facts (`f`), its
 quest offers (`q`), skills (`s`) and attributes (`a`, TICKET-0113: a state
-by its code, a choice by its label), and -- when the creator edits a
+by its code, a choice by its label), its event types (`t`, TICKET-0114,
+with their roles; its sortes by name -- `interpreter_events`), and -- when the creator edits a
 condition (IC1) -- the current tree in the model's own form, its entities
 coded `e`. The model answers that form (C-03): entities by name (or by an
 `e` code), every other target by code, never an id (ID1a). Code reads the
@@ -48,8 +49,21 @@ from .attribute_proposals import (
 from .attributes import ATTRIBUTE_FORM, AttributeView, world_attributes, world_entity_type_labels
 from .condition_forms import ENTITY_TARGET_TYPES, FORM_VALUES, REQUIREMENT_TYPES, RequirementSpec
 from .condition_text import FORM_PHRASES_FR, VALUE_LABELS_FR
-from .conditions import CONNECTORS, SUBJECT_ROLES, ConditionTree, all_of, check_shape, leaves, node_to_dict
+from .conditions import (
+    CONNECTORS,
+    EVENT_FORM,
+    SUBJECT_ROLES,
+    ConditionTree,
+    all_of,
+    check_shape,
+    filters_from,
+    leaves,
+    node_to_dict,
+)
+from .event_proposals import Vocabulary, bind_vocabulary, read_vocabulary, vocab_waiting
+from .event_vocab import EventTypeView, world_event_types, world_sortes
 from .fact_refs import CodedRefs, code_facts, code_refs
+from .interpreter_events import bind_filters, encode_event, event_type_line, filters_waiting, read_event
 from .lore_resolve import CATEGORIES, near_candidates, normalize_surface, resolve_named
 from .lore_write_draft import MAX_CODED_FACTS, named_entity_ids, world_fact_ids
 from .models import BASE_SKILL_DOMAINS, Entity, FactParticipant, QuestOffer, SkillDefinition
@@ -71,6 +85,7 @@ ROLE_LABELS_FR: dict[str, str] = {
     "eligibility": "à qui l'offre est proposée",
     "prerequisite": "ce qu'il faut pour tenter l'étape",
     "completion": "quand l'objectif de l'étape est atteint",
+    "failure": "quand l'étape a échoué",
 }
 
 # What each form takes as its target, in the model's form (C-03). One line
@@ -91,17 +106,20 @@ TARGET_HINTS_FR: dict[str, str] = {
     "attribute": "un état, par son code a ; pour un choix, valeur = un de ses libellés ; pour un nombre, "
                  "seuil = le minimum ; pour une entité, valeur = une entité par son nom, ou null pour "
                  "« quelqu'un »",
+    "event": "un type d'événement, par son code t ; valeur = le rôle du sujet, par son nom, ou null pour "
+             "n'importe lequel ; seuil = le nombre minimal (quantités additionnées) ; et place, since, with",
 }
 # The forms whose target is a code, and the list each code comes from.
-CODE_LISTS: dict[str, str] = {"knowledge": "f", "quest_state": "q", "skill_rank_gte": "s", "attribute": "a"}
+CODE_LISTS: dict[str, str] = {"knowledge": "f", "quest_state": "q", "skill_rank_gte": "s", "attribute": "a",
+                              "event": "t"}
 
 # IF1: what the language cannot say yet, by the kind the model gives it, and
 # where it will come from. IA1: a cost or a reward is a term of the offer.
 UNSUPPORTED_NOTES_FR: dict[str, str] = {
     "state": "« {text} » : cet état n'existe pas encore dans ce monde ; définis-le dans Création › États, "
              "puis redemande.",
-    "event": "« {text} » : ce qui s'est passé (tué, repéré, capturé…) n'est pas encore une "
-             "condition ; il arrive avec le journal d'événements (TICKET-0114).",
+    "event": "« {text} » : aucun type d'événement de ce monde ne le dit encore ; définis-le dans "
+             "Création › Vocabulaire du monde, puis redemande.",
     "time": "« {text} » : le temps (avant le jour N, pendant N tours) n'est pas encore une "
             "condition ; aucun ticket ne l'a encore.",
     "cost": "« {text} » : c'est un coût, pas une condition : ajoute-le dans « Coûts » de l'offre.",
@@ -120,16 +138,18 @@ class InterpreterContext:
     """What the model may see; the coded lists also resolve its answer."""
 
     entity_lines: tuple[str, ...]
-    lists: dict[str, CodedRefs]  # "e", "f", "q", "s", "a"
+    lists: dict[str, CodedRefs]  # "e", "f", "q", "s", "a", "t"
     current: Optional[dict]
     attributes: dict[str, AttributeView] = field(default_factory=dict)  # key -> view, the `a` list's
     type_lines: tuple[str, ...] = ()  # the types a proposed definition may name (BRIEF-0113-E)
+    event_types: dict[str, EventTypeView] = field(default_factory=dict)  # id -> view, the `t` list's (0114)
+    sortes: dict[str, str] = field(default_factory=dict)  # id -> name (TICKET-0114)
 
 
 def _current_ids(tree: Optional[ConditionTree]) -> dict[str, list[str]]:
-    found: dict[str, list[str]] = {"e": [], "f": [], "q": [], "s": [], "a": []}
+    found: dict[str, list[str]] = {"e": [], "f": [], "q": [], "s": [], "a": [], "t": []}
     for spec in leaves(tree):
-        for entity_id in (spec.subject_entity_id, spec.target_entity_id):
+        for entity_id in (spec.subject_entity_id, spec.target_entity_id, *(f.entity_id for f in spec.filters)):
             if entity_id and entity_id not in found["e"]:
                 found["e"].append(entity_id)
         if spec.type in CODE_LISTS and spec.target_key:
@@ -165,17 +185,22 @@ def build_context(db: Session, world_id: str, instruction: str, current: Optiona
     attributes = {view.key: view for view in world_attributes(db, world_id)}
     attributes.update(unsaved_views(unsaved))  # the draft's proposed ones (BRIEF-0113-E)
     types = {t["type"]: t["label"] for t in world_entity_type_labels(db, world_id)}
+    event_types = {view.id: view for view in world_event_types(db, world_id)}
     lists = {
         "e": code_refs("e", ((eid, _entity_label(db, eid)) for eid in ids["e"])),
         "f": code_facts(db, list(dict.fromkeys(fact_ids))[:MAX_CODED_FACTS]),
         "q": code_refs("q", sorted(((o.id, o.title) for o in offers), key=lambda pair: pair[1].lower())),
         "s": code_refs("s", _skill_pairs(db, world_id)),
         "a": code_refs("a", ((key, attribute_line(view, types)) for key, view in attributes.items())),
+        "t": code_refs("t", ((tid, event_type_line(view, types)) for tid, view in event_types.items())),
     }
+    sortes = {s.id: s.name for s in world_sortes(db, world_id)}
     lines = tuple(f"- {_entity_label(db, eid)}" for eid in named)
     return InterpreterContext(entity_lines=lines, lists=lists, attributes=attributes,
                               type_lines=tuple(f"{t} — {label}" for t, label in types.items()),
-                              current=encode(current, lists, attributes) if current is not None else None)
+                              event_types=event_types, sortes=sortes,
+                              current=encode(current, lists, attributes, event_types, sortes)
+                              if current is not None else None)
 
 
 def attribute_line(view: AttributeView, types: dict[str, str]) -> str:
@@ -199,12 +224,15 @@ def _encode_ref(entity_id: Optional[str], lists: dict[str, CodedRefs]) -> Option
     return {"code": lists["e"].code_of(entity_id)} if entity_id else None
 
 
-def encode(tree: ConditionTree, lists: dict[str, CodedRefs], attributes: Optional[dict] = None) -> dict:
+def encode(tree: ConditionTree, lists: dict[str, CodedRefs], attributes: Optional[dict] = None,
+           event_types: Optional[dict] = None, sortes: Optional[dict] = None) -> dict:
     """A clean tree in the model's form: entities by `e` code, facts,
-    offers, skills and attributes by their code; an attribute's choice by
-    its label, its entity value by `e` code (BRIEF-0113-D)."""
+    offers, skills, attributes and event types by their code; an
+    attribute's choice by its label, its entity value by `e` code
+    (BRIEF-0113-D); an event's roles and sortes by name (TICKET-0114)."""
     if tree.op != "leaf":
-        out: dict[str, Any] = {"op": tree.op, "children": [encode(c, lists, attributes) for c in tree.children]}
+        out: dict[str, Any] = {"op": tree.op, "children": [encode(c, lists, attributes, event_types, sortes)
+                                                           for c in tree.children]}
         if tree.op == "at_least":
             out["n"] = tree.n
         return out
@@ -219,9 +247,13 @@ def encode(tree: ConditionTree, lists: dict[str, CodedRefs], attributes: Optiona
             value = dict(view.choices).get(spec.value, spec.value)
         elif view is not None and view.kind == "entity":
             value = _encode_ref(spec.target_entity_id, lists)
-    return {"op": "leaf", "form": spec.type,
-            "subject": spec.subject_role or _encode_ref(spec.subject_entity_id, lists),
-            "target": target, "threshold": spec.threshold, "value": value}
+    out = {"op": "leaf", "form": spec.type,
+           "subject": spec.subject_role or _encode_ref(spec.subject_entity_id, lists),
+           "target": target, "threshold": spec.threshold, "value": value}
+    if spec.type == EVENT_FORM:
+        return encode_event(spec, out, (event_types or {}).get(spec.target_key), sortes or {},
+                            lambda entity_id: _encode_ref(entity_id, lists))
+    return out
 
 
 def form_lines() -> str:
@@ -251,6 +283,7 @@ class Reading:
     errors: list[str] = field(default_factory=list)
     name_errors: list[str] = field(default_factory=list)
     defined: dict[str, str] = field(default_factory=dict)  # the model's `define` ref -> `new:<ref>` (E)
+    vocab: Optional[Vocabulary] = None  # the event types and sortes it proposes (TICKET-0114, G)
 
 
 def _mention(db: Session, world_id: str, raw: dict, reading: Reading) -> Optional[str]:
@@ -318,13 +351,23 @@ def _leaf(db: Session, world_id: str, raw: dict, ctx: InterpreterContext, readin
         if target["key"] is None:
             reading.errors.append(f"{where}état proposé inconnu {raw['target']['define']!r} (attendu : un "
                                   "ref de « define »)")
+    # TICKET-0114 (BRIEF-0114-G): a type the model proposes -- or one the
+    # world has under that very name.
+    proposed_type = form == EVENT_FORM and isinstance(target, dict) and "define" in target
+    if proposed_type:
+        found = reading.vocab.target(target["define"]) if reading.vocab is not None else None
+        if found is None:
+            reading.errors.append(f"{where}type proposé inconnu {target['define']!r} (attendu : un ref de "
+                                  "« define_events »)")
+        else:
+            out["target_key" if found[0] == "id" else "type_define"] = found[1]
     if isinstance(target, str) and form in ENTITY_TARGET_TYPES:  # a bare name
         target = {"name": target, "kind": "other"}
     if form in ENTITY_TARGET_TYPES:
         out["target_entity_id"], out["target_mention"] = _entity(db, world_id, target, ctx, reading, where)
     elif form == ATTRIBUTE_FORM and isinstance(target, dict) and "key" in target:
         out["target_key"] = target["key"]
-    elif form in CODE_LISTS:
+    elif form in CODE_LISTS and not proposed_type:
         code = target.get("code") if isinstance(target, dict) else target
         out["target_key"] = ctx.lists[CODE_LISTS[form]].resolve(code)
         if out["target_key"] is None:
@@ -333,6 +376,10 @@ def _leaf(db: Session, world_id: str, raw: dict, ctx: InterpreterContext, readin
         out["target_key"] = RESOURCE_KEY
     if form == ATTRIBUTE_FORM and out["target_key"] is not None:
         _attribute_value(db, world_id, raw, ctx, reading, where, out)
+    if form == EVENT_FORM:
+        read_event(raw, out, ctx.event_types.get(out["target_key"]), ctx.sortes,
+                   lambda entity, at: _entity(db, world_id, entity, ctx, reading, at), reading.errors, where,
+                   reading.vocab)
     return {k: v for k, v in out.items() if v is not None or not k.endswith("_mention")}
 
 
@@ -384,11 +431,12 @@ def _read(db: Session, world_id: str, raw: Any, ctx: InterpreterContext, reading
 
 
 def read_answer(db: Session, world_id: str, raw: Any, ctx: InterpreterContext,
-                defined: Optional[dict[str, str]] = None) -> Reading:
+                defined: Optional[dict[str, str]] = None, vocab: Optional[Vocabulary] = None) -> Reading:
     """The model's `condition` read back: codes and names resolved, nothing
     validated yet. None reads as no tree. `defined`: the model's `define`
-    refs, already read (`attribute_proposals.read_definitions`)."""
-    reading = Reading(defined=dict(defined or {}))
+    refs, already read (`attribute_proposals.read_definitions`); `vocab`
+    its proposed event types and sortes (`event_proposals.read_vocabulary`)."""
+    reading = Reading(defined=dict(defined or {}), vocab=vocab)
     if raw is not None:
         reading.pending = _read(db, world_id, raw, ctx, reading, "1")
     return reading
@@ -401,7 +449,8 @@ def waiting(pending: Optional[dict]) -> bool:
     if pending is None:
         return False
     if pending.get("op") == "leaf":
-        return "subject_mention" in pending or "target_mention" in pending
+        return "subject_mention" in pending or "target_mention" in pending or filters_waiting(pending) \
+            or vocab_waiting(pending)
     return any(waiting(child) for child in pending.get("children", []))
 
 
@@ -412,16 +461,18 @@ def bind(pending: dict, mentions: list[dict], bindings: dict[str, str]) -> dict:
     by_ref = {m["ref"]: m for m in mentions}
     if pending.get("op") != "leaf":
         return {**pending, "children": [bind(c, mentions, bindings) for c in pending.get("children", [])]}
-    out = dict(pending)
-    for side in ("subject", "target"):
-        ref = out.pop(f"{side}_mention", None)
-        if ref is None:
-            continue
+    def picked(ref: str) -> str:
         pick = bindings.get(ref)
         if pick not in {c["entity_id"] for c in by_ref.get(ref, {}).get("choices", [])}:
             raise ValueError(f"« {by_ref.get(ref, {}).get('name', ref)} » : choisis un des noms proposés")
-        out[f"{side}_entity_id"] = pick
-    return out
+        return pick
+
+    out = dict(pending)
+    for side in ("subject", "target"):
+        ref = out.pop(f"{side}_mention", None)
+        if ref is not None:
+            out[f"{side}_entity_id"] = picked(ref)
+    return bind_filters(out, picked)  # an event leaf's filters (TICKET-0114)
 
 
 def _tree(raw: dict) -> ConditionTree:
@@ -429,7 +480,8 @@ def _tree(raw: dict) -> ConditionTree:
         return ConditionTree(op="leaf", leaf=RequirementSpec(
             type=raw["type"], subject_role=raw.get("subject_role"), subject_entity_id=raw.get("subject_entity_id"),
             target_entity_id=raw.get("target_entity_id"), target_key=raw.get("target_key"),
-            threshold=raw.get("threshold"), value=raw.get("value")))
+            threshold=raw.get("threshold"), value=raw.get("value"), since=raw.get("since"),
+            filters=filters_from(raw.get("filters"))))
     return ConditionTree(op=raw["op"], n=raw.get("n"), children=tuple(_tree(c) for c in raw.get("children", [])))
 
 
@@ -474,12 +526,16 @@ class Interpretation:
     # BRIEF-0113-E: the attributes this answer proposes -- `{ref, definition,
     # near}`, `near` the attributes whose name is near (the creator picks).
     definitions: list[dict] = field(default_factory=list)
+    # TICKET-0114 (BRIEF-0114-G): the event types and sortes it proposes --
+    # `{ref, kind, definition, near}` (`event_proposals`).
+    vocabulary: list[dict] = field(default_factory=list)
 
     def payload(self, current: Optional[ConditionTree], bindings: Optional[dict] = None) -> dict:
         """The journal's payload (`writes.condition_drafts.PAYLOAD_KEYS`)."""
         return {"current": node_to_dict(current), "pending": self.pending, "mentions": self.mentions,
                 "bindings": bindings or {}, "proposed": node_to_dict(self.tree),
-                "notes": self.notes, "errors": self.errors, "definitions": self.definitions}
+                "notes": self.notes, "errors": self.errors, "definitions": self.definitions,
+                "vocabulary": self.vocabulary}
 
 
 Exchanges = Optional[list[model_exchange.ModelExchange]]
@@ -502,6 +558,9 @@ def prompt_values(ctx: InterpreterContext, role: str, instruction: str, errors: 
         "tree_entities": _lines(ctx.lists["e"].lines), "facts": _lines(ctx.lists["f"].lines),
         "offers": _lines(ctx.lists["q"].lines), "skills": _lines(ctx.lists["s"].lines),
         "attributes": _lines(ctx.lists["a"].lines), "entity_types": _lines(ctx.type_lines),
+        # TICKET-0114 (BRIEF-0114-F): the event types and the sortes.
+        "event_types": _lines(ctx.lists["t"].lines if "t" in ctx.lists else ()),
+        "sortes": ", ".join(ctx.sortes.values()) or "(aucune)",
         "current": json.dumps(ctx.current, ensure_ascii=False) if ctx.current is not None else "(aucune)",
         "instruction": instruction.strip(), "errors": _lines(f"- {e}" for e in errors),
     }
@@ -522,7 +581,7 @@ def _settle(db: Session, world_id: str, reading: Reading, notes: list[str], retr
 
     def done(outcome, tree=None, errors=()):
         return Interpretation(outcome, tree, reading.pending, reading.mentions, notes, list(errors), retried,
-                              proposals.entries())
+                              proposals.entries(), reading.vocab.proposals if reading.vocab else [])
 
     if reading.errors or reading.name_errors:
         return done("refused", errors=reading.errors + reading.name_errors)
@@ -561,8 +620,9 @@ def _answer(db: Session, world_id: str, parsed: dict, ctx: InterpreterContext, u
     taken = {item.ref for item in unsaved}
     new, defined, errors = read_definitions(db, world_id, parsed.get("define"), taken, list(unsaved))
     ctx.attributes.update(unsaved_views(new))
-    reading = read_answer(db, world_id, parsed.get("condition"), ctx, defined)
-    reading.errors[:0] = errors
+    vocab = read_vocabulary(db, world_id, parsed.get("define_events"), parsed.get("define_sortes"))
+    reading = read_answer(db, world_id, parsed.get("condition"), ctx, defined, vocab)
+    reading.errors[:0] = errors + vocab.errors
     proposals = Proposals(unsaved=unsaved, new=new, near=near_existing(db, world_id, new, list(unsaved)))
     return _settle(db, world_id, reading, _notes(parsed.get("unsupported")), retried, proposals)
 
@@ -594,15 +654,20 @@ def _retryable(result: Interpretation) -> bool:
 
 
 def resolve(db: Session, world_id: str, pending: dict, mentions: list[dict], notes: list[str],
-            bindings: dict[str, str], definitions: tuple = (), unsaved: tuple = ()) -> Interpretation:
+            bindings: dict[str, str], definitions: tuple = (), unsaved: tuple = (),
+            vocabulary: tuple = ()) -> Interpretation:
     """The creator's picks applied to a `needs_choice` proposal; no model
     call. `ValueError` when a pick is missing or outside its choices. A
     proposed attribute near another (BRIEF-0113-E, WK2) is picked by its
     ref: `new` keeps it, an existing key moves its leaves there (`adopt`) --
     a label that attribute does not have refuses the proposal. The adopted
-    one stays in `definitions`, marked `adopted` with its key."""
+    one stays in `definitions`, marked `adopted` with its key. A proposed
+    event type or sorte (TICKET-0114, BRIEF-0114-G) is bound to the one the
+    creator created or picked, by its ref; the leaf's role names are then
+    read on that type."""
+    pending, errors = bind_vocabulary(db, world_id, pending, bindings)
     bound = bind(pending, mentions, bindings)
-    new, errors, adopted = [], [], []
+    new, adopted = [], []
     for entry in definitions:
         pick = bindings.get(entry["ref"])
         if entry.get("adopted"):
@@ -626,7 +691,7 @@ def resolve(db: Session, world_id: str, pending: dict, mentions: list[dict], not
     # An adopted proposal stays in the journal with the key it went to
     # (the dashboard of TICKET-0115 counts them); no card shows it.
     return Interpretation(outcome, tree, bound, mentions, list(notes), errors, False,
-                          proposals.entries() + adopted)
+                          proposals.entries() + adopted, list(vocabulary))
 
 
 def confirm(db: Session, world_id: str, proposed: Optional[dict], unsaved: tuple,

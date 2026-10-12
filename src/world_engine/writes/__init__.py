@@ -34,7 +34,10 @@ Layout, by canon domain:
                           `world_law`, `obstacle`/`obstacle_vertex`).
     goals_agendas.py    — `npc_goal`/`goal_prerequisite`/`agenda`/
                           `agenda_step`/`goal_agenda_link`.
-    events.py           — `event`.
+    events.py           — the event journal: `event`, `event_participant`,
+                          its fact, scopes and participants' knowledge:
+                          `clean_event`, `write_event`, `write_event_update`
+                          (TICKET-0114, BRIEF-0114-C).
     prompts.py          — `prompt_version`/`prompt_variable` (non-canon;
                           moved for module hygiene, not policy).
     pipeline.py         — `batch`/`pass_play` (TICKET-0075, BRIEF-0075-a).
@@ -65,6 +68,13 @@ Layout, by canon domain:
                           `clean_definition`, `write_attribute_definition`,
                           `set_attribute_status`, `write_attribute_value`
                           (TICKET-0113, BRIEF-0113-A).
+    event_types.py      — the event journal's vocabulary: `event_type`,
+                          `event_type_role`, `event_type_role_type`,
+                          `event_type_scope`, `event_sorte`:
+                          `clean_event_type`, `write_event_type`,
+                          `set_event_type_status`, `write_sorte`,
+                          `set_sorte_status`, `ensure_domain_type`
+                          (TICKET-0114, BRIEF-0114-A).
     worlds.py           — `delete_world_cascade` (the sole delete-side
                           helper, wildcard-allowed in canon_write_policy.txt).
 
@@ -91,7 +101,7 @@ from .config import (
     write_npc_schedule,
     write_world_laws,
 )
-from .events import write_event, write_event_update
+from .events import EventScopeSpec, EventSpec, ParticipantSpec, clean_event, event_fact_text, write_event, write_event_update
 from .facts import (
     attach_participants,
     create_fact,
@@ -171,6 +181,18 @@ from .attributes import (
     set_attribute_status,
     write_attribute_definition,
     write_attribute_value,
+)
+from .event_types import (
+    EventTypeSpec,
+    RoleSpec,
+    ScopeSpec,
+    clean_event_type,
+    clean_sorte_name,
+    ensure_domain_type,
+    set_event_type_status,
+    set_sorte_status,
+    write_event_type,
+    write_sorte,
 )
 from .pipeline import (
     BATCH_RESOLVED_STATUS,

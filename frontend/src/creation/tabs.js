@@ -358,14 +358,16 @@ export const CREATION_TABS = {
     islands: [{ key: 'debts', containerId: 'creation-dettes' }],
     primaryAction: { label: '+ Nouvelle dette', handler: () => triggerPrimaryAction('debts') },
   },
-  etats: {
-    label: 'États',
+  // TICKET-0114 (BRIEF-0114-B, T3): the world's vocabulary in one tab --
+  // its states (TICKET-0113's « États »), its event types, its sortes.
+  vocabulaire: {
+    label: 'Vocabulaire du monde',
     archetype: 'bespoke',
-    containers: ['creation-etats'],
+    containers: ['creation-vocabulaire'],
     loader: null,
     state: { onTabEnter: null, onWorldSwitch: null },
-    islands: [{ key: 'states', containerId: 'creation-etats' }],
-    primaryAction: { label: '+ Nouvel état', handler: () => triggerPrimaryAction('states') },
+    islands: [{ key: 'vocabulary', containerId: 'creation-vocabulaire' }],
+    primaryAction: { label: '+ Nouveau', handler: () => triggerPrimaryAction('vocabulary') },
   },
   subjects: {
     label: 'Sujets',

@@ -48,7 +48,6 @@ _SUBQUERY_SCOPED_DELETES: tuple[tuple[str, str, str], ...] = (
     ("artifact", "id", "entity"),
     ("item", "id", "entity"),
     ("agenda_step", "agenda_id", "agenda"),
-    ("event_entity", "event_id", "event"),
     ("obstacle_vertex", "obstacle_id", "obstacle"),
     ("observation_beat", "run_id", "observation_run"),
     ("observation_intent", "run_id", "observation_run"),
@@ -79,6 +78,8 @@ _DIRECT_WORLD_SCOPED_DELETES: tuple[str, ...] = (
     "debt", "debt_term",
     "attribute_definition", "attribute_definition_type", "attribute_choice",
     "attribute_value", "attribute_change",
+    "event_type", "event_type_role", "event_type_role_type", "event_type_scope",
+    "event_sorte", "event_participant", "condition_node_filter",
 )
 
 # Refusing tables (root_table, label_column, guarded_children, message) —

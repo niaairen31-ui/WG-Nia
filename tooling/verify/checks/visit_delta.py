@@ -8,9 +8,10 @@ never touched again (same mechanical philosophy as `single_canon_write.py`
 and `world_tick.py`'s call-site allowlist).
 
 Rule 2 (structural exclusion): `_compute_return_delta` (cockpit/app.py) —
-the function housing the delta's `select(Event)` call — references
-`knowledge_status` somewhere in its body (same spirit as the
-secret-exclusion checks on the assemblers).
+the function housing the delta's event leg — calls
+`event_reads.known_chronicle_events` (since TICKET-0114, BRIEF-0114-D: the
+player reads only the events he knows; it referenced `knowledge_status`
+before), same spirit as the secret-exclusion checks on the assemblers.
 
 No DB, stdlib `ast` only.
 """
@@ -126,11 +127,12 @@ def check_event_structural_exclusion() -> None:
         fail(f"{rel}: _compute_return_delta not found")
         return
 
-    has_knowledge_status = any(
-        isinstance(n, ast.Attribute) and n.attr == "knowledge_status" for n in ast.walk(func)
+    reads_known = any(
+        isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "known_chronicle_events"
+        for n in ast.walk(func)
     )
-    if not has_knowledge_status:
-        fail(f"{rel}: _compute_return_delta does not reference knowledge_status — structural exclusion missing")
+    if not reads_known:
+        fail(f"{rel}: _compute_return_delta does not call known_chronicle_events — structural exclusion missing")
 
 
 def main() -> None:

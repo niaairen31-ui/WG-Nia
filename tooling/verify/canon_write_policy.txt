@@ -9,6 +9,7 @@ skill_rank quest_offer quest_offer_step quest
 item_holding quest_offer_term quest_term quest_economy
 debt debt_term
 attribute_definition attribute_definition_type attribute_choice attribute_value attribute_change
+event_type event_type_role event_type_role_type event_type_scope event_sorte event_participant condition_node_filter
 
 [ALLOWED_SITES]
 # path::function                                              tables
@@ -55,10 +56,10 @@ src/world_engine/writes/items.py::write_holding                item_holding
 src/world_engine/writes/quests.py::write_quest_offer           quest_offer quest_offer_step
 # TICKET-0108, BRIEF-0108-B: accept_quest writes the quest row; its agenda and steps go through write_agenda/write_agenda_step, allow-listed above, and since TICKET-0111 its steps' conditions through write_condition.
 src/world_engine/writes/quests.py::accept_quest                quest
-# TICKET-0111, BRIEF-0111-C: the condition language's one writer -- write_condition replaces one owner's condition whole (the full-replace shape), _write_node writes its nodes, delete_offer_conditions clears an offer's before write_quest_offer replaces them. Every caller (write_day_plan, write_quest_offer, accept_quest) calls them, never the tables.
-src/world_engine/writes/conditions.py::write_condition         condition condition_node
-src/world_engine/writes/conditions.py::_write_node             condition_node
-src/world_engine/writes/conditions.py::delete_offer_conditions condition condition_node
+# TICKET-0111, BRIEF-0111-C: the condition language's one writer (TICKET-0114, BRIEF-0114-E: and of an event leaf's condition_node_filter rows) -- write_condition replaces one owner's condition whole (the full-replace shape), _write_node writes its nodes, delete_offer_conditions clears an offer's before write_quest_offer replaces them. Every caller (write_day_plan, write_quest_offer, accept_quest) calls them, never the tables.
+src/world_engine/writes/conditions.py::write_condition         condition condition_node condition_node_filter
+src/world_engine/writes/conditions.py::_write_node             condition_node condition_node_filter
+src/world_engine/writes/conditions.py::delete_offer_conditions condition condition_node condition_node_filter
 # TICKET-0109, BRIEF-0109-B: write_offer_terms replaces an offer's costs and rewards whole (write_quest_offer's full-replace shape); copy_terms_to_quest gives an accepted quest its own copy; upsert_quest_economy sets a world's rates (curated config, upsert-one).
 src/world_engine/writes/quest_terms.py::write_offer_terms      quest_offer_term
 src/world_engine/writes/quest_terms.py::copy_terms_to_quest    quest_term
@@ -74,6 +75,13 @@ src/world_engine/writes/attributes.py::_write_types             attribute_defini
 src/world_engine/writes/attributes.py::_write_choices           attribute_choice
 src/world_engine/writes/attributes.py::set_attribute_status     attribute_definition
 src/world_engine/writes/attributes.py::write_attribute_value    attribute_value attribute_change
+# TICKET-0114, BRIEF-0114-A: the event journal's vocabulary's one writer -- write_event_type creates or saves a type, _write_roles adds, renames and retires its roles (never a DELETE of a role) and replaces each role's entity types whole, _write_scopes replaces the type's scopes whole (the write_offer_terms full-replace shape), set_event_type_status retires or restores it, write_sorte creates or renames a sorte, set_sorte_status retires or restores it. Creator CRUD only (and, from BRIEF-0114-F/G, a confirmed interpreter or analyzer proposal, through the same functions).
+src/world_engine/writes/event_types.py::write_event_type       event_type
+src/world_engine/writes/event_types.py::_write_roles           event_type_role event_type_role_type
+src/world_engine/writes/event_types.py::_write_scopes          event_type_scope
+src/world_engine/writes/event_types.py::set_event_type_status  event_type
+src/world_engine/writes/event_types.py::write_sorte            event_sorte
+src/world_engine/writes/event_types.py::set_sorte_status       event_sorte
 # TICKET-0044, BRIEF-0044-c: create_entity_type is the 26th site — the governed
 # structural-write authority (D2), a NEW sanctioned site distinct from the two
 # canon-write paths (AI-proposal pipeline, creator CRUD). Its `CREATE TABLE
@@ -84,6 +92,9 @@ src/world_engine/writes/attributes.py::write_attribute_value    attribute_value 
 src/world_engine/writes/schema.py::create_entity_type          entity_type entity_type_history
 src/world_engine/writes/events.py::write_event                 event
 src/world_engine/writes/events.py::write_event_update           event
+# TICKET-0114, BRIEF-0114-C: the journal -- _add_participants adds an event's participants (never takes one away; their knowledge goes through write_knowledge, allow-listed above), _write_scopes replaces an event's fact's scopes whole (the full-replace shape; each row through create_fact_default). Creator CRUD and _apply_mutation's event_creation.
+src/world_engine/writes/events.py::_add_participants           event_participant
+src/world_engine/writes/events.py::_write_scopes               fact_default
 src/world_engine/writes/goals_agendas.py::write_agenda         agenda
 src/world_engine/writes/goals_agendas.py::write_agenda_step    agenda_step
 src/world_engine/writes/goals_agendas.py::write_agenda_step_status agenda_step

@@ -567,12 +567,14 @@ export const CREATION_ISLANDS = Object.freeze({
     origin: 'new',
     createdBy: 'TICKET-0110',
   }),
-  // TICKET-0113 (BRIEF-0113-C, WI1): the attributes of the world -- the
-  // state of the world -- created directly as an island, no legacy predecessor.
-  states: Object.freeze({
-    containerId: 'creation-etats',
-    component: 'States.svelte',
+  // TICKET-0114 (BRIEF-0114-B, T3): the world's vocabulary -- its states
+  // (TICKET-0113's « États » island, now a section of this one), its event
+  // types and its sortes -- created directly as an island, no legacy
+  // predecessor.
+  vocabulary: Object.freeze({
+    containerId: 'creation-vocabulaire',
+    component: 'Vocabulary.svelte',
     origin: 'new',
-    createdBy: 'TICKET-0113',
+    createdBy: 'TICKET-0114',
   }),
 });

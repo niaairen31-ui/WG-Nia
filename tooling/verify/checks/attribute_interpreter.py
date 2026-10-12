@@ -438,8 +438,9 @@ def check_ae1() -> None:
         for needle in wanted:
             if needle not in text:
                 fail(f"AE1: {name} lacks {needle}")
-    if (front / "QuestOffers.svelte").read_text(encoding="utf-8").count("unsaved={draft.unsavedAttributes}") != 3:
-        fail("AE1: QuestOffers.svelte does not pass the unsaved attributes to its three conditions")
+    if (front / "QuestOffers.svelte").read_text(encoding="utf-8").count("unsaved={draft.unsavedAttributes}") != 4:
+        # TICKET-0114 (BRIEF-0114-E, H1): a step's failure is the fourth.
+        fail("AE1: QuestOffers.svelte does not pass the unsaved attributes to its four conditions")
 
 
 # --- AE2 -------------------------------------------------------------------------

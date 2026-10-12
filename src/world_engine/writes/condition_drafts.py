@@ -43,9 +43,11 @@ CONDITION_DRAFT_MOVES: dict[str, tuple[str, ...]] = {
 # errors shown to the creator; since TICKET-0113 (BRIEF-0113-E) the
 # attributes it proposed (`definitions`: `{ref, definition, near}`, and
 # once inserted `confirmed`, the definition as the creator confirmed it --
-# the dashboard of TICKET-0115 compares the two).
+# the dashboard of TICKET-0115 compares the two); since TICKET-0114
+# (BRIEF-0114-G) the event types and sortes it proposed (`vocabulary`:
+# `{ref, kind, definition, near}`, `event_proposals`).
 PAYLOAD_KEYS: frozenset[str] = frozenset({
-    "current", "pending", "mentions", "bindings", "proposed", "notes", "errors", "definitions",
+    "current", "pending", "mentions", "bindings", "proposed", "notes", "errors", "definitions", "vocabulary",
 })
 WORLD_NAME_UNKNOWN = "(monde introuvable)"
 

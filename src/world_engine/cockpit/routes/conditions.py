@@ -15,6 +15,11 @@ request, the creator picks between a near existing attribute and a new one
 (`resolve`), and confirms each definition -- retouched in the card or not --
 with `inserted`; the offer's save writes them (`routes/quests.py`).
 
+Since TICKET-0114 (BRIEF-0114-G, R1), a proposal may carry the event types
+and sortes it proposes (`vocabulary`). The creator creates each through
+the vocabulary's own routes (`routes/event_types.py`) -- or picks a near
+one -- and `resolve` binds its ref to that id.
+
 Every model call lives in `condition_interpreter`, every journal write in
 `writes/condition_drafts.py`; this module parses, maps a refusal to its
 status code, and commits once per request. Every proposal that reached the
@@ -109,7 +114,7 @@ def _answer(draft: ConditionDraft, result: Optional[_interpreter.Interpretation]
     attributes the answer proposes, each with the attributes near it."""
     if result is None:
         return {"draft_id": draft.id, "outcome": draft.outcome, "view": None, "mentions": [], "notes": [],
-                "errors": [], "definitions": []}
+                "errors": [], "definitions": [], "vocabulary": []}
     views = unsaved_views(tuple(unsaved) + tuple(
         UnsavedAttribute(ref=d["ref"], spec=spec_from_dict(d["definition"]))
         for d in result.definitions if not d.get("adopted")))
@@ -118,6 +123,7 @@ def _answer(draft: ConditionDraft, result: Optional[_interpreter.Interpretation]
         "view": condition_view(db, result.tree, views) if result.tree is not None else None,
         "mentions": [m for m in result.mentions if m["status"] != "matched" and m["choices"]],
         "notes": result.notes, "errors": result.errors, "definitions": result.definitions,
+        "vocabulary": result.vocabulary,
     }
 
 
@@ -174,7 +180,7 @@ def resolve(draft_id: str, body: ResolveBody, db: Session = Depends(get_session)
     try:
         result = _interpreter.resolve(db, draft.world_ref, stored["pending"], stored["mentions"],
                                       stored["notes"], body.bindings, tuple(stored.get("definitions") or ()),
-                                      unsaved)
+                                      unsaved, tuple(stored.get("vocabulary") or ()))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     move_condition_draft(db, draft, result.outcome,

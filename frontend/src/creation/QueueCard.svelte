@@ -105,7 +105,29 @@
     return null;
   }
 
+  /** TICKET-0114 (BRIEF-0114-H, I2): a typed event_creation read for the
+   *  creator -- its type (a proposed one with its roles, approved with the
+   *  event), each participant by role, its quantity. null otherwise (an
+   *  untyped proposal shows its payload only). */
+  function eventSummary(m) {
+    if (m.mutation_type !== 'event_creation') return null;
+    const p = m.payload || {};
+    if (!p.type_name) return null;
+    return {
+      typeName: p.type_name,
+      newType: p.new_type && typeof p.new_type === 'object' ? p.new_type : null,
+      participants: (p.participants || []).map((x) => ({
+        role: x.role || '',
+        name: x.entity_id ? mutationEntityName(x.entity_id) : (x.sorte_name || ''),
+        newSorte: !x.entity_id && !x.sorte_id && !!x.sorte_name,
+      })),
+      quantity: p.quantity || null,
+      place: p.location_id ? mutationEntityName(p.location_id) : '',
+    };
+  }
+
   let resourceLegs = $derived(resourceChangeLegs(mutation));
+  let eventLegs = $derived(eventSummary(mutation));
   let agendaSummary = $derived(agendaProvenanceSummary(mutation));
 
   function onCheckToggle(ev) {
@@ -200,6 +222,26 @@
           {#if resourceLegs.knowledge.content}<span style="font-size:12px;">{resourceLegs.knowledge.content}</span>{/if}
         </div>
       {/if}
+    </div>
+  {/if}
+
+  {#if eventLegs}
+    <div class="card-fields" style="margin-bottom:8px;">
+      <div class="field-label">Événement</div>
+      <div class="row-card" style="flex-direction:row; align-items:center; gap:10px; flex-wrap:wrap;">
+        <span style="font-weight:600;">{eventLegs.typeName}</span>
+        {#if eventLegs.newType}<span class="badge b-other">nouveau type — validé avec l'événement</span>{/if}
+        {#if eventLegs.quantity}<span>× {eventLegs.quantity}</span>{/if}
+        {#if eventLegs.place}<span style="font-size:12px; color:var(--muted);">à {eventLegs.place}</span>{/if}
+      </div>
+      {#if eventLegs.newType}
+        <div style="font-size:12px; color:var(--muted);">
+          Rôles : {eventLegs.newType.roles.map((r) => r.name + (r.accepts_sorte ? ' (ou une sorte)' : '')).join(', ')}
+        </div>
+      {/if}
+      {#each eventLegs.participants as x, i (i)}
+        <div style="font-size:12px;">{x.role} : <strong>{x.name}</strong>{#if x.newSorte} <span class="badge b-other">sorte à créer</span>{/if}</div>
+      {/each}
     </div>
   {/if}
 

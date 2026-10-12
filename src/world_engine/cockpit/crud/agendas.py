@@ -28,7 +28,6 @@ from ...models import (
     DiscoverableDetail,
     Entity,
     Event,
-    EventEntity,
     Faction,
     FactionMembership,
     FactionRole,
@@ -254,6 +253,8 @@ def update_agenda_step(step_id: str, body: AgendaStepPatchBody, db: DbSession = 
             # Manual reactivation must respect the partial unique index — the
             # creator completes or fails the current active step first;
             # deactivate is not a thing. The IntegrityError surfaces as a 409.
+            if step.status != "active":
+                step.started_at = datetime.now(UTC)  # TICKET-0114 (BRIEF-0114-E, F1)
             step.status = "active"
             step.updated_at = datetime.now(UTC)
             db.add(step)

@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.23
+Current schema version: v2.25
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -1253,7 +1253,7 @@ CREATE INDEX idx_lore_usage_event_world ON lore_usage_event(world_ref, created_a
 The condition interpreter's journal (schema v2.21, TICKET-0112, BRIEF-0112-B,
 decision IH1): one row per proposal of the interpreter -- the creator's
 `instruction` for one condition of a quest offer (`role`: `eligibility`,
-`prerequisite` or `completion`), grouped by `attempt_id`, the id the editor
+`prerequisite`, `completion` or, since v2.24, `failure`), grouped by `attempt_id`, the id the editor
 holds for one use. `payload` is what the proposal started from and became
 (`current`, `pending`, `mentions`, `bindings`, `proposed`, `notes`,
 `errors`); `model_calls` is every model exchange of it (prompt version,
@@ -1293,7 +1293,7 @@ CREATE TABLE condition_draft (
   created_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   decided_at         DATETIME,
   CONSTRAINT ck_condition_draft_role CHECK (
-    role IN ('eligibility','prerequisite','completion')),
+    role IN ('eligibility','prerequisite','completion','failure')),   -- failure: v2.24
   CONSTRAINT ck_condition_draft_outcome CHECK (
     outcome IN ('proposed','needs_choice','refused','unavailable','parse_error',
                 'inserted','discarded','saved')),
@@ -1600,65 +1600,192 @@ read side rather than normalized).
 
 ### `event`
 
-Facts that occur in the world, arising from sessions or generated.
+What happens in the world -- the event journal (TICKET-0114). One happening
+of one of the world's event types (`event_type`, required since v2.25): its
+title and description, its place, how many when its type counts (`quantity`,
+1 or more), the session and day it was proposed in (`session_id`,
+`batch_id`, E1: the calendar of TICKET-0120 places it from them). Its
+participants by role are `event_participant`; who knows it is its fact's
+knowledge and scopes (`fact.event_id`, facet `evenement`, its title then its
+description): each character taking part holds a `knowledge` row at
+`knows`, secret or not as said (X1), and the fact's `fact_default` rows are
+its type's scopes made concrete unless the event says its own (W1).
+
+Written only by `writes/events.py` -- from the creator's journal
+(`cockpit/crud/events.py`) and from `_apply_mutation`'s `event_creation`, a
+model's proposal the creator approved (`event_payloads.py` reads its
+payload, typed or not). Never deleted (C3): a retraction empties its scopes.
+A model reads only an event whose type enters the chronicle: the MJ of Play
+the ones the player knows, the world tick the ones everyone knows (a
+`world` scope) -- `event_reads.py`.
+
+v2.25 (BRIEF-0114-D) dropped `type` (a type's `domain` now),
+`knowledge_status` (the fact's knowledge and scopes say it, v2.24 converted
+it), `has_magic_impact`, `consequences` and `occurred_at` (no reader, no
+value), and the table `event_entity` (its rows became `event_participant`
+at v2.24).
 
 ```sql
 CREATE TABLE event (
-  id                    TEXT PRIMARY KEY,
-  world_id              TEXT NOT NULL REFERENCES world(id),
-  session_id            TEXT REFERENCES session(id),
-  batch_id              TEXT REFERENCES batch(id),
-  title                 TEXT NOT NULL,
-  description           TEXT,
-  type                  TEXT,
-                        -- political | magical | criminal | military |
-                        -- social | mystery | other
-  knowledge_status      TEXT DEFAULT 'secret',
-                        -- secret | rumor | confirmed | public
-  location_id           TEXT REFERENCES entity(id),
-  has_magic_impact      BOOLEAN DEFAULT FALSE,
-  consequences          JSON,     -- changes applied to the world
-  occurred_at           DATETIME,
-  recorded_at           DATETIME DEFAULT CURRENT_TIMESTAMP
+  id           TEXT PRIMARY KEY,
+  world_id     TEXT NOT NULL REFERENCES world(id),
+  session_id   TEXT REFERENCES session(id),
+  batch_id     TEXT REFERENCES batch(id),
+  type_id      TEXT NOT NULL REFERENCES event_type(id),
+  title        TEXT NOT NULL,
+  description  TEXT,
+  location_id  TEXT REFERENCES entity(id),
+  quantity     INTEGER CHECK (quantity IS NULL OR quantity >= 1),
+  recorded_at  DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+CREATE INDEX idx_event_world ON event(world_id);
+CREATE INDEX idx_event_type ON event(type_id);
 ```
-
-Two producers write this table (TICKET-0017/BRIEF-0017-a, no schema
-change), both through `_apply_mutation`'s `event_creation` branch ->
-`write_event` (the single canon-write site): a scope-level `world_tick`
-call for location/faction-scoped invocations (closed payload shape
-`{title, description, type, knowledge_status, involved_entities,
-location_id}`, quota-bounded), and the analyzer's conversation-sourced
-channel (minimal shape `{title, description, type, involved_entities}` —
-no `knowledge_status`/`location_id`, so this column's `DEFAULT 'secret'`
-applies). The model may propose `secret`/`public` only; `confirmed` is
-creator-reserved, accepted only at apply time. Duplicate guard is
-canon-existence (normalized title + `location_id`, same world), never
-tick_id/conversation-id equality, and applies to both producers alike.
-`session_id`/`batch_id` stay NULL for tick-sourced rows — the sibling
-`proposed_mutation` row's `tick_id`/`conversation_id` is the provenance
-anchor. Read by `context.py`'s MJ context assembler and the return-visit
-delta (TICKET-0016), both filtering `knowledge_status IN
-('public','confirmed')` at query construction. `involved_entities` (the
-payload key both producers still emit) is relationalized on write into
-`event_entity` — see below.
 
 -----
 
-### `event_entity`
+### `event_type`
 
-`event` <-> entity link (schema v1.79, TICKET-0025, BRIEF-0025-c —
-replaces the FK-less `event.involved_entities` JSON id array). Real FK
-integrity for the first time; membership queries are joins/EXISTS instead
-of a Python `in` over a JSON list.
+One type of event of one world (v2.24, TICKET-0114, BRIEF-0114-A; F1, B1,
+N1). « Tuer », « Repérer », « Pacte »: the creator names what can happen in
+her world, the vocabulary grows by data, never by code. `domain` is one of
+the seven former `event.type` categories (F1). `counts_quantity`: an event
+of it carries a quantity (D1). `in_chronicle`: its events enter the
+chronicle the models read (Q1). `participants_secret`: by default, its
+participants keep it secret (X1, each participant's own knowledge row
+says so). Retired, never deleted; retiring is refused while a condition
+names it. Its name is no other type's of its world (compared case- and
+accent-blind by the writer, case-blind by the index). Written only by
+`writes/event_types.py`.
 
 ```sql
-CREATE TABLE event_entity (
-  id        TEXT PRIMARY KEY,
-  event_id  TEXT NOT NULL REFERENCES event(id),
-  entity_id TEXT NOT NULL REFERENCES entity(id)
+CREATE TABLE event_type (
+  id                   TEXT PRIMARY KEY,
+  world_id             TEXT NOT NULL REFERENCES world(id),
+  name                 TEXT NOT NULL,
+  domain               TEXT NOT NULL DEFAULT 'other'
+                         CHECK (domain IN ('political','magical','criminal','military','social','mystery','other')),
+  counts_quantity      BOOLEAN NOT NULL DEFAULT 0,
+  in_chronicle         BOOLEAN NOT NULL DEFAULT 1,
+  participants_secret  BOOLEAN NOT NULL DEFAULT 0,
+  status               TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','retired')),
+  created_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-CREATE UNIQUE INDEX idx_event_entity_unique ON event_entity(event_id, entity_id);
+CREATE UNIQUE INDEX idx_event_type_name ON event_type(world_id, name COLLATE NOCASE);
+```
+
+-----
+
+### `event_type_role`
+
+The roles of an event type (C1), in `position` order -- « tueur »,
+« victime ». `accepts_sorte`: a sorte may fill it (D1). A role dropped from
+the type is retired, never deleted, and refused while an event or a
+condition names it.
+
+```sql
+CREATE TABLE event_type_role (
+  id             TEXT PRIMARY KEY,
+  world_id       TEXT NOT NULL REFERENCES world(id),
+  type_id        TEXT NOT NULL REFERENCES event_type(id),
+  name           TEXT NOT NULL,
+  position       INTEGER NOT NULL DEFAULT 0,
+  accepts_sorte  BOOLEAN NOT NULL DEFAULT 0,
+  status         TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','retired'))
+);
+CREATE UNIQUE INDEX idx_event_type_role_name ON event_type_role(type_id, name COLLATE NOCASE);
+```
+
+-----
+
+### `event_type_role_type`
+
+The entity types a role accepts (C1; the `attribute_definition_type`
+shape): a built-in type or a runtime type's slug. Replaced whole by the
+writer, which refuses to drop a type a participant holds.
+
+```sql
+CREATE TABLE event_type_role_type (
+  id           TEXT PRIMARY KEY,
+  world_id     TEXT NOT NULL REFERENCES world(id),
+  role_id      TEXT NOT NULL REFERENCES event_type_role(id),
+  entity_type  TEXT NOT NULL
+);
+CREATE UNIQUE INDEX idx_event_type_role_type_unique ON event_type_role_type(role_id, entity_type);
+```
+
+-----
+
+### `event_type_scope`
+
+Who learns an event of the type (K-a, W1), besides its participants: its
+place (`location`, learned on visiting it), everyone (`world`), the
+acquaintances of a role's entity (`rencontre`), the faction a role names
+(`faction`) -- each at a knowledge `level`. No row: the participants only.
+When an event is written, each row becomes a `fact_default` on its fact,
+which the event may change.
+
+```sql
+CREATE TABLE event_type_scope (
+  id          TEXT PRIMARY KEY,
+  world_id    TEXT NOT NULL REFERENCES world(id),
+  type_id     TEXT NOT NULL REFERENCES event_type(id),
+  scope_kind  TEXT NOT NULL CHECK (scope_kind IN ('location','world','rencontre','faction')),
+  role_id     TEXT REFERENCES event_type_role(id),
+  level       TEXT NOT NULL DEFAULT 'knows'
+                CHECK (level IN ('unaware','rumor','suspicious','partial','knows','fully_understands')),
+  CHECK ((scope_kind IN ('rencontre','faction')) = (role_id IS NOT NULL))
+);
+CREATE INDEX idx_event_type_scope_type ON event_type_scope(type_id);
+```
+
+-----
+
+### `event_sorte`
+
+An anonymous kind of a world (D1) -- « loup », « bandit » -- that fills a
+role accepting sortes, with the event's quantity: no wolf needs to be an
+entity to be counted. Retired, never deleted; retiring is refused while a
+condition names it.
+
+```sql
+CREATE TABLE event_sorte (
+  id          TEXT PRIMARY KEY,
+  world_id    TEXT NOT NULL REFERENCES world(id),
+  name        TEXT NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','retired')),
+  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX idx_event_sorte_name ON event_sorte(world_id, name COLLATE NOCASE);
+```
+
+-----
+
+### `event_participant`
+
+Who took part in one event, in which role (V1): an entity or a sorte,
+exactly one. It replaced `event_entity` (v1.79-v2.24, dropped at v2.25).
+Written only by
+`writes/events.py`.
+
+```sql
+CREATE TABLE event_participant (
+  id         TEXT PRIMARY KEY,
+  world_id   TEXT NOT NULL REFERENCES world(id),
+  event_id   TEXT NOT NULL REFERENCES event(id),
+  role_id    TEXT NOT NULL REFERENCES event_type_role(id),
+  entity_id  TEXT REFERENCES entity(id),
+  sorte_id   TEXT REFERENCES event_sorte(id),
+  position   INTEGER NOT NULL DEFAULT 0,
+  CHECK ((entity_id IS NOT NULL) + (sorte_id IS NOT NULL) = 1)
+);
+CREATE INDEX idx_event_participant_event ON event_participant(event_id, position);
+CREATE INDEX idx_event_participant_entity ON event_participant(entity_id);
+CREATE UNIQUE INDEX idx_event_participant_unique_entity
+  ON event_participant(event_id, role_id, entity_id) WHERE entity_id IS NOT NULL;
+CREATE UNIQUE INDEX idx_event_participant_unique_sorte
+  ON event_participant(event_id, role_id, sorte_id) WHERE sorte_id IS NOT NULL;
 ```
 
 -----
@@ -2250,7 +2377,10 @@ CREATE INDEX idx_agenda_owner_status ON agenda(owner_entity_id, status);
 Ordered step of an `agenda`, schema v1.72, TICKET-0018/BRIEF-0018-a. The
 model never addresses a step directly — it names the agenda by TITLE; the
 active step is always derived in code (this table's partial unique index
-guarantees at most one). Advancement (`complete` -> next step active / agenda
+guarantees at most one). `started_at` (v2.24, TICKET-0114, F1): when the
+step became active, the « depuis le début de l'étape » window of an `event`
+leaf; NULL on a step activated before v2.24, whose quest's `accepted_at`
+stands in. Advancement (`complete` -> next step active / agenda
 completed; `fail` -> whole agenda failed) is CODE, at apply.
 
 `cost`/`domain` (schema v1.94, TICKET-0075, BRIEF-0075-b): day-plan budget
@@ -2275,7 +2405,8 @@ CREATE TABLE agenda_step (
   domain            TEXT,
   created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
-  change_history    JSON DEFAULT '[]'
+  change_history    JSON DEFAULT '[]',
+  started_at        DATETIME          -- v2.24
 );
 CREATE INDEX idx_agenda_step_agenda ON agenda_step(agenda_id, step_order);
 -- STRUCTURAL invariant (RECON-0018 F2): at most ONE active step per agenda,
@@ -2294,7 +2425,9 @@ v2.20, TICKET-0111, BRIEF-0111-C (decisions A1, I1, O-a). It replaced
 `agenda_step_requirement` (v1.94) and `quest_offer_requirement` (v2.17): the
 migration turned each owner's rows into one tree, `all` of them. At most one
 condition per owner and role. `completion` (M1) is shown in Journée and in
-« Déclarer accomplie », never acted on by the engine. Curated plan metadata,
+« Déclarer accomplie », never acted on by the engine; `failure` (v2.24,
+TICKET-0114, H1) likewise -- when the step has failed, shown, never acting.
+Curated plan metadata,
 the requirement rows' family: no `change_history`; a save replaces a
 condition whole. Written only by `writes.conditions.write_condition` (and
 `delete_offer_conditions` before an offer is saved); read by
@@ -2304,7 +2437,7 @@ condition whole. Written only by `writes.conditions.write_condition` (and
 CREATE TABLE condition (
   id                   TEXT PRIMARY KEY,
   world_id             TEXT NOT NULL REFERENCES world(id),
-  role                 TEXT NOT NULL CHECK (role IN ('eligibility','prerequisite','completion')),
+  role                 TEXT NOT NULL CHECK (role IN ('eligibility','prerequisite','completion','failure')),
   quest_offer_id       TEXT REFERENCES quest_offer(id),
   quest_offer_step_id  TEXT REFERENCES quest_offer_step(id),
   agenda_step_id       TEXT REFERENCES agenda_step(id),
@@ -2361,13 +2494,41 @@ CREATE TABLE condition_node (
   target_key         TEXT,
   threshold          INTEGER,
   value              TEXT,
+  since              TEXT CHECK (since IS NULL OR since IN ('always','quest','step')),   -- v2.24
   CHECK ((op = 'leaf') = (form IS NOT NULL)),
   CHECK (op = 'leaf' OR (subject_role IS NULL AND subject_entity_id IS NULL AND target_entity_id IS NULL
-                         AND target_key IS NULL AND threshold IS NULL AND value IS NULL)),
+                         AND target_key IS NULL AND threshold IS NULL AND value IS NULL AND since IS NULL)),
   CHECK (op <> 'leaf' OR ((subject_role IS NULL) <> (subject_entity_id IS NULL))),
   CHECK ((op = 'at_least') = (n IS NOT NULL) AND (n IS NULL OR n >= 1))
 );
 CREATE INDEX idx_condition_node_condition ON condition_node(condition_id, parent_id, position);
+```
+
+`since` (v2.24, TICKET-0114, F1): since when a leaf counts what happened --
+`always`, since its quest was accepted (`quest`), since its step became
+active (`step`); NULL on every leaf that counts nothing.
+
+-----
+
+### `condition_node_filter`
+
+A leaf's filters on the other roles of its event type (v2.24, TICKET-0114,
+BRIEF-0114-A): « un loup », « à Ombreval » -- one row per role, filled by an
+entity or a sorte, exactly one. Rows, never JSON (INV-20); written only by
+`writes.conditions.write_condition`.
+
+```sql
+CREATE TABLE condition_node_filter (
+  id         TEXT PRIMARY KEY,
+  world_id   TEXT NOT NULL REFERENCES world(id),
+  node_id    TEXT NOT NULL REFERENCES condition_node(id),
+  role_id    TEXT NOT NULL REFERENCES event_type_role(id),
+  entity_id  TEXT REFERENCES entity(id),
+  sorte_id   TEXT REFERENCES event_sorte(id),
+  position   INTEGER NOT NULL DEFAULT 0,
+  CHECK ((entity_id IS NOT NULL) + (sorte_id IS NOT NULL) = 1)
+);
+CREATE INDEX idx_condition_node_filter_node ON condition_node_filter(node_id);
 ```
 
 -----

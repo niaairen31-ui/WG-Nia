@@ -29,7 +29,6 @@ from ...models import (
     DiscoverableDetail,
     Entity,
     Event,
-    EventEntity,
     Fact,
     FactDefault,
     FactParticipant,

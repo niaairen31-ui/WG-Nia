@@ -5,8 +5,9 @@
      AttributeDefinitionForm. A name near another attribute's is not saved
      until the creator picks: open the existing one, or create anyway. A
      definition is retired (refused while a condition names it) or
-     restored, never deleted. Its CREATION_ISLANDS entry declares origin
-     'new'. State and requests live in attributes.svelte.js. */
+     restored, never deleted. Since TICKET-0114 (BRIEF-0114-B, T3) a section
+     of the « Vocabulaire du monde » island (Vocabulary.svelte), no longer an
+     island of its own. State and requests live in attributes.svelte.js. */
   import { serverState } from '../lib/serverState.svelte.js';
   import AttributeDefinitionForm from './AttributeDefinitionForm.svelte';
   import {

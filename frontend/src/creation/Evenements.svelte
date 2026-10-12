@@ -1,42 +1,36 @@
 <script>
-  /* TICKET-0058 (BRIEF-0058-j, per RECON-SUPPLEMENT-0058's -j re-scope).
-     Faithful port of renderEventSheet/evenementsRenderCreatePanel/
-     evenementsSave/evenementsSubmitCreate/evenementsGenerateDraft/
-     _evenementsRenderChips/evenementsAddChip/evenementsRemoveChip
-     (index.html, now deleted) -- evenements' bespoke, non-entity sheet
-     (`event` is not an ENTITY_TYPE_REGISTRY row, so it never used
-     authorRenderSheet's registry.types[type] shape; `authorRegistry.
-     event_fields` -- now Sheet.svelte's own `registry.event_fields`, the
-     SAME GET /api/entity-types response -- feeds the shared field engine
-     directly through <Field>, not through the now-deleted
-     'creation:field-render'/'creation:field-read' reverse-bridge brief -f
-     stood up for this exact gap.
+  /* TICKET-0058 (BRIEF-0058-j); rewritten by TICKET-0114 (BRIEF-0114-C) as
+     the event journal's sheet. Its plain fields (title, description, place)
+     come from `registry.event_fields` through <Field>; the rest is its own:
+     the event's type (one of the world's, fixed once written), its quantity
+     when the type counts, its participants role by role -- an entity of a
+     type the role accepts or a sorte, each entity keeping the event secret
+     or not (X1, never a player character), a participant once written
+     staying -- and who learns it besides them: the type's scopes by
+     default, or the creator's own (W1). The types and sortes come from the
+     shared vocabulary store (eventVocab.svelte.js).
 
-     Rendered by Sheet.svelte inside its own 'view' mode when
-     creationState.activeTabKey === 'evenements', with the SAME isNew/event
-     shape every other entity type's fields already use -- this component
-     only differs in field source (registry.event_fields, not
-     registry.types[type].fields) and save target (/api/events, not
-     /api/entities). The header Save button (view mode) and this
-     component's own inline "+ Créer l'événement" button (create mode) both
-     call the SAME onSave prop -- Sheet.svelte's saveEventSheet, exactly
-     mirroring how the generic entity sheet's header Save button and
-     Constructeur-style creates share one submit path.
-
-     Two writes only, no delete anywhere (C3 -- event is history, retraction
-     is knowledge_status='secret'): POST /api/events (create) and
-     PUT /api/events/{id} (save), both inside onSave.
-
-     No scoped <style> block: like every other Creation island, this
-     renders inside the legacy iframe document. */
-  import { eventDraftState, resetEventDraft, setEventDraftFromEvent, setEventDraftFromIds, addEventChip, removeEventChip } from './eventDraft.svelte.js';
+     Rendered by Sheet.svelte in 'view' mode on the « Événements » tab;
+     saved through its saveEventSheet (POST /api/events, PUT
+     /api/events/{id}). No delete anywhere (C3 -- an event is history; a
+     retraction empties its scopes). No scoped <style> block. */
+  import { serverState } from '../lib/serverState.svelte.js';
+  import {
+    eventDraftState, resetEventDraft, setEventDraftFromEvent, setEventDraftFromGenerated, addParticipant,
+    removeParticipant,
+  } from './eventDraft.svelte.js';
+  import { vocabState, loadVocabulary } from './eventVocab.svelte.js';
   import Field from './Field.svelte';
 
-  let { legacyDoc, isNew, event, entities, eventFields, onSave } = $props();
+  let { legacyDoc, isNew, event, entities, playerCharIds, eventFields, onSave } = $props();
 
   let genStatus = $state('');
   let genNotes = $state([]);
   let genBrief = $state('');
+
+  $effect(() => {
+    loadVocabulary(serverState.worldId);
+  });
 
   $effect(() => {
     void isNew;
@@ -48,25 +42,45 @@
     genBrief = '';
   });
 
-  const candidates = $derived((entities || []).filter((e) => !eventDraftState.involved.some((c) => c.id === e.id)));
+  const SCOPE_TYPES = [
+    { value: 'world', label: 'tout le monde' }, { value: 'location', label: 'ceux qui passent au lieu' },
+    { value: 'rencontre', label: 'ceux qui ont rencontré' }, { value: 'faction', label: 'les membres de la faction' },
+  ];
 
-  function onChipAdd(ev) {
-    const id = ev.currentTarget.value;
-    if (!id) return;
-    const entity = (entities || []).find((e) => e.id === id);
-    if (entity) addEventChip(entity);
-    ev.currentTarget.value = '';
+  let type = $derived(vocabState.types.find((t) => t.id === eventDraftState.typeId) || null);
+  let roles = $derived(type ? type.roles.filter((r) => r.status === 'active') : []);
+  let activeSortes = $derived(vocabState.sortes.filter((s) => s.status === 'active'));
+  let levelLabels = $derived(Object.fromEntries(vocabState.levels.map((l) => [l.value, l.label])));
+
+  function candidates(role) {
+    return (entities || []).filter((e) => role.entity_types.includes(e.type));
   }
 
-  /** evenements' AI assistant (BRIEF-0022-b) -- pre-fills the create shell
-   *  from a one-shot POST /api/events/generate; a second click overwrites,
-   *  same F2 precedent as the entity GeneratePanel. The currently chosen
-   *  location_id (if any) is sent as an authoritative pre-selection. */
+  function onAdd(role, ev) {
+    const value = ev.currentTarget.value;
+    ev.currentTarget.value = '';
+    if (!value) return;
+    const [kind, id] = value.split(':');
+    const name = kind === 'sorte' ? (activeSortes.find((s) => s.id === id) || {}).name
+      : ((entities || []).find((e) => e.id === id) || {}).name;
+    addParticipant(role, kind, id, name, type && type.participants_secret);
+  }
+
+  function scopeTargets(scopeType) {
+    if (scopeType === 'location') return (entities || []).filter((e) => e.type === 'location');
+    if (scopeType === 'faction') return (entities || []).filter((e) => e.type === 'faction');
+    return entities || [];
+  }
+
+  function typeScopeLine(t) {
+    if (!t || !t.scopes.length) return 'les participants seulement';
+    return t.scopes.map((s) => `${s.kind}${s.role ? ' ' + s.role : ''} (${levelLabels[s.level] || s.level})`).join(' · ');
+  }
+
   async function generate() {
     const brief = genBrief.trim();
     if (!brief) { genStatus = 'Intention requise.'; return; }
     const locationId = legacyDoc.getElementById('event-f-location_id')?.value || null;
-
     genStatus = 'Génération…';
     let result;
     try {
@@ -84,15 +98,11 @@
       genStatus = (result && result.error) || 'Échec de la génération.';
       return;
     }
-
     const setVal = (id, v) => { const el = legacyDoc.getElementById(id); if (el) el.value = v ?? ''; };
     setVal('event-f-title', result.title);
     setVal('event-f-description', result.description);
-    setVal('event-f-type', result.type);
     if (result.location_id) setVal('event-f-location_id', result.location_id);
-
-    setEventDraftFromIds(result.involved_entities, entities || []);
-
+    setEventDraftFromGenerated(result, vocabState.types, entities || []);
     genNotes = result.notes || [];
     genStatus = "Brouillon généré — relisez et éditez avant d'accepter.";
   }
@@ -124,26 +134,77 @@
   {/each}
 </div></div>
 
-<div class="field-section"><div class="field-section-title">Entités impliquées</div>
-  <div id="evenements-chips">
-    {#if eventDraftState.involved.length === 0}
-      <div class="empty">Aucune entité impliquée.</div>
-    {:else}
-      {#each eventDraftState.involved as c, i}
-        <span class="badge b-other" style="display:inline-flex; align-items:center; gap:5px; margin:2px">
-          {c.name ? c.name : `« entité inconnue » (${(c.id || '').slice(0, 8)})`}
-          <button class="btn-icon" style="padding:0 2px" title="Retirer" onclick={() => removeEventChip(i)}>✕</button>
-        </span>
-      {/each}
-    {/if}
-  </div>
-  <select onchange={onChipAdd}>
-    <option value="">— ajouter une entité —</option>
-    {#each candidates as e (e.id)}
-      <option value={e.id}>{e.name}</option>
+<div class="field-section"><div class="field-section-title">Type</div>
+  <select id="event-f-type_id" bind:value={eventDraftState.typeId} disabled={!isNew}>
+    <option value="">— choisir un type —</option>
+    {#each vocabState.types.filter((t) => t.status === 'active' || t.id === eventDraftState.typeId) as t (t.id)}
+      <option value={t.id}>{t.name} ({t.domain_label})</option>
     {/each}
   </select>
+  {#if !isNew}<span style="color:var(--muted); font-size:12px;"> Le type d'un événement ne change pas.</span>{/if}
+  {#if type && type.counts_quantity}
+    <label style="display:block; margin-top:6px">Quantité
+      <input id="event-f-quantity" type="number" min="1" style="width:90px" bind:value={eventDraftState.quantity}>
+    </label>
+  {/if}
 </div>
+
+{#if type}
+  <div class="field-section"><div class="field-section-title">Participants</div>
+    {#each roles as role (role.id)}
+      <div style="margin:4px 0">
+        <strong>{role.name}</strong>
+        {#each eventDraftState.participants as p, i (i)}
+          {#if p.role_id === role.id}
+            <span class="badge b-other" style="display:inline-flex; align-items:center; gap:5px; margin:2px">
+              {p.sorte_id ? 'sorte : ' : ''}{p.name || '« inconnu »'}
+              {#if p.entity_id && !(playerCharIds && playerCharIds.has(p.entity_id))}
+                <label title="Il garde le secret"><input type="checkbox" bind:checked={p.secret}> secret</label>
+              {/if}
+              {#if !p.saved}
+                <button class="btn-icon" style="padding:0 2px" title="Retirer" onclick={() => removeParticipant(i)}>✕</button>
+              {/if}
+            </span>
+          {/if}
+        {/each}
+        <select onchange={(ev) => onAdd(role, ev)}>
+          <option value="">— ajouter —</option>
+          {#each candidates(role) as e (e.id)}<option value={'entity:' + e.id}>{e.name}</option>{/each}
+          {#if role.accepts_sorte}
+            {#each activeSortes as s (s.id)}<option value={'sorte:' + s.id}>sorte : {s.name}</option>{/each}
+          {/if}
+        </select>
+      </div>
+    {/each}
+  </div>
+
+  <div class="field-section"><div class="field-section-title">Qui l'apprend, en plus des participants</div>
+    <label><input type="checkbox" bind:checked={eventDraftState.customScopes}> Choisir pour cet événement</label>
+    {#if !eventDraftState.customScopes}
+      <div style="color:var(--muted); font-size:12px;">Celle du type : {typeScopeLine(type)}</div>
+    {:else}
+      {#each eventDraftState.scopes as scope, k (k)}
+        <div style="display:flex; gap:6px; align-items:center; margin:2px 0">
+          <select bind:value={scope.scope_type} onchange={() => (scope.scope_id = null)}>
+            {#each SCOPE_TYPES as st (st.value)}<option value={st.value}>{st.label}</option>{/each}
+          </select>
+          {#if scope.scope_type !== 'world'}
+            <select bind:value={scope.scope_id}>
+              <option value={null}>— choisir —</option>
+              {#each scopeTargets(scope.scope_type) as e (e.id)}<option value={e.id}>{e.name}</option>{/each}
+            </select>
+          {/if}
+          <select bind:value={scope.level}>
+            {#each vocabState.levels as l (l.value)}<option value={l.value}>{l.label}</option>{/each}
+          </select>
+          <button class="btn-icon" title="Retirer" onclick={() => eventDraftState.scopes.splice(k, 1)}>✕</button>
+        </div>
+      {/each}
+      {#if !eventDraftState.scopes.length}<div style="color:var(--muted); font-size:12px;">Personne d'autre.</div>{/if}
+      <button onclick={() => eventDraftState.scopes.push({ scope_type: 'world', scope_id: null, level: 'knows' })}>+ portée</button>
+    {/if}
+  </div>
+{/if}
 
 {#if !isNew}
   <div class="field-section"><span style="color:var(--muted); font-size:12px;">Enregistré : {event.recorded_at || ''}</span></div>

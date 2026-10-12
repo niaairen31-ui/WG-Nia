@@ -474,48 +474,32 @@ class Ledger(SQLModel, table=True):
 
 
 # -----------------------------------------------------------------------------
-# event  (facts that occur in the world)
+# event  (what happens in the world -- the journal, TICKET-0114)
+#
+# One happening of one of the world's event types (`models/canon_event.py`):
+# its participants by role are `event_participant`, who knows it is its
+# fact's knowledge and scopes (`fact.event_id`). v2.25 (BRIEF-0114-D) dropped
+# `knowledge_status`, `type` (a type's `domain` now), `has_magic_impact`,
+# `consequences`, `occurred_at` and `event_entity`; `type_id` is required.
 # -----------------------------------------------------------------------------
 class Event(SQLModel, table=True):
     __tablename__ = "event"
-    __table_args__ = (Index("idx_event_world", "world_id"),)
+    __table_args__ = (
+        CheckConstraint("quantity IS NULL OR quantity >= 1", name="ck_event_quantity"),
+        Index("idx_event_world", "world_id"),
+        Index("idx_event_type", "type_id"),
+    )
 
     id: str = Field(default_factory=_uuid, primary_key=True)
     world_id: str = Field(foreign_key="world.id", nullable=False)
     session_id: Optional[str] = Field(default=None, foreign_key="session.id")
     batch_id: Optional[str] = Field(default=None, foreign_key="batch.id")
+    type_id: str = Field(foreign_key="event_type.id", nullable=False)
     title: str
     description: Optional[str] = None
-    type: Optional[str] = None
-    knowledge_status: str = Field(
-        default="secret",
-        sa_column_kwargs={"server_default": text("'secret'")},
-    )
     location_id: Optional[str] = Field(default=None, foreign_key="entity.id")
-    has_magic_impact: bool = Field(
-        default=False, sa_column_kwargs={"server_default": text("0")}
-    )
-    consequences: Optional[Any] = Field(default=None, sa_column=Column(JSON))
-    occurred_at: Optional[datetime] = None
+    quantity: Optional[int] = None
     recorded_at: datetime = _created_ts()
-
-
-# -----------------------------------------------------------------------------
-# event_entity  (event <-> entity link, schema v1.79, TICKET-0025,
-# BRIEF-0025-c — replaces the FK-less event.involved_entities JSON id array)
-#
-# Membership queries become joins/EXISTS instead of a Python `in` over a
-# JSON list of ids. No change_history (link table, not a fact-bearing row).
-# -----------------------------------------------------------------------------
-class EventEntity(SQLModel, table=True):
-    __tablename__ = "event_entity"
-    __table_args__ = (
-        Index("idx_event_entity_unique", "event_id", "entity_id", unique=True),
-    )
-
-    id: str = Field(default_factory=_uuid, primary_key=True)
-    event_id: str = Field(foreign_key="event.id", nullable=False)
-    entity_id: str = Field(foreign_key="entity.id", nullable=False)
 
 
 # -----------------------------------------------------------------------------

@@ -454,7 +454,7 @@ class ConditionDraft(SQLModel, table=True):
         Index("idx_condition_draft_attempt", "attempt_id", "created_at"),
         Index("idx_condition_draft_world", "world_ref", "created_at"),
         CheckConstraint(
-            "role IN ('eligibility','prerequisite','completion')",
+            "role IN ('eligibility','prerequisite','completion','failure')",
             name="ck_condition_draft_role",
         ),
         CheckConstraint(

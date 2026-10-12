@@ -20,9 +20,10 @@ from sqlmodel import Session, select
 from .attributes import AttributeView, world_attributes, world_entity_type_labels
 from .condition_forms import FORM_VALUES
 from .condition_text import VALUE_LABELS_FR, describe, verdict_lines
-from .conditions import evaluate, flat_leaves, node_to_dict, read_condition
+from .conditions import EVENT_FORM, evaluate, flat_leaves, for_step, known_event_facts, node_to_dict, read_condition
 from .day_resolve import blocked_details_fr
 from .day_plan import evaluate_agenda_step, plan_bindings
+from .event_vocab import world_event_types, world_sortes
 from .models import (
     BASE_SKILL_DOMAINS,
     Agenda,
@@ -54,9 +55,14 @@ QUEST_STATE_LABELS: dict[str, str] = {
 
 
 def _requirement_dict(req) -> dict:
-    return {"type": req.type, "target_entity_id": req.target_entity_id, "target_key": req.target_key,
-            "threshold": req.threshold, "subject_role": req.subject_role,
-            "subject_entity_id": req.subject_entity_id, "value": req.value}
+    out = {"type": req.type, "target_entity_id": req.target_entity_id, "target_key": req.target_key,
+           "threshold": req.threshold, "subject_role": req.subject_role,
+           "subject_entity_id": req.subject_entity_id, "value": req.value}
+    if req.type == EVENT_FORM:  # TICKET-0114 (BRIEF-0114-E): an `event` leaf's window and filters
+        out["since"] = req.since
+        out["filters"] = [{"role_id": f.role_id, "entity_id": f.entity_id, "sorte_id": f.sorte_id}
+                          for f in req.filters]
+    return out
 
 
 def condition_view(db: Session, tree, unsaved: Optional[dict] = None) -> dict:
@@ -91,6 +97,7 @@ def offer_dict(offer: QuestOffer, db: Session) -> dict:
             "objective": step.objective, "cost": step.cost, "domain": step.domain,
             "prerequisite": condition_view(db, read_condition(db, role="prerequisite", quest_offer_step_id=step.id)),
             "completion": condition_view(db, read_condition(db, role="completion", quest_offer_step_id=step.id)),
+            "failure": condition_view(db, read_condition(db, role="failure", quest_offer_step_id=step.id)),
         } for step in steps],
         # TICKET-0109 (B1, C1): the costs and rewards, and their indicative value.
         "terms": [term_dict(db, t, offer.giver_entity_id) for t in terms],
@@ -160,6 +167,13 @@ def editor_choices(world_id: str, db: Session) -> dict:
         "entities": sorted(({"id": e.id, "name": e.name, "type": e.type} for e in db.exec(select(Entity).where(
             Entity.world_id == world_id, Entity.status == "active")).all()),
             key=lambda d: (d["name"].lower(), d["id"])),
+        # TICKET-0114 (BRIEF-0114-E): the event types an `event` leaf may
+        # count, with their active roles, and the sortes a filter may name.
+        "event_types": [{"id": v.id, "name": v.name, "counts_quantity": v.counts_quantity,
+                         "roles": [{"id": r.id, "name": r.name, "entity_types": list(r.entity_types),
+                                    "accepts_sorte": r.accepts_sorte} for r in v.active_roles()]}
+                        for v in world_event_types(db, world_id)],
+        "sortes": [{"id": s.id, "name": s.name} for s in world_sortes(db, world_id)],
     }
 
 
@@ -196,12 +210,20 @@ def _steps_view(agenda: Agenda, character: Character, db: Session) -> list[dict]
         if step.status == "active":
             evaluated = evaluate_agenda_step(step, character, db)
             blocked = blocked_details_fr(evaluated.verdict, db, character.id)
-        completion = evaluate(read_condition(db, role="completion", agenda_step_id=step.id), bindings, db)
-        seen = completion.seen_by(character.id) if completion is not None else None
+        step_bindings = for_step(bindings, step)
+        completion = evaluate(read_condition(db, role="completion", agenda_step_id=step.id), step_bindings, db)
+        seen = completion.seen_by(character.id, known_event_facts(db, completion, character.id)) \
+            if completion is not None else None
+        # TICKET-0114 (H1): when the step has failed -- shown, never acting.
+        failure = evaluate(read_condition(db, role="failure", agenda_step_id=step.id), step_bindings, db)
+        failed = failure.seen_by(character.id, known_event_facts(db, failure, character.id)) \
+            if failure is not None else None
         view.append({"order": step.step_order, "objective": step.objective, "status": step.status,
                      "outcome": step.outcome, "blocked": blocked,
                      "completion": verdict_lines(db, completion, character.id),
-                     "completion_met": seen.met if seen is not None else None})
+                     "completion_met": seen.met if seen is not None else None,
+                     "failure": verdict_lines(db, failure, character.id),
+                     "failure_met": failed.met if failed is not None else None})
     return view
 
 

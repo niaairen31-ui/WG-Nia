@@ -11,7 +11,7 @@ QA1 -- vocabulary (BRIEF-0108-A, static and import; since TICKET-0111 the
    (`quest_state` in place of `quest_completed` since v2.20), TICKET-0110's
    two debt forms, TICKET-0111's `item_held` (`conditions.py` owns it) and
    TICKET-0113's `attribute` in place of `vital_status` (`attributes.py`
-   owns it); `MODEL_REQUIREMENT_TYPES` is exactly the model's four;
+   owns it), TICKET-0114's `event` (`event_conditions.py` owns it); `MODEL_REQUIREMENT_TYPES` is exactly the model's four;
    `ENTITY_TARGET_TYPES` and `KEY_TARGET_TYPES` partition it and
    `THRESHOLD_TYPES` is inside it; `day_plan._validate_requirement`
    (the model's parser) accepts each model form and refuses every other.
@@ -110,7 +110,8 @@ DEBT_FORMS = ("has_debt_to", "no_debt_to")
 # TICKET-0111 (BRIEF-0111-C, S1): two more; `conditions.py` owns them.
 # TICKET-0113 (BRIEF-0113-B, WG1): `attribute` replaces `vital_status`;
 # `attributes.py` owns it.
-CONDITION_FORMS = ("item_held", "attribute")
+# TICKET-0114 (BRIEF-0114-E, G1): `event`; `event_conditions.py` owns it.
+CONDITION_FORMS = ("item_held", "attribute", "event")
 # QA2 runs the v2.17 migration: the forms it added, the tables it created.
 V217_FORMS = ("has_met", "faction_member", "skill_rank_gte", "quest_completed")
 QUEST_TABLES = ("quest_offer", "quest_offer_step", "quest_offer_requirement", "quest")

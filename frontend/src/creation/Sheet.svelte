@@ -100,7 +100,7 @@
   import PendingGoalsEditor from './PendingGoalsEditor.svelte';
   import { resetGeneratePanel, applyGeneratedDraft } from './generatePanel.svelte.js';
   import GeneratePanel from './GeneratePanel.svelte';
-  import { resetEventDraft, eventDraftState } from './eventDraft.svelte.js';
+  import { resetEventDraft, eventDraftState, eventDraftBody } from './eventDraft.svelte.js';
   import Evenements from './Evenements.svelte';
   import Intrigues from './Intrigues.svelte';
   import CompetencesSheet from './CompetencesSheet.svelte';
@@ -551,7 +551,13 @@
       if (statusEl) { statusEl.className = 'author-status err'; statusEl.textContent = 'Titre requis.'; }
       return;
     }
-    body.involved_entities = eventDraftState.involved.map((c) => c.id);
+    // TICKET-0114 (BRIEF-0114-C): the type, quantity, participants and
+    // scopes the journal sheet edits itself.
+    if (!eventDraftState.typeId) {
+      if (statusEl) { statusEl.className = 'author-status err'; statusEl.textContent = 'Type requis.'; }
+      return;
+    }
+    Object.assign(body, eventDraftBody());
 
     if (statusEl) { statusEl.className = 'author-status'; statusEl.textContent = isNewSave ? '…' : 'Saving…'; }
     try {
@@ -716,7 +722,7 @@
       <div class="empty"><span class="spin">⟳</span></div>
     {:else if type === 'evenements'}
       <Evenements {legacyDoc} {isNew} event={detail} entities={creationState.entities}
-        eventFields={registry.event_fields} onSave={saveSheet} />
+        playerCharIds={creationState.playerCharIds} eventFields={registry.event_fields} onSave={saveSheet} />
     {:else if type === 'intrigues'}
       <Intrigues {isNew} agenda={detail} />
     {:else if type === 'competences'}

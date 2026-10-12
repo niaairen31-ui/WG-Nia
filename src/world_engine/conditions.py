@@ -33,6 +33,7 @@ reads a stored tree back (`read_condition`). Its writer is
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from datetime import datetime
 from typing import Optional
 
 from sqlmodel import Session, select
@@ -41,12 +42,14 @@ from .condition_forms import (
     _EVALUATORS,
     ANY_SUBJECT_TYPES,
     HIDDEN_STATE_REASON_FR,
+    EventFilter,
     RequirementSpec,
     Verdict,
     _day_reachable_ids,
     attribute_unjudged,
+    evaluate_event,
 )
-from .models import Character, Condition, ConditionNode, Entity
+from .models import Character, Condition, ConditionNode, ConditionNodeFilter, Entity
 
 # The four connectors, then the leaf.
 CONNECTORS: tuple[str, ...] = ("all", "any", "not", "at_least")
@@ -81,10 +84,14 @@ class ConditionTree:
 
 @dataclass(frozen=True)
 class Bindings:
-    """What the roles name when a condition is judged (P1)."""
+    """What the roles name when a condition is judged (P1), and since when an
+    `event` leaf counts (TICKET-0114, F1): its quest's acceptance, its
+    step's start (the acceptance for a step activated before v2.24)."""
     doer: Character
     giver_id: Optional[str] = None
     contact_id: Optional[str] = None
+    quest_since: Optional[datetime] = None
+    step_since: Optional[datetime] = None
 
 
 @dataclass(frozen=True)
@@ -120,24 +127,60 @@ class VerdictNode:
         _blocking(self, False, found)
         return tuple(found)
 
-    def seen_by(self, viewer_id: str) -> "VerdictNode":
+    def seen_by(self, viewer_id: str, known: Optional[frozenset] = None) -> "VerdictNode":
         """This verdict as the character `viewer_id` could know it (V2): a
         judged leaf whose subject is not him becomes `unknown` -- he cannot
         see whether the giver knows a fact or whether another is alive --
         and every connector is recombined from what is left, so no head
-        line betrays a hidden leaf."""
+        line betrays a hidden leaf. An `event` leaf (TICKET-0114, V1 for
+        events) is recounted from the events whose fact he knows (`known`,
+        `known_event_facts`), about himself or anyone: what he
+        never learned neither counts nor shows; with no `known`, it is
+        `unknown`."""
         if self.op == "leaf":
             if self.verdict is not None and self.verdict.hidden:
                 return replace(self, state="unknown", verdict=None, reason=HIDDEN_STATE_REASON_FR)
+            if self.verdict is not None and self.spec is not None and self.spec.type == EVENT_FORM:
+                return _seen_event(self, known)
             if self.verdict is None or _seen_subject(self.spec, viewer_id):
                 return self
             return replace(self, state="unknown", verdict=None, reason=UNSEEN_REASON_FR)
-        children = tuple(child.seen_by(viewer_id) for child in self.children)
+        children = tuple(child.seen_by(viewer_id, known) for child in self.children)
         return replace(self, state=_combine(self, children), children=children)
+
+
+def for_step(bindings: "Bindings", step) -> "Bindings":
+    """The bindings of one agenda step (TICKET-0114, F1): its start, or its
+    quest's acceptance for a step activated before v2.24 (decision 1 of the
+    lot)."""
+    return replace(bindings, step_since=getattr(step, "started_at", None) or bindings.quest_since)
+
+
+def known_event_facts(db: Session, verdict: Optional["VerdictNode"], viewer_id: str) -> Optional[frozenset]:
+    """What `seen_by` needs to recount an `event` leaf for `viewer_id`: the
+    facts he resolves above `unaware` (0105) -- read only when the verdict
+    holds an event leaf; None otherwise."""
+    if verdict is None or not any(n.spec is not None and n.spec.type == EVENT_FORM for n in verdict.leaf_nodes()):
+        return None
+    from .knowledge_resolve import resolve_known_for_entity
+
+    return frozenset(resolve_known_for_entity(db, viewer_id))
 
 
 # V2 (AMENDMENT-0111-01): why a leaf about someone else shows `?` to a player.
 UNSEEN_REASON_FR = "le personnage ne peut pas le vérifier"
+EVENT_FORM = "event"  # `event_vocab.EVENT_FORM` (EE1 keeps them equal)
+
+
+def _seen_event(node: "VerdictNode", known: Optional[frozenset]) -> "VerdictNode":
+    if known is None:
+        return replace(node, state="unknown", verdict=None, reason=UNSEEN_REASON_FR)
+    verdict = node.verdict
+    seen = tuple((fact, quantity) for fact, quantity in verdict.events if fact in known)
+    total = sum(quantity for _fact, quantity in seen)
+    met = total >= (verdict.required or 1)
+    return replace(node, state="met" if met else "unmet",
+                   verdict=replace(verdict, met=met, current=total, events=seen))
 
 
 def _seen_subject(spec: Optional[RequirementSpec], viewer_id: str) -> bool:
@@ -242,7 +285,12 @@ def node_to_dict(node: Optional[ConditionTree]) -> Optional[dict]:
         return None
     if node.op == "leaf":
         spec = node.leaf
-        return {"op": "leaf", **{key: getattr(spec, key) for key in _LEAF_KEYS}}
+        out = {"op": "leaf", **{key: getattr(spec, key) for key in _LEAF_KEYS}}
+        if spec.type == EVENT_FORM:  # TICKET-0114: only an event leaf has a window and filters
+            out["since"] = spec.since
+            out["filters"] = [{"role_id": f.role_id, "entity_id": f.entity_id, "sorte_id": f.sorte_id}
+                              for f in spec.filters]
+        return out
     out: dict = {"op": node.op, "children": [node_to_dict(child) for child in node.children]}
     if node.op == "at_least":
         out["n"] = node.n
@@ -261,6 +309,15 @@ def node_from_dict(raw: object) -> Optional[ConditionTree]:
     node = _from_dict(raw)
     check_shape(node)
     return node
+
+
+def filters_from(raw: object) -> tuple[EventFilter, ...]:
+    if raw is None or raw == []:
+        return ()
+    if not isinstance(raw, list) or not all(isinstance(f, dict) for f in raw):
+        raise ConditionShapeError(f"a leaf's filters are a list of objects, got {raw!r}")
+    return tuple(EventFilter(role_id=str(f.get("role_id") or ""), entity_id=_blank(f.get("entity_id")),
+                             sorte_id=_blank(f.get("sorte_id"))) for f in raw)
 
 
 def _from_dict(raw: object) -> ConditionTree:
@@ -283,6 +340,8 @@ def _from_dict(raw: object) -> ConditionTree:
             target_key=_blank(raw.get("target_key")),
             threshold=threshold,
             value=_blank(raw.get("value")),
+            since=_blank(raw.get("since")),
+            filters=filters_from(raw.get("filters")),
         )
         return ConditionTree(op="leaf", leaf=spec)
     if op not in CONNECTORS:
@@ -391,11 +450,28 @@ def _subject(spec: RequirementSpec, bindings: Bindings, db: Session) -> tuple[Op
     return character, None
 
 
+_SINCE_UNBOUND_FR = {"quest": "aucune quête acceptée ne le date ici", "step": "aucune étape en cours ne le date ici"}
+
+
+def _since(spec: RequirementSpec, bindings: Bindings) -> tuple[Optional[datetime], Optional[str]]:
+    """F1: when an `event` leaf starts counting, or why it cannot (French)."""
+    if spec.since in (None, "always"):
+        return None, None
+    at = bindings.quest_since if spec.since == "quest" else (bindings.step_since or bindings.quest_since)
+    return (at, None) if at is not None else (None, _SINCE_UNBOUND_FR[spec.since])
+
+
 def _evaluate_leaf(spec: RequirementSpec, bindings: Bindings, db: Session, reachable: dict) -> VerdictNode:
     evaluator = _EVALUATORS.get(spec.type)
     if evaluator is None:
         raise ValueError(f"unknown requirement type {spec.type!r}")
     character, why = _subject(spec, bindings, db)
+    if character is not None and spec.type == EVENT_FORM:
+        since_at, why = _since(spec, bindings)
+        if why is None:
+            verdict = evaluate_event(spec, character, db, since_at)
+            return VerdictNode(state="met" if verdict.met else "unmet", op="leaf", spec=spec, verdict=verdict)
+        character = None
     if character is not None and spec.type in ANY_SUBJECT_TYPES:
         why = attribute_unjudged(spec, character, db)
         character = None if why else character
@@ -440,15 +516,20 @@ def read_condition(db: Session, *, role: str, **owner) -> Optional[ConditionTree
     roots = children.get(None, [])
     if len(roots) != 1:
         raise ValueError(f"condition {condition.id!r} has {len(roots)} roots")
-    return _build(roots[0], children)
+    filters: dict[str, list[ConditionNodeFilter]] = {}
+    for row in db.exec(select(ConditionNodeFilter).where(ConditionNodeFilter.node_id.in_([n.id for n in nodes]))
+                       .order_by(ConditionNodeFilter.position)).all():
+        filters.setdefault(row.node_id, []).append(row)
+    return _build(roots[0], children, filters)
 
 
-def _build(node: ConditionNode, children: dict) -> ConditionTree:
+def _build(node: ConditionNode, children: dict, filters: dict) -> ConditionTree:
     if node.op == "leaf":
         return ConditionTree(op="leaf", leaf=RequirementSpec(
             type=node.form, subject_role=node.subject_role, subject_entity_id=node.subject_entity_id,
             target_entity_id=node.target_entity_id, target_key=node.target_key, threshold=node.threshold,
-            value=node.value,
+            value=node.value, since=node.since,
+            filters=tuple(EventFilter(f.role_id, f.entity_id, f.sorte_id) for f in filters.get(node.id, [])),
         ))
     kids = sorted(children.get(node.id, []), key=lambda n: n.position)
-    return ConditionTree(op=node.op, n=node.n, children=tuple(_build(k, children) for k in kids))
+    return ConditionTree(op=node.op, n=node.n, children=tuple(_build(k, children, filters) for k in kids))

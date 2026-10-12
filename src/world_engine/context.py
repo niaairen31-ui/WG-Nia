@@ -33,7 +33,6 @@ from .models import (
     Agenda,
     Character,
     Entity,
-    Event,
     Fact,
     FactionMembership,
     Gathering,
@@ -47,6 +46,8 @@ from .models import (
     SkillDefinition,
     World,
 )
+from .attributes import perceived_states
+from .event_reads import known_chronicle_events
 from .facet_reads import facts_of, joined, known_fact_texts, known_facts_of
 from .facets import FACETS
 from .knowledge_resolve import resolve_default_rows
@@ -675,6 +676,10 @@ def _mj_context_location(location_id: str, blindfolded: bool, db: Session) -> tu
         "description": None if blindfolded else joined(
             facts_of(db, entity_id=location_id, facets=("description",)), sep=" "),
         "subculture": subculture,
+        # The place's states the player may see (TICKET-0114, BRIEF-0114-D,
+        # WL1): never a hidden one; visual, so none when blindfolded.
+        "states": None if blindfolded or loc_entity is None else (
+            perceived_states(db, loc_entity.world_id, loc_entity) or None),
     }
     return location_block, loc_entity
 
@@ -698,33 +703,20 @@ def _mj_context_player_knowledge(player_character_id: str, db: Session) -> list[
     ]
 
 
-def _mj_context_public_events(world_id: str | None, location_id: str, db: Session) -> list[dict]:
-    """Public/confirmed only, location-matched first, capped at _MJ_EVENT_CAP."""
+def _mj_context_public_events(world_id: str | None, location_id: str, player_character_id: str,
+                              db: Session) -> list[dict]:
+    """The chronicle events the player knows (TICKET-0114, BRIEF-0114-D, Q1:
+    `event_reads.known_chronicle_events`), location-matched first, capped at
+    _MJ_EVENT_CAP."""
     if not world_id:
         return []
-    events = db.exec(
-        select(Event)
-        .where(
-            Event.world_id == world_id,
-            Event.knowledge_status.in_(("public", "confirmed")),
-        )
-        # `occurred_at` is written by nobody (in-fiction time, dormant
-        # column) — order by `recorded_at`, aligning with tick.py and
-        # app.py's return-visit delta (TICKET-0022, RECON finding 7).
-        .order_by(Event.recorded_at.desc())
-    ).all()
+    events = known_chronicle_events(db, player_character_id, world_id)
     local = [e for e in events if e.location_id == location_id]
     other = [e for e in events if e.location_id != location_id]
-    public_events: list[dict] = []
-    for e in (local + other)[:_MJ_EVENT_CAP]:
-        public_events.append({
-            "title": e.title,
-            "description": e.description,
-            "type": e.type,
-            "occurred_at": e.occurred_at.isoformat() if e.occurred_at else None,
-            "location_id": e.location_id,
-        })
-    return public_events
+    return [
+        {"title": e.title, "description": e.description, "location_id": e.location_id}
+        for e in (local + other)[:_MJ_EVENT_CAP]
+    ]
 
 
 def _mj_context_custom_skills(world_id: str | None, db: Session) -> list[str]:
@@ -761,17 +753,21 @@ def assemble_mj_context(
 
     - `location` (static): the current location's `entity.name` + its
       `description` facts, plus the allow-listed (`FACETS["coutume"].aspects`)
-      `coutume` facts notorious at the location — ambiance is perceptible.
+      `coutume` facts notorious at the location — ambiance is perceptible —
+      and its states the player may see (TICKET-0114, WL1:
+      `attributes.perceived_states`, never a hidden one).
       `location.magic_status` is deliberately excluded (not directly
       perceivable).
     - `player_knowledge` (static): all `knowledge` rows belonging to the
       player character (fact text, level, content) — these are the player's
       own, so no further filtering is applied (a player's own `is_secret`
       row is something they already know, not a leak).
-    - `public_events` (static): `event` rows with `knowledge_status IN
-      ('public', 'confirmed')` for this world, ordered by `occurred_at DESC`,
+    - `public_events` (static): the chronicle events the player knows
+      (TICKET-0114, BRIEF-0114-D, Q1) -- an event whose type enters the
+      chronicle and whose fact the player resolves above `unaware`, by his
+      own knowledge or a scope he is in contact with -- newest first,
       capped at `_MJ_EVENT_CAP`; events whose `location_id` matches
-      `location_id` are preferred (listed first within the cap).
+      `location_id` are listed first within the cap.
     - `co_presents` (dynamic): public name + `description` facts of NPCs
       currently present, plus the `physique` facts the player resolves
       above `unaware` (the encounter registry: met -> seen, R-c), read fresh from the gathering roster
@@ -782,9 +778,9 @@ def assemble_mj_context(
     Structural exclusions (by query construction, never by instruction): no
     NPC `knowledge` row (only the player's own are read), no
     `character.secrets`, no `entity.internal_name`, no non-public entities,
-    no `event` rows with `knowledge_status = 'secret'`. (An event either
-    happened or did not; uncertainty about it lives on `knowledge.level =
-    'rumor'`, never on `event.knowledge_status` — TICKET-0022, R1.)
+    no event the player does not know (TICKET-0114: who knows an event is
+    its fact's knowledge and scopes; an event either happened or did not,
+    uncertainty about it lives on the knower's level).
 
     `blindfolded` (BRIEF-12): when True, visual information is structurally
     excluded — `location.description` is set to None and `co_presents` entries
@@ -805,7 +801,7 @@ def assemble_mj_context(
     world_id = loc_entity.world_id if loc_entity else None
 
     player_knowledge = _mj_context_player_knowledge(player_character_id, db)
-    public_events = _mj_context_public_events(world_id, location_id, db)
+    public_events = _mj_context_public_events(world_id, location_id, player_character_id, db)
     co_presents = _mj_context_co_presents(gathering_id, player_character_id, blindfolded, db)
     custom_skills = _mj_context_custom_skills(world_id, db)
 
@@ -837,6 +833,8 @@ def format_mj_context(mj_context: dict) -> str:
         ambiance = " ".join(str(v) for v in subculture.values() if v)
         if ambiance:
             loc_lines.append(f"Ambiance : {ambiance}")
+        if location.get("states"):
+            loc_lines.append(f"États : {location['states']}")
         blocks.append(_section(H_MJ_LOCATION, " ".join(loc_lines)))
 
     co_presents = mj_context.get("co_presents") or []
@@ -845,6 +843,7 @@ def format_mj_context(mj_context: dict) -> str:
             f"- {c['name']} : {c.get('description') or '(pas de description)'}"
             + (f" {c['physique']}" if c.get("physique") else "")
             + (f" Tenue : {c['tenue']}" if c.get("tenue") else "")
+            + (f" États : {c['states']}" if c.get("states") else "")
             for c in co_presents
         )
         blocks.append(_section(H_MJ_PRESENT, body))

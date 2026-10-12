@@ -1,157 +1,131 @@
-"""Author CRUD — events (TICKET-0022): no-delete-ever history rows.
+"""Author CRUD — the event journal (TICKET-0022; rewritten by TICKET-0114,
+BRIEF-0114-C): no-delete-ever history rows.
 
-Split out of `cockpit/crud.py` (TICKET-0027, BRIEF-0027-d) — pure move,
-no logic change.
+An event is one happening of one of the world's event types: its title and
+description, its place, its quantity when its type counts, its participants
+by role (an entity or a sorte, each entity keeping it secret or not, X1),
+and who learns it besides them (its fact's scopes, the type's by default,
+W1). `POST /api/events` writes one, `PUT /api/events/{id}` corrects one --
+its type stays and no participant is taken away -- both through
+`writes.events`; every refusal is a 422.
+
+`_event_dict` is what the journal shows: the participants with their role
+and their secret (read from their own knowledge row), the scopes with what
+they name.
 """
 
 from __future__ import annotations
 
-import json
-from datetime import UTC, datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
-from sqlalchemy.exc import IntegrityError
+from fastapi import Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlmodel import Session as DbSession, select
 
 from ...db import get_session
-from ...entity_author import generate_npc_goals
-from ...gathering import close_open_memberships
-from ...ledger import get_balance, list_entries
-from ...ollama_client import OllamaError, ping
-from ...models import (
-    Agenda,
-    AgendaStep,
-    BASE_SKILL_DOMAINS,
-    Character,
-    DiscoverableDetail,
-    Entity,
-    Event,
-    EventEntity,
-    Faction,
-    FactionMembership,
-    FactionRole,
-    GoalAgendaLink,
-    GoalPrerequisite,
-    Item,
-    Knowledge,
-    Ledger,
-    Location,
-    NpcPrice,
-    PromptTemplate,
-    PromptVariable,
-    ProposedMutation,
-    Relation,
-    Skill,
-    SkillDefinition,
-)
-from ...prompt_registry import PROMPT_REGISTRY, effective_model
-from ...prompt_store import current_prompt, get_version, list_versions
-from ...tick_normalize import _EVENT_TYPES
-from ...writes import (
-    KNOWLEDGE_LEVELS,
-    NPC_GOAL_HORIZONS,
-    NPC_GOAL_PREREQUISITE_TYPES,
-    PromptValidationError,
-    detach_goal_agenda_link,
-    write_agenda,
-    write_agenda_status,
-    write_agenda_step,
-    write_agenda_step_status,
+from ...event_vocab import DOMAIN_LABELS_FR, type_view
+from ...models import Entity, Event, EventParticipant, EventSorte, FactDefault, Knowledge
+from ...writes.events import (
+    EventScopeSpec,
+    EventSpec,
+    ParticipantSpec,
+    event_fact,
     write_event,
     write_event_update,
-    write_faction_role,
-    write_goal_agenda_link,
-    write_knowledge,
-    write_ledger_entry,
-    write_membership,
-    write_npc_goal,
-    write_npc_goal_prerequisites,
-    write_npc_goal_status,
-    write_npc_prices,
-    write_prompt_version,
-    write_relation,
-    write_skill_rank,
 )
 
 from ._router import router
-from ._shared import (
-    EVENT_FIELDS,
-    EVENT_KNOWLEDGE_STATUSES,
-    EVENT_TYPE_LABELS_FR,
-    _iso,
-    _world_id,
-)
+from ._shared import EVENT_FIELDS, _iso, _world_id
+
+CHANGED_BY = "creator_crud"
+
+
+def _name(db: DbSession, entity_id: Optional[str]) -> Optional[str]:
+    entity = db.get(Entity, entity_id) if entity_id else None
+    return entity.name if entity is not None else None
+
+
+def _participants(db: DbSession, event: Event, fact_id: Optional[str], roles: dict) -> list[dict]:
+    rows = db.exec(select(EventParticipant).where(EventParticipant.event_id == event.id)
+                   .order_by(EventParticipant.position, EventParticipant.id)).all()
+    out = []
+    for row in rows:
+        secret = None
+        if row.entity_id and fact_id:
+            known = db.exec(select(Knowledge).where(Knowledge.entity_id == row.entity_id,
+                                                    Knowledge.fact_id == fact_id)).first()
+            secret = known.is_secret if known is not None else None
+        sorte = db.get(EventSorte, row.sorte_id) if row.sorte_id else None
+        out.append({"role_id": row.role_id, "role_name": roles.get(row.role_id), "entity_id": row.entity_id,
+                    "sorte_id": row.sorte_id, "name": sorte.name if sorte else _name(db, row.entity_id),
+                    "secret": secret})
+    return out
 
 
 def _event_dict(event: Event, db: DbSession) -> dict:
-    location = db.get(Entity, event.location_id) if event.location_id else None
-    involved = []
-    links = db.exec(select(EventEntity).where(EventEntity.event_id == event.id)).all()
-    for link in links:
-        target = db.get(Entity, link.entity_id)
-        involved.append({"id": link.entity_id, "name": target.name if target is not None else None})
+    view = type_view(db, event.type_id)
+    fact = event_fact(db, event.id)
+    scopes = db.exec(select(FactDefault).where(FactDefault.fact_id == fact.id)).all() if fact else []
     return {
         "id": event.id,
         "title": event.title,
         "description": event.description,
-        "type": event.type,
-        "type_label": EVENT_TYPE_LABELS_FR.get(event.type, event.type),
-        "knowledge_status": event.knowledge_status,
+        "type_id": event.type_id,
+        "type_name": view.name if view else None,
+        "type_label": f"{view.name} ({DOMAIN_LABELS_FR[view.domain]})" if view else None,
+        "quantity": event.quantity,
         "location_id": event.location_id,
-        "location_name": location.name if location is not None else None,
-        "involved_entities": involved,
+        "location_name": _name(db, event.location_id),
+        "participants": _participants(db, event, fact.id if fact else None,
+                                      {r.id: r.name for r in view.roles} if view else {}),
+        "scopes": [{"scope_type": s.scope_type, "scope_id": s.scope_id, "scope_name": _name(db, s.scope_id),
+                    "level": s.level} for s in scopes],
+        "fact_id": fact.id if fact else None,
+        "session_id": event.session_id,
+        "batch_id": event.batch_id,
         "recorded_at": _iso(event.recorded_at),
     }
 
 
-def _validate_event_location(db: DbSession, world_id: str, location_id: Optional[str]) -> Optional[str]:
-    """Reuses the exact predicate at app.py:1575-1583 (event_creation branch)
-    — active `location` entity in the active world. 422 on anything else:
-    the creator's picker cannot produce a bad id, so a bad id is a bug, not
-    a typo."""
-    if not location_id:
-        return None
-    target = db.get(Entity, location_id)
-    if (
-        target is None
-        or target.type != "location"
-        or target.status != "active"
-        or target.world_id != world_id
-    ):
-        raise HTTPException(422, f"location_id {location_id!r} is not an active location in this world")
-    return location_id
+class ParticipantBody(BaseModel):
+    role_id: str
+    entity_id: Optional[str] = None
+    sorte_id: Optional[str] = None
+    secret: Optional[bool] = None
 
 
-def _validate_event_involved(db: DbSession, world_id: str, ids: Optional[list]) -> Optional[list]:
-    if not ids:
-        return None
-    out = []
-    for entity_id in ids:
-        target = db.get(Entity, entity_id)
-        if target is None or target.world_id != world_id:
-            raise HTTPException(422, f"involved_entities: {entity_id!r} is not a valid entity id in this world")
-        out.append(entity_id)
-    return out
+class EventScopeBody(BaseModel):
+    scope_type: str
+    scope_id: Optional[str] = None
+    level: str = "knows"
 
 
-class EventCreateBody(BaseModel):
+class EventBody(BaseModel):
     title: str
     description: Optional[str] = None
-    type: Optional[str] = None
-    knowledge_status: str = "secret"
+    type_id: str
     location_id: Optional[str] = None
-    involved_entities: Optional[list[str]] = None
+    quantity: Optional[int] = None
+    participants: list[ParticipantBody] = Field(default_factory=list)
+    # None: the type's scopes (W1); a list, even empty: exactly these.
+    scopes: Optional[list[EventScopeBody]] = None
 
 
-class EventUpdateBody(BaseModel):
-    title: str
-    description: Optional[str] = None
-    type: Optional[str] = None
-    knowledge_status: str
-    location_id: Optional[str] = None
-    involved_entities: Optional[list[str]] = None
+def event_spec(body: EventBody) -> EventSpec:
+    return EventSpec(
+        type_id=body.type_id, title=body.title, description=body.description, location_id=body.location_id,
+        quantity=body.quantity,
+        participants=tuple(ParticipantSpec(p.role_id, p.entity_id, p.sorte_id, p.secret) for p in body.participants),
+        scopes=None if body.scopes is None else tuple(EventScopeSpec(s.scope_type, s.scope_id, s.level)
+                                                       for s in body.scopes),
+    )
+
+
+def _event(db: DbSession, event_id: str) -> Event:
+    event = db.get(Event, event_id)
+    if event is None or event.world_id != _world_id(db):
+        raise HTTPException(404, f"Event {event_id!r} not found")
+    return event
 
 
 @router.get("/events")
@@ -165,60 +139,32 @@ def list_events(db: DbSession = Depends(get_session)) -> list[dict]:
 
 @router.get("/events/{event_id}")
 def get_event(event_id: str, db: DbSession = Depends(get_session)) -> dict:
-    event = db.get(Event, event_id)
-    if event is None or event.world_id != _world_id(db):
-        raise HTTPException(404, f"Event {event_id!r} not found")
-    return _event_dict(event, db)
+    return _event_dict(_event(db, event_id), db)
 
 
 @router.post("/events", status_code=201)
-def create_event(body: EventCreateBody, db: DbSession = Depends(get_session)) -> dict:
-    world_id = _world_id(db)
-    if not body.title or not body.title.strip():
-        raise HTTPException(422, "title is required")
-    if body.knowledge_status not in EVENT_KNOWLEDGE_STATUSES:
-        raise HTTPException(422, f"knowledge_status must be one of {EVENT_KNOWLEDGE_STATUSES}")
-    location_id = _validate_event_location(db, world_id, body.location_id)
-    involved = _validate_event_involved(db, world_id, body.involved_entities)
-
-    event = write_event(
-        db,
-        world_id=world_id,
-        title=body.title.strip(),
-        description=body.description,
-        type=body.type,
-        knowledge_status=body.knowledge_status,
-        involved_entities=involved,
-        location_id=location_id,
-    )
+def create_event(body: EventBody, db: DbSession = Depends(get_session)) -> dict:
+    try:
+        event = write_event(db, world_id=_world_id(db), spec=event_spec(body), created_by=CHANGED_BY)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc)) from exc
     db.commit()
     db.refresh(event)
     return _event_dict(event, db)
 
 
 @router.put("/events/{event_id}")
-def update_event(event_id: str, body: EventUpdateBody, db: DbSession = Depends(get_session)) -> dict:
-    event = db.get(Event, event_id)
-    if event is None or event.world_id != _world_id(db):
-        raise HTTPException(404, f"Event {event_id!r} not found")
-    world_id = _world_id(db)
-    if not body.title or not body.title.strip():
-        raise HTTPException(422, "title is required")
-    if body.knowledge_status not in EVENT_KNOWLEDGE_STATUSES:
-        raise HTTPException(422, f"knowledge_status must be one of {EVENT_KNOWLEDGE_STATUSES}")
-    location_id = _validate_event_location(db, world_id, body.location_id)
-    involved = _validate_event_involved(db, world_id, body.involved_entities)
-
-    event = write_event_update(
-        db,
-        event=event,
-        title=body.title.strip(),
-        description=body.description,
-        type=body.type,
-        knowledge_status=body.knowledge_status,
-        involved_entities=involved,
-        location_id=location_id,
-    )
+def update_event(event_id: str, body: EventBody, db: DbSession = Depends(get_session)) -> dict:
+    event = _event(db, event_id)
+    try:
+        write_event_update(db, event=event, spec=event_spec(body), changed_by=CHANGED_BY)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc)) from exc
     db.commit()
     db.refresh(event)
     return _event_dict(event, db)
+
+
+__all__ = ["EVENT_FIELDS", "EventBody", "_event_dict", "create_event", "get_event", "list_events", "update_event"]

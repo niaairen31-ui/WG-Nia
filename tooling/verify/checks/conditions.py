@@ -43,7 +43,8 @@ CB5 -- the language writes nothing (static, AST). Neither `conditions.py`
    `flush`.
 
 CC1 -- storage (BRIEF-0111-C, import). `condition` and `condition_node`
-   carry exactly their contract's columns and CHECK texts; `CONDITION_ROLES`
+   carry exactly their contract's columns and CHECK texts (since v2.24,
+   TICKET-0114: the role `failure` and the `since` column); `CONDITION_ROLES`
    and `CONDITION_OPS` are the values those CHECKs quote, in order; no CHECK
    of either table names a form; `models` declares neither
    `AgendaStepRequirement` nor `QuestOfferRequirement`; the code's schema
@@ -464,9 +465,9 @@ def check_cb5() -> None:
 
 CONDITION_COLUMNS = ("id", "world_id", "role", "quest_offer_id", "quest_offer_step_id", "agenda_step_id", "created_at")
 NODE_COLUMNS = ("id", "world_id", "condition_id", "parent_id", "position", "op", "n", "form", "subject_role",
-                "subject_entity_id", "target_entity_id", "target_key", "threshold", "value")
+                "subject_entity_id", "target_entity_id", "target_key", "threshold", "value", "since")
 CONDITION_CHECKS = {
-    "ck_condition_role": "role IN ('eligibility','prerequisite','completion')",
+    "ck_condition_role": "role IN ('eligibility','prerequisite','completion','failure')",
     "ck_condition_owner": "(quest_offer_id IS NOT NULL) + (quest_offer_step_id IS NOT NULL) + "
                           "(agenda_step_id IS NOT NULL) = 1",
     "ck_condition_owner_role": "(quest_offer_id IS NOT NULL) = (role = 'eligibility')",
@@ -476,10 +477,11 @@ NODE_CHECKS = {
     "ck_condition_node_leaf": "(op = 'leaf') = (form IS NOT NULL)",
     "ck_condition_node_connector": "op = 'leaf' OR (subject_role IS NULL AND subject_entity_id IS NULL AND "
                                    "target_entity_id IS NULL AND target_key IS NULL AND threshold IS NULL AND "
-                                   "value IS NULL)",
+                                   "value IS NULL AND since IS NULL)",
     "ck_condition_node_subject": "op <> 'leaf' OR ((subject_role IS NULL) <> (subject_entity_id IS NULL))",
     "ck_condition_node_role": "subject_role IS NULL OR subject_role IN ('doer','giver','contact')",
     "ck_condition_node_n": "(op = 'at_least') = (n IS NOT NULL) AND (n IS NULL OR n >= 1)",
+    "ck_condition_node_since": "since IS NULL OR since IN ('always','quest','step')",
 }
 
 
