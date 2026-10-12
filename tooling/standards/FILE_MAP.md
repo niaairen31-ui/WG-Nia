@@ -144,6 +144,7 @@
 - `context_window.py` — Sliding context window — shared seam for the played and observed lanes (TICKET-0050, BRIEF-0050-a/-b/-d; TICKET-0052, B1/I2).
 - `day_choice.py` — Model choice among narrowed candidates (TICKET-0094, H2).
 - `day_concordance.py` — Concordance and germ emission (TICKET-0075, BRIEF-0075-c — decision C1: **the resolver never authors**; robustness and casting, TICKET-0081, BRIEF-0081-a — decisions G2, C2-partition, F1, E2c).
+- `day_events.py` — Journée proposes the event a completed step's objective names (TICKET-0119, BRIEF-0119-F; decisions Bt1, M-c and V1 of the conditions series).
 - `day_extract.py` — Day-declaration extraction passes (TICKET-0075, BRIEF-0075-c — the extraction-and-concordance step; decision C1: the resolver never authors).
 - `day_feasibility.py` — The feasibility veto (TICKET-0075, BRIEF-0075-g — decision Y1).
 - `day_mutations.py` — Mutation emission for the resolved day chain (TICKET-0075, BRIEF-0075-e, as corrected by BRIEF-0075-e-amendment-1 and BRIEF-0075-d-amendment-1 / V1).
@@ -407,6 +408,7 @@
 - `event_changes.py` — G1 check for TICKET-0119 -- what an event changes in the world: pre-filled from its type, written with it, all or none.
 - `event_conditions.py` — G1 check for TICKET-0114 -- a condition counts the events its subject lived, and a quest step says when it has failed.
 - `event_contexts.py` — G1 check for TICKET-0114 -- the models read the journal by what is known, and the MJ reads the states a player may see.
+- `event_day.py` — G1 check for TICKET-0119 -- Journée proposes the event a completed step's objective names.
 - `event_editor.py` — G1 check for TICKET-0119 -- one event editor for the journal, the review card and Lore; the card approves what the creator edited.
 - `event_effects.py` — G1 check for TICKET-0119 -- what an event type does to the state of the world: its effects, written and read.
 - `event_interpreter.py` — G1 check for TICKET-0114 -- the condition interpreter reads the world's event types and sortes and writes an event leaf.

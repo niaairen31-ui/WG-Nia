@@ -19606,6 +19606,31 @@ shape beside the former one, the two lists after the briefing), delivered by
 `apply_ticket_0119_tick_prompt.py` fragment by fragment: the creator's
 edits are kept.
 
+## JOURNÉE PROPOSES THE EVENT A COMPLETED STEP'S OBJECTIVE NAMES (TICKET-0119) -- `day_events.py`, NOTHING INVENTED (BRIEF-0119-f, no schema change)
+
+**Bt1.** A quest step's objective may be an event (« Chasse : Brakk en
+chasseur, 3 loups »). When the day resolves the step as completed, its
+completion condition already says what has to have happened, so Journée
+proposes that very event beside the step's `agenda_step_change` -- both
+reviewed by the creator (V1). No model is asked: every key comes from the
+leaf. This is the foundation TICKET-0121 builds on (Journée proposing a
+quest, B-b): the planner will write such objectives.
+
+**Which leaves.** An `event` leaf of the completion reached through `all`
+only (Q1), on the one who acts (`doer`), not met yet. The character fills
+the leaf's role (« any role »: the type's first role accepting a
+character), each filter fills its role, the leaf's place is the event's
+when it is an active location, and when the type counts a quantity the
+event carries what the leaf still lacks in its window. Its changes are
+pre-filled from the type's effects (M-c).
+
+**The title.** The step's objective and the day's number: the approval's
+duplicate guard compares titles and places, and a step may take several
+days.
+
+**Replay.** `resolve_day` already refuses while the standing agenda holds a
+proposed step change (BB1), so a day is never proposed twice.
+
 ---
 
 *Co-built with Claude, June 2026.*
