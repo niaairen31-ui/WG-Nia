@@ -53,7 +53,8 @@ NC1 -- the interpreter's shape (BRIEF-0112-C; static and import).
    order; every form of `CODE_LISTS` is outside `ENTITY_TARGET_TYPES`;
    `UNSUPPORTED_NOTES_FR` covers exactly state, event, time, cost, reward
    and other -- cost names « Coûts », reward « Récompenses », state
-   « Création › États » (TICKET-0113), event TICKET-0114; `ROLE_LABELS_FR` covers
+   « Création › États » (TICKET-0113), event « Vocabulaire du monde »
+   (TICKET-0114); `ROLE_LABELS_FR` covers
    `CONDITION_ROLES`; `RESOURCE_KEY` equals the editor's `MONEY_KEY`.
    `condition_interpreter.py` calls `chat` nowhere: `_call` is one return
    of `prompt_call.call_json(..., chat)`; it calls none of `add`, `commit`,
@@ -83,7 +84,7 @@ NC3 -- interpretation (fixture, `condition_interpreter.chat` stubbed).
    e. a name two characters carry -> `needs_choice` with both; `resolve`
       with one -> `proposed` on it; with a third id -> `ValueError`;
    f. a cost only -> `refused`, the « Coûts » note, no error; a condition
-      and an event -> `proposed` with the TICKET-0114 note;
+      and an event -> `proposed` with the « Vocabulaire du monde » note;
    g. `OllamaError` and an unparsable reply propagate;
    h. a current tree reaches the message in the model's form.
 NC4 -- the interpreter writes nothing (fixture). Across NC3, the counts of
@@ -593,7 +594,7 @@ def _nc1_tables() -> None:
     notes = ci.UNSUPPORTED_NOTES_FR
     if set(notes) != {"state", "event", "time", "cost", "reward", "other"} or "« Coûts »" not in notes["cost"] \
             or "« Récompenses »" not in notes["reward"] or "Création › États" not in notes["state"] \
-            or "TICKET-0114" not in notes["event"]:
+            or "Vocabulaire du monde" not in notes["event"]:
         fail(f"NC1: UNSUPPORTED_NOTES_FR reads {notes}")
     if set(ci.ROLE_LABELS_FR) != set(CONDITION_ROLES):
         fail("NC1: ROLE_LABELS_FR does not cover CONDITION_ROLES")
@@ -853,7 +854,7 @@ def _nc3_unsupported(ci, session, ids) -> None:
     if result.outcome != "refused" or result.errors or not any("« Coûts »" in n for n in result.notes):
         fail(f"NC3f: a cost only gave {result.outcome}, {result.errors}, {result.notes}")
     result, _, _ = _run(ci, session, ids, [_answer(FURS, [{"text": "sans être repéré", "kind": "event"}])])
-    if result.outcome != "proposed" or not any("TICKET-0114" in n for n in result.notes):
+    if result.outcome != "proposed" or not any("Vocabulaire du monde" in n for n in result.notes):
         fail(f"NC3f: a condition and an event gave {result.outcome}, {result.notes}")
 
 

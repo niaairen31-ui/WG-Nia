@@ -32,6 +32,7 @@
 - `apply_ticket_0110_link_prompt.py` — One-shot, idempotent delivery of the TICKET-0110 prompt update onto the live DB (BRIEF-0110-A, I2): the NPC link agent's pair pass no longer offers the relation type `debt` -- « X owes Y » is a `debt` row, never a link.
 - `apply_ticket_0112_condition_prompt.py` — One-shot, idempotent delivery of the TICKET-0112 condition interpreter's prompt head onto the live DB (BRIEF-0112-C).
 - `apply_ticket_0113_condition_prompt.py` — One-shot, idempotent delivery of the TICKET-0113 condition interpreter's prompt update onto the live DB (BRIEF-0113-D): the model reads the world's attributes -- the `a` list, a new variable `attributes` -- and writes an `attribute` leaf.
+- `apply_ticket_0114_condition_prompt.py` — One-shot, idempotent delivery of the TICKET-0114 condition interpreter's prompt update onto the live DB (BRIEF-0114-F): the model reads the world's event types -- the `t` list, a new variable `event_types` -- and its sortes (`sortes`), and writes an `event` leaf.
 - `backup.py` — Timestamped, rotated backup of the live world-engine database.
 - `cockpit.py` — Launch the World Engine Cockpit on 127.0.0.1:8000.
 - `export_lore_usage.py` — Export the Lore shell's usage journal as JSON Lines (TICKET-0103, BRIEF-0103-E, decision E1).
@@ -166,6 +167,7 @@
 - `gathering.py` — Initial NPC clustering when a player enters a location (schema v1.8, Tier 1).
 - `geometry.py` — Pure collision geometry for the spatial workstream (TICKET-0030, BRIEF-0030-a).
 - `holdings.py` — Who holds how many of an item (TICKET-0109, BRIEF-0109-A, A1).
+- `interpreter_events.py` — The condition interpreter's `event` leaves (TICKET-0114, BRIEF-0114-F; decision R1 of the conditions series).
 - `knowledge_resolve.py` — Scoped default knowledge-level resolution (TICKET-0082, BRIEF-0082-c, G2a), dated by contact (TICKET-0105, BRIEF-0105-D, B5).
 - `ledger.py` — Read helpers for the `ledger` table (BRIEF-18).
 - `link_author.py` — NPC link agent — roster resolution, pair-pass orchestration, coherence pass, and journal substrate (TICKET-0036, BRIEF-0036-a/b/c).
@@ -395,6 +397,7 @@
 - `event_assist.py` — G1 check for TICKET-0022/BRIEF-0022-b — AI event-draft assistant.
 - `event_conditions.py` — G1 check for TICKET-0114 -- a condition counts the events its subject lived, and a quest step says when it has failed.
 - `event_contexts.py` — G1 check for TICKET-0114 -- the models read the journal by what is known, and the MJ reads the states a player may see.
+- `event_interpreter.py` — G1 check for TICKET-0114 -- the condition interpreter reads the world's event types and sortes and writes an event leaf.
 - `event_journal.py` — G1 check for TICKET-0114 -- the event journal's vocabulary: a world's event types, their roles, who learns them, its sortes.
 - `event_tab.py` — G1 check for TICKET-0022/BRIEF-0022-a — Événements creator tab.
 - `event_writes.py` — G1 check for TICKET-0114 -- the event journal's writer: an event, its participants by role, its fact, who learns it.

@@ -311,7 +311,7 @@ def node_from_dict(raw: object) -> Optional[ConditionTree]:
     return node
 
 
-def _filters_from(raw: object) -> tuple[EventFilter, ...]:
+def filters_from(raw: object) -> tuple[EventFilter, ...]:
     if raw is None or raw == []:
         return ()
     if not isinstance(raw, list) or not all(isinstance(f, dict) for f in raw):
@@ -341,7 +341,7 @@ def _from_dict(raw: object) -> ConditionTree:
             threshold=threshold,
             value=_blank(raw.get("value")),
             since=_blank(raw.get("since")),
-            filters=_filters_from(raw.get("filters")),
+            filters=filters_from(raw.get("filters")),
         )
         return ConditionTree(op="leaf", leaf=spec)
     if op not in CONNECTORS:

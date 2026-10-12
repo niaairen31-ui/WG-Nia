@@ -2080,6 +2080,30 @@ CONDITION_INTERPRET_FRAGMENTS: tuple[tuple[str, str, str], ...] = (
     ("user_template",
      "Entités que la phrase nomme :\n{entities}",
      "Types d'entité (clé — nom) :\n{entity_types}\n\nEntités que la phrase nomme :\n{entities}"),
+    # TICKET-0114 (BRIEF-0114-F, R1): the event types (`t`) and the sortes;
+    # the `event` form. Each old text stands once in the 0112 text, touched
+    # by no other fragment.
+    ("system_prompt",
+     "CONNECTEURS. {",
+     "ÉVÉNEMENTS. La forme event compte les événements que le sujet a vécus : \"target\" est le code "
+     "d'un type de la liste des types d'événements {\"code\": \"t1\"} ; \"value\" est le nom du rôle "
+     "que le sujet y tient, ou null pour n'importe lequel ; \"threshold\" est le nombre minimal (les "
+     "quantités s'additionnent ; 1 par défaut) ; \"place\" est le lieu où l'événement a eu lieu, ou ce "
+     "qu'il contient, {\"name\": \"...\", \"kind\": \"place\"}, ou null ; \"since\" vaut \"always\" "
+     "(depuis toujours, par défaut), \"quest\" (depuis l'acceptation de la quête) ou \"step\" (depuis "
+     "le début de l'étape) ; \"with\" précise les autres rôles, chacun tenu par une sorte de la liste "
+     "des sortes {\"role\": \"victime\", \"sorte\": \"Loup\"} ou par une entité {\"role\": "
+     "\"victime\", \"name\": \"Brakk\", \"kind\": \"person\"}. « A tué 3 loups depuis le début de "
+     "l'étape » : {\"op\": \"leaf\", \"form\": \"event\", \"subject\": \"doer\", \"target\": "
+     "{\"code\": \"t1\"}, \"value\": \"tueur\", \"threshold\": 3, \"place\": null, \"since\": "
+     "\"step\", \"with\": [{\"role\": \"victime\", \"sorte\": \"Loup\"}]}.\n\nCONNECTEURS. {"),
+    ("system_prompt",
+     "ce qui s'est passé (\"event\" : tuer, être repéré), ",
+     "un événement qu'aucun type de la liste ne dit (\"event\"), "),
+    ("user_template",
+     "Compétences (code — nom) :\n{skills}",
+     "Compétences (code — nom) :\n{skills}\n\nTypes d'événements (code — nom, rôles) :\n{event_types}"
+     "\n\nSortes :\n{sortes}"),
 )
 
 
@@ -2112,7 +2136,7 @@ CONDITION_INTERPRET_PROMPT_HEADS = (
         system_prompt=CONDITION_INTERPRET_SYSTEM_PROMPT,
         user_template=CONDITION_INTERPRET_USER_TEMPLATE,
         variables=["role", "forms", "entity_types", "entities", "tree_entities", "facts", "offers", "skills",
-                   "attributes", "current", "instruction", "errors"],
+                   "event_types", "sortes", "attributes", "current", "instruction", "errors"],
         destination="local",
     ),
 )

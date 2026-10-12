@@ -19411,6 +19411,27 @@ step has a « Échouée quand » editor. A non-event leaf's dict is unchanged:
 **Rejected.** A window on every form (only events have dates), a failure
 that closes the quest by itself (the creator stays the judge, as M1).
 
+## THE CONDITION INTERPRETER READS THE WORLD'S EVENT TYPES AND WRITES AN EVENT LEAF (TICKET-0114) -- THE `t` LIST (BRIEF-0114-f, no schema change)
+
+**R1, reading.** The model sees the world's active event types as a coded
+list `t`, each line its roles, what each takes (entity types, « une
+sorte ») and whether it counts a quantity; the sortes by name. It writes an
+`event` leaf with the type's code, the subject's role by NAME (null: any),
+a `place` named like any entity, `since` and, in `with`, each other role
+filled by a sorte or an entity, both by name. Code reads it back
+(`interpreter_events.py`): a role or a sorte by its normalized name -- an
+unknown one is an error naming the right ones, sent back to the model once
+(II1) --, an entity through the interpreter's resolver, so an ambiguous
+witness waits for the creator's pick like any name. Roles and sortes are
+read by name, not code: the lists are short, the names are the creator's
+words, and the type's code already scopes the roles.
+
+**Prompt.** Three fragments of `CONDITION_INTERPRET_FRAGMENTS` (the
+paragraph « ÉVÉNEMENTS. », the two lists in the message, « event » no
+longer unsupported when a type says it), delivered by
+`apply_ticket_0114_condition_prompt.py`, which reuses the 0113 delivery.
+What no type says stays a note pointing to « Vocabulaire du monde ».
+
 ---
 
 *Co-built with Claude, June 2026.*
