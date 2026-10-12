@@ -32,7 +32,8 @@ decisions B1, C1, D1, N1 and W1 of the conditions series): the one writer of
 - `ensure_domain_type(db, *, world_id, domain)` : the type made from a
   domain (N1) -- « Social », one role « Impliqué » accepting every entity
   type of the world -- found by its name, created when the world has none.
-  It types what still arrives untyped (the world tick until TICKET-0119).
+  It types what still arrives untyped (a world tick item naming no type,
+  TICKET-0119).
 
 None of these functions commits.
 """

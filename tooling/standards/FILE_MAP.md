@@ -34,6 +34,7 @@
 - `apply_ticket_0113_condition_prompt.py` — One-shot, idempotent delivery of the TICKET-0113 condition interpreter's prompt update onto the live DB (BRIEF-0113-D): the model reads the world's attributes -- the `a` list, a new variable `attributes` -- and writes an `attribute` leaf.
 - `apply_ticket_0114_analysis_prompt.py` — One-shot, idempotent delivery of the TICKET-0114 conversation analysis prompt update onto the live DB (BRIEF-0114-H): the analyzer reads the world's event types -- the `t` list, a new variable `event_types` -- and its sortes (`sortes`), names an event's type by code and its participants by role, and may propose a type (I2).
 - `apply_ticket_0114_condition_prompt.py` — One-shot, idempotent delivery of the TICKET-0114 condition interpreter's prompt update onto the live DB (BRIEF-0114-F): the model reads the world's event types -- the `t` list, a new variable `event_types` -- and its sortes (`sortes`), and writes an `event` leaf.
+- `apply_ticket_0119_tick_prompt.py` — One-shot, idempotent delivery of the TICKET-0119 world tick events prompt update onto the live DB (BRIEF-0119-E): the scope-level tick reads the world's event types -- the `t` list, a new variable `event_types` -- and its sortes (`sortes`), and names an event's type by code and its participants by role and name; it proposes no new type (A1).
 - `backup.py` — Timestamped, rotated backup of the live world-engine database.
 - `cockpit.py` — Launch the World Engine Cockpit on 127.0.0.1:8000.
 - `export_lore_usage.py` — Export the Lore shell's usage journal as JSON Lines (TICKET-0103, BRIEF-0103-E, decision E1).
@@ -228,6 +229,7 @@
 - `spatial_author.py` — Creation-side spatial materialization (TICKET-0039).
 - `tick.py` — World-tick runner (TICKET-0014, BRIEF-0014-b onward; decomposed at TICKET-0028, BRIEF-0028-a).
 - `tick_context.py` — World-tick context assembly (TICKET-0014, BRIEF-0014-a; decomposed from `tick.py` at TICKET-0028, BRIEF-0028-a).
+- `tick_events.py` — The world tick's typed events (TICKET-0119, BRIEF-0119-E; decisions A1, M-c and R1 of the conditions series).
 - `tick_normalize.py` — World-tick model-output normalization (TICKET-0014 onward; decomposed from `tick.py` at TICKET-0028, BRIEF-0028-a).
 - `traits.py` — Trait registry — code-source-of-truth (A1, TICKET-0045, BRIEF-0045-b).
 - `unbound_facts.py` — Facts nobody is attached to (TICKET-0097, decisions I1 and J1) — the read behind Creation's « Sujets » panel.
@@ -410,6 +412,7 @@
 - `event_interpreter.py` — G1 check for TICKET-0114 -- the condition interpreter reads the world's event types and sortes and writes an event leaf.
 - `event_journal.py` — G1 check for TICKET-0114 -- the event journal's vocabulary: a world's event types, their roles, who learns them, its sortes.
 - `event_tab.py` — G1 check for TICKET-0022/BRIEF-0022-a — Événements creator tab.
+- `event_tick.py` — G1 check for TICKET-0119 -- the world tick proposes typed events: the world's types by code, participants by role and name; never a new type.
 - `event_writes.py` — G1 check for TICKET-0114 -- the event journal's writer: an event, its participants by role, its fact, who learns it.
 - `fact_facets.py` — G1 check for TICKET-0091 (BRIEF-0091-A) — the facet registry and the facet-bearing fact chokepoint.
 - `fact_learning.py` — G1 check for TICKET-0105 -- what a character keeps of a fact.

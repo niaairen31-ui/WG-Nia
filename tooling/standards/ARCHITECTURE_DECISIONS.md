@@ -19582,6 +19582,30 @@ on the draft's participants (`event_changes.type_changes`, the one
 pre-fill) and puts each change in French; the editor's « Pré-remplir »
 merges them into the draft's changes. It reads only.
 
+## THE WORLD TICK PROPOSES TYPED EVENTS -- THE WORLD'S TYPES BY CODE, PARTICIPANTS BY ROLE AND NAME; NEVER A NEW TYPE (TICKET-0119) -- `tick_events.py` (BRIEF-0119-e, no schema change)
+
+**R1 in the tick.** The scope-level tick call shows the model the world's
+event types as Play does (`analysis_vocabulary`, read once per scope call:
+the coded `t` list with each type's roles, the sortes by name). Its
+`event_creation` names a type by code and each participant by the role it
+holds -- a person, place or faction by its NAME as the briefing writes it,
+a sorte by name. `tick_events.typed_tick_payload` resolves a name through
+the scope's roster, then every active entity of the world; a name nobody
+bears is left out with a note, never guessed. The payload is Play's
+(`event_analysis.typed_payload`), fail-closed the same way, its changes
+pre-filled from its type's effects (M-c); the review card edits it (Y2).
+
+**A1.** The tick proposes no new type: it runs unattended, three events per
+scope, and its vocabulary would drift. A `new_type` is set aside with a
+note; an item naming no type of the world keeps the former untyped shape,
+typed by its domain at approval (N1). Reactivation: the dashboard (0115)
+shows the creator retyping the tick's domain-typed events often.
+
+**Prompt.** Two fragments of `WORLD_TICK_EVENTS_FRAGMENTS_0119` (the typed
+shape beside the former one, the two lists after the briefing), delivered by
+`apply_ticket_0119_tick_prompt.py` fragment by fragment: the creator's
+edits are kept.
+
 ---
 
 *Co-built with Claude, June 2026.*

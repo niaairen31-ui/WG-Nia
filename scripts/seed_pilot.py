@@ -1129,6 +1129,19 @@ absent from the briefing.
 
 === event_creation PAYLOAD ===
   {"title":"…","description":"…",
+   "event_type":"t2",
+   "participants":[{"role":"<a role of the type>","name":"<name from the briefing>"},
+                   {"role":"<a role of the type>","sorte":"<a name from SORTES>"}],
+   "quantity":<int, only when the type counts one>,
+   "location":"<name, faction scope only, optional>"}
+
+"event_type" is the code of one type of TYPES D'ÉVÉNEMENTS (after the
+briefing). Each participant holds one of that type's roles, named exactly
+as listed: a person, place or faction by its NAME as the briefing writes
+it, or an anonymous kind of SORTES ("sorte") when the role accepts one.
+Never invent a type or a code. When no type of the list says what happened,
+use this former shape instead:
+  {"title":"…","description":"…",
    "type":"political|magical|criminal|military|social|mystery|other",
    "knowledge_status":"secret|public",
    "involved_entities":["<name from the briefing>", …],
@@ -1202,10 +1215,57 @@ WORLD_TICK_EVENTS_USER_TEMPLATE = """\
 SCOPE BRIEFING:
 {event_context}
 
+TYPES D'ÉVÉNEMENTS (code — nom, rôles) :
+{event_types}
+
+SORTES :
+{sortes}
+
 INTERVALLE ÉCOULÉ : {interval_label}
 
 Report what changed as a JSON array.\
 """
+
+# TICKET-0119 (BRIEF-0119-E, A1, R1): the tick names an event's type by
+# code and its participants by role and name, from the world's types and
+# sortes. The texts above hold each new fragment;
+# scripts/apply_ticket_0119_tick_prompt.py applies the same (field, old,
+# new) triples to the CURRENT version, so an edit the creator made in the
+# Prompts tab is kept (event_tick.py keeps the triples and the texts above
+# equal).
+WORLD_TICK_EVENTS_VARIABLES: tuple[str, ...] = ("event_context", "interval_label", "event_types", "sortes")
+WORLD_TICK_EVENTS_FRAGMENTS_0119: tuple[tuple[str, str, str], ...] = (
+    ("system_prompt",
+     "=== event_creation PAYLOAD ===\n"
+     '  {"title":"…","description":"…",\n'
+     '   "type":"political|magical|criminal|military|social|mystery|other",\n'
+     '   "knowledge_status":"secret|public",\n'
+     '   "involved_entities":["<name from the briefing>", …],\n'
+     '   "location":"<name, faction scope only, optional>"}\n',
+     "=== event_creation PAYLOAD ===\n"
+     '  {"title":"…","description":"…",\n'
+     '   "event_type":"t2",\n'
+     '   "participants":[{"role":"<a role of the type>","name":"<name from the briefing>"},\n'
+     '                   {"role":"<a role of the type>","sorte":"<a name from SORTES>"}],\n'
+     '   "quantity":<int, only when the type counts one>,\n'
+     '   "location":"<name, faction scope only, optional>"}\n'
+     "\n"
+     '"event_type" is the code of one type of TYPES D\'ÉVÉNEMENTS (after the\n'
+     "briefing). Each participant holds one of that type's roles, named exactly\n"
+     "as listed: a person, place or faction by its NAME as the briefing writes\n"
+     'it, or an anonymous kind of SORTES ("sorte") when the role accepts one.\n'
+     "Never invent a type or a code. When no type of the list says what happened,\n"
+     "use this former shape instead:\n"
+     '  {"title":"…","description":"…",\n'
+     '   "type":"political|magical|criminal|military|social|mystery|other",\n'
+     '   "knowledge_status":"secret|public",\n'
+     '   "involved_entities":["<name from the briefing>", …],\n'
+     '   "location":"<name, faction scope only, optional>"}\n'),
+    ("user_template", "SCOPE BRIEFING:\n{event_context}\n",
+     "SCOPE BRIEFING:\n{event_context}\n\nTYPES D'ÉVÉNEMENTS (code — nom, rôles) :\n{event_types}\n\n"
+     "SORTES :\n{sortes}\n"),
+)
+
 
 # BRIEF-47: World-bible generator. usage = "world_generation". Creator-side
 # draft generator for a NEW world's premise — entity_author.generate_world_draft
@@ -3242,7 +3302,7 @@ def seed(session: Session) -> None:
         usage="world_tick_events",
         system_prompt=WORLD_TICK_EVENTS_SYSTEM_PROMPT,
         user_template=WORLD_TICK_EVENTS_USER_TEMPLATE,
-        variables=["event_context", "interval_label"],
+        variables=list(WORLD_TICK_EVENTS_VARIABLES),
         destination="local",
     )
 

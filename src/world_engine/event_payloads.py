@@ -19,8 +19,8 @@ proposal's payload into that writer's `EventSpec`. Two payload shapes:
   `event_changes.payload_changes` for the writer to clean; and, edited on
   the review card (Y2, BRIEF-0119-D), its own `scopes` -- a list, even
   empty, replaces the type's.
-- untyped (the world tick until TICKET-0119, and every proposal written
-  before): `type` (a former category), `involved_entities`,
+- untyped (a world tick item naming no type of the world -- TICKET-0119,
+  A1 --, and every proposal written before): `type` (a former category), `involved_entities`,
   `knowledge_status`, `location_id`. It is typed by its domain
   (`writes.event_types.ensure_domain_type`, N1), its entities take the one
   role « Impliqué » when that role accepts their type (an entity it does
