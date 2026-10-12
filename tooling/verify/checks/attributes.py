@@ -120,11 +120,13 @@ TABLES: dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]] = {
         ("ck_attribute_value_one",),
         ("idx_attribute_value_pair", "idx_attribute_value_entity"),
     ),
+    # `event_id` and its index: v2.26 (TICKET-0119, BRIEF-0119-A), the event
+    # that made a change.
     "attribute_change": (
         ("id", "world_id", "value_id", "kind", "changed_by", "before_choice_id", "before_integer",
-         "before_entity_id", "after_choice_id", "after_integer", "after_entity_id", "changed_at"),
+         "before_entity_id", "after_choice_id", "after_integer", "after_entity_id", "changed_at", "event_id"),
         ("ck_attribute_change_kind",),
-        ("idx_attribute_change_value",),
+        ("idx_attribute_change_value", "idx_attribute_change_event"),
     ),
 }
 

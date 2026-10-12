@@ -19481,6 +19481,38 @@ typed shape, an EVENT_CREATION RUBRIC, the two lists in the message),
 delivered by `apply_ticket_0114_analysis_prompt.py`, fragment by fragment:
 the creator's edits are kept.
 
+## WHAT AN EVENT DOES TO THE STATE OF THE WORLD IS PART OF ITS TYPE (TICKET-0119) -- `event_type_effect`, AND A CHANGE KEEPS ITS EVENT (BRIEF-0119-a, schema v2.26)
+
+**M-c, C1.** An event type declares its effects as data: « Ouvrir : Cible
+-> Ouvert = oui », « Usurper : Trône -> Occupé par = l'Usurpateur ». An
+effect names a role of the type that holds an entity, a state -- one of
+the world's definitions, or a system state -- that applies to an entity
+type the role accepts, and one value of the state's kind: a choice, an
+integer, or the entity of another role. An effect only PRE-FILLS the
+changes of an event's proposal (TICKET-0119's later briefs); the creator
+keeps, edits or drops each, so nothing holds an effect and a type's effects
+are replaced whole.
+
+**D3.** An integer effect sets its value or ADDS to it (« Alerte + 1 »).
+A count of events stays the journal's: an integer state is for what is not
+a number of events.
+
+**E1.** An effect may change `État vital` and `Statut`, the two system
+states play may move (`EFFECT_SYSTEM_KEYS`); `Magie` stays the creator's.
+Their columns keep their own writers and no history table; the reason of a
+change is the event and its fact.
+
+**What an effect holds.** A definition an effect names is not retired, its
+kind does not change, and a choice it names stays (the WJ2 rule, extended).
+
+**A change keeps its event.** `attribute_change.event_id` names the event
+that made a `changement`; a creator's own correction names none, and an
+event never makes a `correction`.
+
+**Lore records an event (U1).** `lore_entry_row` may name `event`,
+`event_participant`, `attribute_value` and `attribute_change`, so an event
+Lore declares (BRIEF-0119-G) is recorded with every row it wrote.
+
 ---
 
 *Co-built with Claude, June 2026.*

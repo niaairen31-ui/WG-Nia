@@ -326,6 +326,9 @@ class DayMentionReview(SQLModel, table=True):
 LORE_ENTRY_ROW_TABLES: tuple[str, ...] = (
     "entity", "fact", "fact_participant", "fact_default", "knowledge",
     "relation", "faction_membership",
+    # v2.26 (TICKET-0119, U1): an event Lore declares, its participants, and
+    # the states it changes.
+    "event", "event_participant", "attribute_value", "attribute_change",
 )
 LORE_ENTRY_ROW_ACTIONS: tuple[str, ...] = ("created", "updated")
 
@@ -348,7 +351,8 @@ class LoreEntryRow(SQLModel, table=True):
         Index("idx_lore_entry_row_entry", "entry_id", "row_table", "row_id", unique=True),
         CheckConstraint(
             "row_table IN ('entity','fact','fact_participant','fact_default','knowledge',"
-            "'relation','faction_membership')",
+            "'relation','faction_membership','event','event_participant','attribute_value',"
+            "'attribute_change')",
             name="ck_lore_entry_row_table",
         ),
         CheckConstraint("action IN ('created','updated')", name="ck_lore_entry_row_action"),

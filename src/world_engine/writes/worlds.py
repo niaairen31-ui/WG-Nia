@@ -80,6 +80,7 @@ _DIRECT_WORLD_SCOPED_DELETES: tuple[str, ...] = (
     "attribute_value", "attribute_change",
     "event_type", "event_type_role", "event_type_role_type", "event_type_scope",
     "event_sorte", "event_participant", "condition_node_filter",
+    "event_type_effect",
 )
 
 # Refusing tables (root_table, label_column, guarded_children, message) —

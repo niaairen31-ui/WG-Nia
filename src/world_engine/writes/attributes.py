@@ -11,7 +11,8 @@ one writer of `attribute_definition`, `attribute_definition_type`,
   kind has an integer default, an `entity` kind names the types its value
   may take. On an existing definition, nothing in use is taken away (WJ2): its
   kind, a holder type an entity holding a value has, a value type a value
-  names, a choice a value or a condition holds. Writes nothing -- the
+  names, a choice a value, a condition or an event type's effect holds;
+  its kind while an effect names it (TICKET-0119). Writes nothing -- the
   interpreter validates a proposed definition through it (BRIEF-0113-E).
 - `write_attribute_definition(db, *, world_id, spec, definition_id=None)` :
   create or save one definition after cleaning it; its types are replaced
@@ -19,13 +20,14 @@ one writer of `attribute_definition`, `attribute_definition_type`,
   from the list is retired, never deleted, and a retired label named again
   comes back.
 - `set_attribute_status(db, *, world_id, definition_id, status)` : retire
-  or restore one definition; retiring is refused while a condition names it
-  (WJ2).
+  or restore one definition; retiring is refused while a condition or an
+  event type's effect names it (WJ2, TICKET-0119).
 - `write_attribute_value(db, *, world_id, definition_id, entity_id, value,
-  kind, changed_by)` : set one entity's value and append its
+  kind, changed_by, event_id=None)` : set one entity's value and append its
   `attribute_change` row -- the value before (the default when it held
-  none) and after, `correction` or `changement` (WD1). An unchanged value
-  writes nothing and returns None.
+  none) and after, `correction` or `changement` (WD1), and the event that
+  made it, when one did (M-c, TICKET-0119). An unchanged value writes
+  nothing and returns None.
 
 A system attribute (`attributes.SYSTEM_ATTRIBUTES`) is never written here:
 its column keeps its own writer. None of these functions commits.
@@ -58,6 +60,7 @@ from ..models import (
     AttributeDefinition,
     AttributeDefinitionType,
     AttributeValue,
+    EventTypeEffect,
     ConditionNode,
     Entity,
 )
@@ -183,6 +186,10 @@ def _leaves(db: Session, definition_id: str) -> list[ConditionNode]:
     )).all())
 
 
+def _effects(db: Session, definition_id: str) -> list[EventTypeEffect]:
+    return list(db.exec(select(EventTypeEffect).where(EventTypeEffect.definition_id == definition_id)).all())
+
+
 def _values(db: Session, definition_id: str) -> list[AttributeValue]:
     return list(db.exec(select(AttributeValue).where(AttributeValue.definition_id == definition_id)).all())
 
@@ -197,7 +204,8 @@ def _clean_update(db: Session, world_id: str, definition_id: str, clean: Definit
     if definition is None or definition.world_id != world_id:
         raise ValueError(f"unknown attribute {definition_id!r}")
     values, leaves = _values(db, definition_id), _leaves(db, definition_id)
-    if clean.kind != definition.kind and (values or leaves):
+    effects = _effects(db, definition_id)
+    if clean.kind != definition.kind and (values or leaves or effects):
         raise ValueError(f"« {definition.name} » is in use: its kind cannot change")
     held = {_entity_type(db, v.entity_id) for v in values} | {
         _entity_type(db, n.subject_entity_id) for n in leaves if n.subject_entity_id}
@@ -208,7 +216,8 @@ def _clean_update(db: Session, world_id: str, definition_id: str, clean: Definit
     for entity_type in sorted(t for t in named if t and t not in clean.value_types):
         raise ValueError(f"« {definition.name} » names a {entity_type}: that value type stays")
     kept = {c.id for c in clean.choices if c.id}
-    used = {v.choice_id for v in values if v.choice_id} | {n.value for n in leaves if n.value}
+    used = {v.choice_id for v in values if v.choice_id} | {n.value for n in leaves if n.value} | {
+        e.choice_id for e in effects if e.choice_id}
     for choice in _choice_rows(db, definition_id):
         if choice.status == "active" and choice.id not in kept and choice.id in used:
             raise ValueError(f"the label « {choice.label} » is in use: it stays")
@@ -287,6 +296,8 @@ def set_attribute_status(db: Session, *, world_id: str, definition_id: str, stat
         raise ValueError(f"unknown attribute {definition_id!r}")
     if status == "retired" and _leaves(db, definition_id):
         raise ValueError(f"« {definition.name} » is named by a condition: it cannot be retired")
+    if status == "retired" and _effects(db, definition_id):
+        raise ValueError(f"« {definition.name} » is changed by an event type: it cannot be retired")
     definition.status = status
     definition.updated_at = datetime.now(UTC)
     db.add(definition)
@@ -337,15 +348,18 @@ def _columns(kind: str, raw: RawValue, prefix: str) -> dict:
 
 def write_attribute_value(
     db: Session, *, world_id: str, definition_id: str, entity_id: str, value: RawValue, kind: str,
-    changed_by: str,
+    changed_by: str, event_id: Optional[str] = None,
 ) -> Optional[AttributeChange]:
     """Set one entity's value of one active definition (WD1): `kind` is
-    `correction` or `changement`. Returns the appended `attribute_change`, or
-    None when the value is unchanged (nothing written)."""
+    `correction` or `changement`; `event_id` the event that made it (M-c),
+    a `changement` only. Returns the appended `attribute_change`, or None
+    when the value is unchanged (nothing written)."""
     if kind not in ATTRIBUTE_CHANGE_KINDS:
         raise ValueError(f"unknown change kind {kind!r}")
     if not changed_by:
         raise ValueError("a change names who made it")
+    if event_id is not None and kind != "changement":
+        raise ValueError("an event changes the world: its change is a `changement`")
     definition = db.get(AttributeDefinition, definition_id)
     if definition is None or definition.world_id != world_id or definition.status != "active":
         raise ValueError(f"unknown attribute {definition_id!r}")
@@ -367,7 +381,7 @@ def write_attribute_value(
     db.add(row)
     db.flush()
     change = AttributeChange(
-        world_id=world_id, value_id=row.id, kind=kind, changed_by=changed_by,
+        world_id=world_id, value_id=row.id, kind=kind, changed_by=changed_by, event_id=event_id,
         **_columns(definition.kind, before, "before_"), **_columns(definition.kind, after, "after_"),
     )
     db.add(change)

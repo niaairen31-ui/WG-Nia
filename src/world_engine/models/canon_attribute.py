@@ -18,7 +18,9 @@ names holds one value of it, its history kept row by row:
 - `attribute_value`           : one entity's current value -- a choice, an
   integer, or an entity (none of the three: an `entity` kind left empty).
 - `attribute_change`          : the history (WD1), append-only: the value
-  before and after each write, `correction` or `changement`, by whom.
+  before and after each write, `correction` or `changement`, by whom --
+  and, for a change an event made (M-c, TICKET-0119, v2.26), that event
+  (`event_id`).
 
 The states the canon already keeps (`character.vital_status`,
 `entity.status`, `location.magic_status`) are read as SYSTEM attributes by
@@ -125,6 +127,7 @@ class AttributeChange(SQLModel, table=True):
     __table_args__ = (
         CheckConstraint("kind IN ('correction','changement')", name="ck_attribute_change_kind"),
         Index("idx_attribute_change_value", "value_id", "changed_at"),
+        Index("idx_attribute_change_event", "event_id"),
     )
 
     id: str = Field(default_factory=_uuid, primary_key=True)
@@ -139,3 +142,6 @@ class AttributeChange(SQLModel, table=True):
     after_integer: Optional[int] = None
     after_entity_id: Optional[str] = Field(default=None, foreign_key="entity.id")
     changed_at: datetime = _created_ts()
+    # v2.26 (TICKET-0119, M-c): the event that made this change, when one
+    # did; a creator's own edit has none.
+    event_id: Optional[str] = Field(default=None, foreign_key="event.id")

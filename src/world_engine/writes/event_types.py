@@ -1,7 +1,7 @@
 """The writer of the event journal's vocabulary (TICKET-0114, BRIEF-0114-A;
 decisions B1, C1, D1, N1 and W1 of the conditions series): the one writer of
-`event_type`, `event_type_role`, `event_type_role_type`, `event_type_scope`
-and `event_sorte`.
+`event_type`, `event_type_role`, `event_type_role_type`, `event_type_scope`,
+`event_type_effect` (TICKET-0119) and `event_sorte`.
 
 - `clean_event_type(db, world_id, spec, type_id=None)` : a type as it will
   be written, or `ValueError` -- its name is no other type's of the world
@@ -9,14 +9,21 @@ and `event_sorte`.
   `EVENT_DOMAINS`, one role or more with distinct names, each accepting one
   of the world's entity types or a sorte; a scope on `rencontre` names a
   role that accepts an entity, on `faction` a role that accepts a faction.
-  On an existing type, nothing in use is taken away: a role an event or a
+  An effect (M-c, TICKET-0119, `EFFECT_SYSTEM_KEYS` for E1) names one of
+  its roles that holds an entity, a state of the world -- one of the world's
+  active definitions, or `État vital` / `Statut` -- that applies to an
+  entity type the role accepts, and a value of that state's kind: one of its
+  choices, an integer (`add` only for an integer, D3), or another role whose
+  entity the state may name; never the same role and state twice. On an
+  existing type, nothing in use is taken away: a role an event or a
   condition names, an entity type a participant has, a sorte a participant
   is, a quantity an event carries. Writes nothing -- the interpreter and the
   analyzer validate a proposed type through it.
 - `write_event_type(db, *, world_id, spec, type_id=None)` : create or save
   one type after cleaning it. Roles are matched by id, else by name; a role
   dropped from the list is retired, never deleted, and comes back when named
-  again. A role's entity types and the type's scopes are replaced whole.
+  again. A role's entity types, the type's scopes and its effects are
+  replaced whole (an effect only pre-fills a proposal: nothing holds it).
 - `set_event_type_status(db, *, world_id, type_id, status)` : retire or
   restore a type; retiring is refused while a condition names it.
 - `clean_sorte_name` / `write_sorte(db, *, world_id, name, sorte_id=None)` /
@@ -39,11 +46,12 @@ from typing import Optional
 from sqlalchemy import text
 from sqlmodel import Session, select
 
-from ..attributes import world_entity_types
+from ..attributes import AttributeView, attribute_view, world_entity_types
 from ..event_vocab import DOMAIN_LABELS_FR, DOMAIN_ROLE_FR, EVENT_FORM
 from ..lore_resolve import normalize_surface
 from ..models import (
     EVENT_DOMAINS,
+    EVENT_EFFECT_MODES,
     EVENT_SCOPE_KINDS,
     EVENT_SCOPE_LEVELS,
     EVENT_VOCAB_STATUSES,
@@ -54,6 +62,7 @@ from ..models import (
     EventParticipant,
     EventSorte,
     EventType,
+    EventTypeEffect,
     EventTypeRole,
     EventTypeRoleType,
     EventTypeScope,
@@ -61,6 +70,10 @@ from ..models import (
 
 MAX_NAME_CHARS = 80
 MAX_ROLES = 8
+MAX_EFFECTS = 8
+# E1 (TICKET-0119): the system states an effect may change. `Magie` stays
+# the creator's alone.
+EFFECT_SYSTEM_KEYS: tuple[str, ...] = ("sys:vital_status", "sys:status")
 
 
 @dataclass(frozen=True)
@@ -82,6 +95,18 @@ class ScopeSpec:
 
 
 @dataclass(frozen=True)
+class EffectSpec:
+    """One effect as the creator states it (M-c): `role` and, for an
+    `entity` state, `value` are role NAMES of the type; `attribute` is a
+    definition id or a system key; `value` is otherwise a choice key or an
+    integer. `mode` is `set` or, for an integer, `add` (D3)."""
+    role: str
+    attribute: str
+    value: object
+    mode: str = "set"
+
+
+@dataclass(frozen=True)
 class EventTypeSpec:
     name: str
     domain: str = "other"
@@ -90,6 +115,7 @@ class EventTypeSpec:
     in_chronicle: bool = True
     participants_secret: bool = False
     scopes: tuple[ScopeSpec, ...] = ()
+    effects: tuple[EffectSpec, ...] = ()
 
 
 # --- cleaning ------------------------------------------------------------------
@@ -166,6 +192,59 @@ def _clean_scopes(roles: tuple[RoleSpec, ...], scopes: tuple[ScopeSpec, ...]) ->
     return tuple(seen)
 
 
+def _effect_state(db: Session, world_id: str, key: object) -> AttributeView:
+    view = attribute_view(db, world_id, key) if isinstance(key, str) else None
+    if view is None or view.status != "active":
+        raise ValueError(f"unknown state {key!r}")
+    if view.system and view.key not in EFFECT_SYSTEM_KEYS:
+        raise ValueError(f"« {view.name} » is the creator's alone: no event changes it")
+    return view
+
+
+def _effect_value(view: AttributeView, effect: EffectSpec, by_key: dict, role: RoleSpec) -> object:
+    if effect.mode not in EVENT_EFFECT_MODES:
+        raise ValueError(f"unknown effect mode {effect.mode!r}")
+    if effect.mode == "add" and view.kind != "integer":
+        raise ValueError(f"« {view.name} » is not a number: an effect sets it")
+    if view.kind == "integer":
+        if not isinstance(effect.value, int) or isinstance(effect.value, bool):
+            raise ValueError(f"« {view.name} » takes an integer")
+        return effect.value
+    if view.kind == "choice":
+        if effect.value not in dict(view.choices):
+            raise ValueError(f"{effect.value!r} is no value of « {view.name} »")
+        return effect.value
+    other = by_key.get(normalize_surface(str(effect.value or "")))
+    if other is None or other is role:
+        raise ValueError(f"« {view.name} » names the entity of another role of the type")
+    if not set(other.entity_types) & set(view.value_types):
+        raise ValueError(f"the role « {other.name} » holds no entity « {view.name} » may name")
+    return other.name
+
+
+def _clean_effects(db: Session, world_id: str, roles: tuple[RoleSpec, ...],
+                   effects: tuple[EffectSpec, ...]) -> tuple[EffectSpec, ...]:
+    by_key = {normalize_surface(role.name): role for role in roles}
+    if len(effects) > MAX_EFFECTS:
+        raise ValueError(f"an event type has at most {MAX_EFFECTS} effects")
+    seen: list[EffectSpec] = []
+    for effect in effects:
+        role = by_key.get(normalize_surface(str(effect.role or "")))
+        if role is None:
+            raise ValueError("an effect names one of the type's roles")
+        if not role.entity_types:
+            raise ValueError(f"the role « {role.name} » holds no entity: no state to change")
+        view = _effect_state(db, world_id, effect.attribute)
+        if view.holder_types is not None and not set(role.entity_types) & set(view.holder_types):
+            raise ValueError(f"« {view.name} » applies to no entity the role « {role.name} » holds")
+        clean = EffectSpec(role=role.name, attribute=view.key, value=_effect_value(view, effect, by_key, role),
+                           mode=effect.mode)
+        if any(s.role == clean.role and s.attribute == clean.attribute for s in seen):
+            raise ValueError(f"the role « {role.name} » changes « {view.name} » twice")
+        seen.append(clean)
+    return tuple(seen)
+
+
 def clean_event_type(db: Session, world_id: str, spec: EventTypeSpec, type_id: Optional[str] = None) -> EventTypeSpec:
     """`spec` as it will be written; raises `ValueError` on any violation.
     Writes nothing."""
@@ -176,6 +255,7 @@ def clean_event_type(db: Session, world_id: str, spec: EventTypeSpec, type_id: O
         name=_clean_type_name(db, world_id, spec.name, type_id), domain=spec.domain, roles=roles,
         counts_quantity=bool(spec.counts_quantity), in_chronicle=bool(spec.in_chronicle),
         participants_secret=bool(spec.participants_secret), scopes=_clean_scopes(roles, tuple(spec.scopes)),
+        effects=_clean_effects(db, world_id, roles, tuple(spec.effects)),
     )
     if type_id is not None:
         _clean_update(db, world_id, type_id, clean)
@@ -275,6 +355,29 @@ def _write_scopes(db: Session, world_id: str, type_id: str, clean: EventTypeSpec
                               level=scope.level))
 
 
+def _write_effects(db: Session, world_id: str, type_id: str, clean: EventTypeSpec, ids: dict[str, str]) -> None:
+    """The type's effects replaced whole: an effect pre-fills a proposal,
+    nothing holds it."""
+    db.execute(text("DELETE FROM event_type_effect WHERE type_id = :tid"), {"tid": type_id})
+    for position, effect in enumerate(clean.effects):
+        row = EventTypeEffect(world_id=world_id, type_id=type_id, role_id=ids[normalize_surface(effect.role)],
+                              mode=effect.mode, position=position)
+        if effect.attribute.startswith("sys:"):
+            row.system_key = effect.attribute
+        else:
+            row.definition_id = effect.attribute
+        kind = attribute_view(db, world_id, effect.attribute).kind
+        if kind == "integer":
+            row.integer_value = effect.value
+        elif kind == "entity":
+            row.value_role_id = ids[normalize_surface(effect.value)]
+        elif row.system_key is not None:
+            row.system_value = effect.value
+        else:
+            row.choice_id = effect.value
+        db.add(row)
+
+
 def write_event_type(
     db: Session, *, world_id: str, spec: EventTypeSpec, type_id: Optional[str] = None,
 ) -> EventType:
@@ -293,6 +396,7 @@ def write_event_type(
     db.flush()
     ids = _write_roles(db, world_id, row.id, clean)
     _write_scopes(db, world_id, row.id, clean, ids)
+    _write_effects(db, world_id, row.id, clean, ids)
     db.flush()
     return row
 

@@ -10,6 +10,7 @@ item_holding quest_offer_term quest_term quest_economy
 debt debt_term
 attribute_definition attribute_definition_type attribute_choice attribute_value attribute_change
 event_type event_type_role event_type_role_type event_type_scope event_sorte event_participant condition_node_filter
+event_type_effect
 
 [ALLOWED_SITES]
 # path::function                                              tables
@@ -79,6 +80,8 @@ src/world_engine/writes/attributes.py::write_attribute_value    attribute_value 
 src/world_engine/writes/event_types.py::write_event_type       event_type
 src/world_engine/writes/event_types.py::_write_roles           event_type_role event_type_role_type
 src/world_engine/writes/event_types.py::_write_scopes          event_type_scope
+# TICKET-0119, BRIEF-0119-A: _write_effects replaces a type's effects whole (an effect only pre-fills a proposal; nothing holds it). Same callers as write_event_type.
+src/world_engine/writes/event_types.py::_write_effects         event_type_effect
 src/world_engine/writes/event_types.py::set_event_type_status  event_type
 src/world_engine/writes/event_types.py::write_sorte            event_sorte
 src/world_engine/writes/event_types.py::set_sorte_status       event_sorte

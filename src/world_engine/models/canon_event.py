@@ -22,6 +22,13 @@ and every `event` row is one happening of one of those types:
   « bandit » -- a role may be filled by one, with the event's quantity.
 - `event_participant`     : who took part in one event, in which role: an
   entity or a sorte, exactly one (V1; it replaces `event_entity`).
+- `event_type_effect`     : what an event of the type does to the state of
+  the world (M-c, TICKET-0119, schema v2.26) -- « Ouvrir : Cible -> Ouvert =
+  oui » --, in order: the role whose entity changes, the state (a world's
+  definition, or `État vital` / `Statut`, E1), and the value it takes -- a
+  choice, an integer set or ADDED (D3), or the entity of another role
+  (« Occupé par = l'Usurpateur »). It pre-fills the changes of an event's
+  proposal; the creator keeps, edits or drops each.
 
 `writes/event_types.py` is the one writer of the vocabulary tables,
 `writes/events.py` the one writer of `event_participant`. Same
@@ -53,6 +60,8 @@ EVENT_VOCAB_STATUSES: tuple[str, ...] = ("active", "retired")
 EVENT_SCOPE_LEVELS: tuple[str, ...] = (
     "unaware", "rumor", "suspicious", "partial", "knows", "fully_understands",
 )
+# D3 (TICKET-0119): an effect sets its value, or adds an integer to it.
+EVENT_EFFECT_MODES: tuple[str, ...] = ("set", "add")
 
 
 def _in(values: tuple[str, ...]) -> str:
@@ -160,4 +169,41 @@ class EventParticipant(SQLModel, table=True):
     role_id: str = Field(foreign_key="event_type_role.id", nullable=False)
     entity_id: Optional[str] = Field(default=None, foreign_key="entity.id")
     sorte_id: Optional[str] = Field(default=None, foreign_key="event_sorte.id")
+    position: int = Field(default=0, sa_column_kwargs={"server_default": text("0")})
+
+
+class EventTypeEffect(SQLModel, table=True):
+    """One effect of a type (M-c, TICKET-0119): the entity in `role_id`
+    takes, for the state `definition_id` (a world's) or `system_key` (E1:
+    `sys:vital_status`, `sys:status`), exactly one value -- `choice_id` (a
+    definition's choice), `system_value` (a system state's stored value),
+    `integer_value` (set, or added when `mode` is `add`), or the entity of
+    the role `value_role_id`. Which one fits the state's kind is
+    `writes.event_types`'s rule; the table holds that exactly one is set."""
+    __tablename__ = "event_type_effect"
+    __table_args__ = (
+        CheckConstraint(f"mode IN ({_in(EVENT_EFFECT_MODES)})", name="ck_event_type_effect_mode"),
+        CheckConstraint(
+            "(definition_id IS NOT NULL) + (system_key IS NOT NULL) = 1", name="ck_event_type_effect_state",
+        ),
+        CheckConstraint(
+            "(choice_id IS NOT NULL) + (system_value IS NOT NULL) + (integer_value IS NOT NULL)"
+            " + (value_role_id IS NOT NULL) = 1", name="ck_event_type_effect_value",
+        ),
+        CheckConstraint("mode = 'set' OR integer_value IS NOT NULL", name="ck_event_type_effect_add"),
+        Index("idx_event_type_effect_type", "type_id", "position"),
+        Index("idx_event_type_effect_definition", "definition_id"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    type_id: str = Field(foreign_key="event_type.id", nullable=False)
+    role_id: str = Field(foreign_key="event_type_role.id", nullable=False)
+    definition_id: Optional[str] = Field(default=None, foreign_key="attribute_definition.id")
+    system_key: Optional[str] = None
+    mode: str = Field(default="set", sa_column_kwargs={"server_default": text("'set'")})
+    choice_id: Optional[str] = Field(default=None, foreign_key="attribute_choice.id")
+    system_value: Optional[str] = None
+    integer_value: Optional[int] = None
+    value_role_id: Optional[str] = Field(default=None, foreign_key="event_type_role.id")
     position: int = Field(default=0, sa_column_kwargs={"server_default": text("0")})

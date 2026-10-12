@@ -70,7 +70,8 @@ Layout, by canon domain:
                           (TICKET-0113, BRIEF-0113-A).
     event_types.py      — the event journal's vocabulary: `event_type`,
                           `event_type_role`, `event_type_role_type`,
-                          `event_type_scope`, `event_sorte`:
+                          `event_type_scope`, `event_type_effect`
+                          (TICKET-0119), `event_sorte`:
                           `clean_event_type`, `write_event_type`,
                           `set_event_type_status`, `write_sorte`,
                           `set_sorte_status`, `ensure_domain_type`

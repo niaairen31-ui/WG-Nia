@@ -2,7 +2,8 @@
 decisions B1, C1, D1, N1 and W1 of the conditions series).
 
 A world's event types -- each with its roles in order, the entity types a
-role accepts and whether a sorte may fill it, who learns an event of it --
+role accepts and whether a sorte may fill it, who learns an event of it,
+what it does to the state of the world (its effects, M-c, TICKET-0119) --
 and its sortes. Every surface that names an event type or a sorte reads
 them here: the Création « Vocabulaire du monde » tab, the journal's sheet,
 the `event` condition form, the interpreter, the play analyzer.
@@ -29,6 +30,7 @@ from .lore_resolve import near_ratio, near_score, normalize_surface
 from .models import (
     EventSorte,
     EventType,
+    EventTypeEffect,
     EventTypeRole,
     EventTypeRoleType,
     EventTypeScope,
@@ -63,6 +65,21 @@ class ScopeView:
 
 
 @dataclass(frozen=True)
+class EffectView:
+    """One effect of a type (M-c, TICKET-0119): the entity in `role_id`
+    takes, for the state `attribute` (a definition's id, or a system key),
+    `value` -- a choice's key (a definition's choice id, or a system state's
+    stored value), an integer (set, or added when `mode` is `add`, D3), or
+    the id of the role whose entity it names (`value_kind` says which)."""
+    role_id: str
+    attribute: str
+    mode: str
+    value_kind: str  # "choice" | "integer" | "role"
+    value: object
+    position: int
+
+
+@dataclass(frozen=True)
 class EventTypeView:
     id: str
     world_id: str
@@ -74,6 +91,7 @@ class EventTypeView:
     status: str
     roles: tuple[RoleView, ...]
     scopes: tuple[ScopeView, ...]
+    effects: tuple[EffectView, ...] = ()
 
     def role(self, role_id: Optional[str]) -> Optional[RoleView]:
         return next((r for r in self.roles if r.id == role_id), None)
@@ -104,17 +122,35 @@ def _scopes(db: Session, type_id: str) -> tuple[ScopeView, ...]:
     return tuple(ScopeView(row.scope_kind, row.role_id, row.level) for row in rows)
 
 
+def effect_view(row: EventTypeEffect) -> EffectView:
+    """One stored effect as every reader sees it."""
+    if row.value_role_id is not None:
+        kind, value = "role", row.value_role_id
+    elif row.integer_value is not None:
+        kind, value = "integer", row.integer_value
+    else:
+        kind, value = "choice", row.choice_id if row.choice_id is not None else row.system_value
+    return EffectView(role_id=row.role_id, attribute=row.definition_id or row.system_key, mode=row.mode,
+                      value_kind=kind, value=value, position=row.position)
+
+
+def _effects(db: Session, type_id: str) -> tuple[EffectView, ...]:
+    rows = db.exec(select(EventTypeEffect).where(EventTypeEffect.type_id == type_id)
+                   .order_by(EventTypeEffect.position, EventTypeEffect.id)).all()
+    return tuple(effect_view(row) for row in rows)
+
+
 def _view(db: Session, row: EventType) -> EventTypeView:
     return EventTypeView(
         id=row.id, world_id=row.world_id, name=row.name, domain=row.domain,
         counts_quantity=row.counts_quantity, in_chronicle=row.in_chronicle,
         participants_secret=row.participants_secret, status=row.status,
-        roles=_roles(db, row.id), scopes=_scopes(db, row.id),
+        roles=_roles(db, row.id), scopes=_scopes(db, row.id), effects=_effects(db, row.id),
     )
 
 
 def type_view(db: Session, type_id: Optional[str]) -> Optional[EventTypeView]:
-    """One event type, its roles and scopes; None when there is none."""
+    """One event type, its roles, scopes and effects; None when there is none."""
     row = db.get(EventType, type_id) if type_id else None
     return _view(db, row) if row is not None else None
 
