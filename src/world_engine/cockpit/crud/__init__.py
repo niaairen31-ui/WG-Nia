@@ -38,10 +38,10 @@ Deletion policy:
   `_apply_mutation`'s `resource_change` branch, BRIEF-19, which reuses the
   same helper).
 - `event` rows: **no delete, ever** (TICKET-0022, C3) — an event either
-  happened or did not; `event` is history. Retraction is
-  `knowledge_status = 'secret'`, which structurally excludes the row from
-  all four readers (`context.py`, `tick.py` x2, the play routes' return-visit
-  delta). Mirrors `ledger`'s append-only policy above.
+  happened or did not; `event` is history. Since TICKET-0114 (BRIEF-0114-C)
+  who knows it is its fact's knowledge and scopes: a retraction removes its
+  scopes (no one learns it any more), never the row. Mirrors `ledger`'s
+  append-only policy above.
 
 Author edits to `relation` are state-setting, not delta accumulation —
 but still append the previous state to `change_history` first (history is
@@ -168,13 +168,8 @@ from .agendas import (
 )
 from .events import (
     EVENT_FIELDS,
-    EVENT_KNOWLEDGE_STATUSES,
-    EVENT_TYPE_LABELS_FR,
-    EventCreateBody,
-    EventUpdateBody,
+    EventBody,
     _event_dict,
-    _validate_event_involved,
-    _validate_event_location,
     create_event,
     get_event,
     list_events,

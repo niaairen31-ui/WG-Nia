@@ -20,9 +20,9 @@ a brief. The set, and why each entry is here:
   knowledge lookup, extracted to keep the serializer a flat dict.
 - `KNOWLEDGE_LEVELS_ORDERED`, `KNOWLEDGE_FIELDS`, `_knowledge_dict`,
   `_list_knowledge` — same reasoning, for `knowledge.py`.
-- `EVENT_TYPE_LABELS_FR`, `EVENT_KNOWLEDGE_STATUSES`, `EVENT_FIELDS` —
-  `EVENT_FIELDS` is built from the other two, which `events.py` also uses
-  for its own validation; kept together as one source of truth.
+- `EVENT_FIELDS` — the journal sheet's plain fields (since TICKET-0114,
+  BRIEF-0114-C: the former categories and `knowledge_status` are gone, a
+  type and its scopes say what they said).
 - `_validate_entity_ref`, `_coerce_field` (BRIEF-0046-e) — the generic
   field-coercion pair, re-homed here so both `entities.py` (static
   `ENTITY_TYPE_REGISTRY` CRUD) and the new `entity_runtime.py` (governed
@@ -285,28 +285,12 @@ def _list_knowledge(entity_id: str, db: DbSession) -> list[dict]:
     return [_knowledge_dict(k, db) for k in rows]
 
 
-EVENT_TYPE_LABELS_FR: dict[str, str] = {
-    "political": "politique",
-    "military":  "militaire",
-    "criminal":  "criminel",
-    "social":    "social",
-    "mystery":   "mystère",
-    "magical":   "magique",
-    "other":     "autre",
-}
-
-
-EVENT_KNOWLEDGE_STATUSES = ("secret", "public", "confirmed")
-
-
+# The journal's plain fields (TICKET-0114, BRIEF-0114-C): the type, the
+# quantity, the participants and the scopes are the journal sheet's own
+# editors (`Evenements.svelte`), never generic fields.
 EVENT_FIELDS: list[dict[str, Any]] = [
     {"name": "title", "label": "Titre", "kind": "text", "required": True},
     {"name": "description", "label": "Description", "kind": "textarea"},
-    {"name": "type", "label": "Type", "kind": "datalist",
-     "options": list(EVENT_TYPE_LABELS_FR.keys())},
-    {"name": "knowledge_status", "label": "Statut de connaissance",
-     "kind": "select", "options": list(EVENT_KNOWLEDGE_STATUSES),
-     "default": "secret", "required": True},
     {"name": "location_id", "label": "Lieu", "kind": "entity_ref",
      "ref_type": "location"},
 ]

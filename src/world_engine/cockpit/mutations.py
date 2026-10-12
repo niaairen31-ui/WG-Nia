@@ -31,6 +31,7 @@ from typing import Any, Optional
 
 from sqlmodel import Session, select
 
+from ..event_payloads import provenance, spec_from_payload
 from ..fact_refs import find_held, knowledge_key
 from ..gathering import close_open_memberships
 from ..ledger import get_balance as _get_balance
@@ -691,41 +692,19 @@ def _mutation_apply_npc_move(mut: ProposedMutation, payload: dict, db: Session) 
 # ── event_creation (TICKET-0017, BRIEF-0017-a) ──────────────────────────────
 
 def _mutation_apply_event_creation(mut: ProposedMutation, payload: dict, db: Session) -> Optional[str]:
-    """Tolerant of BOTH payload generations — the scope-level tick's closed
-    shape and the analyzer's minimal conversation-sourced shape.
-    knowledge_status clamped to secret|public|confirmed (defense in depth).
-    A present location_id must resolve to an ACTIVE location entity of this
-    world, else "Needs attention", nothing written."""
-    title = payload.get("title")
-    if not title:
+    """Since TICKET-0114 (BRIEF-0114-C): the payload -- typed (the play
+    analyzer) or untyped (the world tick, earlier proposals) -- is read into
+    an `EventSpec` (`event_payloads.spec_from_payload`) and written by the
+    journal's one writer, its fact, scopes and participants' knowledge with
+    it. Any refusal of the writer is "Needs attention", nothing written."""
+    if not payload.get("title"):
         return "event_creation: payload must contain title"
-
-    knowledge_status = payload.get("knowledge_status")
-    if knowledge_status not in ("secret", "public", "confirmed"):
-        knowledge_status = "secret"
-
-    location_id = payload.get("location_id")
-    if location_id:
-        location_entity = db.get(Entity, location_id)
-        if (
-            location_entity is None
-            or location_entity.type != "location"
-            or location_entity.status != "active"
-            or location_entity.world_id != mut.world_id
-        ):
-            return f"event_creation: location {location_id!r} is not an active location in this world"
-
-    write_event(
-        db,
-        world_id=mut.world_id,
-        title=str(title),
-        description=payload.get("description"),
-        type=payload.get("type"),
-        knowledge_status=knowledge_status,
-        involved_entities=payload.get("involved_entities"),
-        location_id=location_id,
-        mutation_id=mut.id,
-    )
+    session_id, batch_id = provenance(db, mut)
+    try:
+        spec = spec_from_payload(db, mut.world_id, payload, session_id=session_id, batch_id=batch_id)
+        write_event(db, world_id=mut.world_id, spec=spec, created_by=f"mutation:{mut.id}")
+    except ValueError as exc:
+        return f"event_creation: {exc}"
     return None
 
 

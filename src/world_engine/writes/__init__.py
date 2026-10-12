@@ -34,7 +34,10 @@ Layout, by canon domain:
                           `world_law`, `obstacle`/`obstacle_vertex`).
     goals_agendas.py    — `npc_goal`/`goal_prerequisite`/`agenda`/
                           `agenda_step`/`goal_agenda_link`.
-    events.py           — `event`.
+    events.py           — the event journal: `event`, `event_participant`,
+                          its fact, scopes and participants' knowledge:
+                          `clean_event`, `write_event`, `write_event_update`
+                          (TICKET-0114, BRIEF-0114-C).
     prompts.py          — `prompt_version`/`prompt_variable` (non-canon;
                           moved for module hygiene, not policy).
     pipeline.py         — `batch`/`pass_play` (TICKET-0075, BRIEF-0075-a).
@@ -98,7 +101,7 @@ from .config import (
     write_npc_schedule,
     write_world_laws,
 )
-from .events import write_event, write_event_update
+from .events import EventScopeSpec, EventSpec, ParticipantSpec, clean_event, event_fact_text, write_event, write_event_update
 from .facts import (
     attach_participants,
     create_fact,

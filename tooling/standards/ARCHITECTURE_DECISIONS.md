@@ -19306,6 +19306,44 @@ cards.
 sortes need another), T2 (types inside the « Événements » tab: the
 vocabulary split from the states it sits beside).
 
+## AN EVENT IS WRITTEN WITH ITS PARTICIPANTS, ITS FACT AND WHO LEARNS IT (TICKET-0114) -- ONE WRITER FOR THE JOURNAL AND FOR AN APPROVED PROPOSAL, TYPED OR NOT (BRIEF-0114-c, no schema change)
+
+**One writer.** `writes/events.py` writes an event and everything that
+makes it known: its participants by role (`event_participant`, V1), its fact
+(`fact.event_id`, facet `evenement`, its title then its description), the
+fact's scopes (`fact_default`: the type's made concrete -- its place, the
+world, the acquaintances of a role's entity, a faction filling a role --
+unless the event says its own, W1) and one `knowledge` row at `knows` for
+each character taking part (K-a). The creator's journal
+(`cockpit/crud/events.py`) and `_apply_mutation`'s `event_creation` both
+call it; `event_payloads.py` turns a proposal's payload into its spec.
+
+**X1: secrecy belongs to each participant.** The type gives the default; each
+character's own knowledge row carries his `is_secret`, so one participant
+may speak of what the others keep. A player character's row is never
+secret (INV-07). Who learns an event is a separate matter (its scopes):
+a secret pact may still be seen by whoever passes through the tavern.
+
+**A correction keeps what happened.** The journal corrects an event's
+title, description, place and quantity -- its fact's text rewritten as a
+`correction`, the former text in its history --, adds a participant, sets
+a participant's secret, and replaces its scopes whole (`_write_scopes`,
+named in `single_canon_write.py`). Its type does not change and no
+participant is taken away: write another event. A retraction empties its
+scopes; the row is never deleted (C3).
+
+**The untyped proposal (N1, O1).** The world tick, and every proposal
+written before, still sends a former category, `involved_entities` and a
+`knowledge_status`: it is typed by its domain (`ensure_domain_type`, made
+for the world when missing), its entities take the role « Impliqué » when
+it accepts them, and `public`/`confirmed` means known by everyone at
+`knows`, `secret` by its participants only -- the meaning the column had.
+TICKET-0119 makes the tick propose typed events.
+
+**E1.** An event keeps the session, and the day, it was proposed in (the
+mutation's conversation or declared action): the calendar of TICKET-0120
+will place every event on it without guessing.
+
 ---
 
 *Co-built with Claude, June 2026.*

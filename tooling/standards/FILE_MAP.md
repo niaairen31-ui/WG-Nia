@@ -155,6 +155,7 @@
 - `encounters.py` — Encounter registry writer and reads (TICKET-0091, BRIEF-0091-C, C-07).
 - `entity_author.py` — AI entity-authoring assistant (NPC, Location) — BRIEF-24, BRIEF-25.
 - `event_author.py` — AI event/agenda-authoring assistant — extracted from `entity_author.py` (TICKET-0028, BRIEF-0028-d, decision H1).
+- `event_payloads.py` — A model's event proposal, read into the journal's spec (TICKET-0114, BRIEF-0114-C; decisions D1, E1, I2, N1 and O1 of the conditions series).
 - `event_vocab.py` — The event journal's vocabulary, read (TICKET-0114, BRIEF-0114-A; decisions B1, C1, D1, N1 and W1 of the conditions series).
 - `facet_reads.py` — Facet reads (TICKET-0091, BRIEF-0091-D, C-10): one call to read what is said of an entity, facet by facet.
 - `facets.py` — The facet registry (TICKET-0091, BRIEF-0091-A, contract C-01).
@@ -248,7 +249,7 @@
 - `entities.py` — Author CRUD — entity core: field-spec vocabularies, the entity type registry, field coercion/validation, entity serialization, and composite create/update/soft-delete for character/faction/location/artifact.
 - `entity_geometry.py` — Author CRUD — location spatial write surface: playable bounds, obstacle polygons and door rows.
 - `entity_runtime.py` — Governed-runtime-type instance CRUD mechanics (TICKET-0046, BRIEF-0046-e).
-- `events.py` — Author CRUD — events (TICKET-0022): no-delete-ever history rows.
+- `events.py` — Author CRUD — the event journal (TICKET-0022; rewritten by TICKET-0114, BRIEF-0114-C): no-delete-ever history rows.
 - `facets.py` — Author CRUD — descriptive facts of an entity (TICKET-0091, BRIEF-0091-E, contract C-12).
 - `factions.py` — Author CRUD — faction roles and faction membership.
 - `goals.py` — Author CRUD — NPC goals (in-scene volition) and goal<->agenda links.
@@ -313,7 +314,7 @@
 - `debt_sources.py` — Where a debt comes from besides the creator's hand (TICKET-0110, BRIEF-0110-B, S2 and A2, contract C-05).
 - `debts.py` — Debts: the writers (TICKET-0110, BRIEF-0110-B, J2, C2, T1, F-a, F-b1, U1, V1, X1, contract C-03).
 - `event_types.py` — The writer of the event journal's vocabulary (TICKET-0114, BRIEF-0114-A; decisions B1, C1, D1, N1 and W1 of the conditions series): the one writer of `event_type`, `event_type_role`, `event_type_role_type`, `event_type_scope` and `event_sorte`.
-- `events.py` — `event` canon-write chokepoints (TICKET-0028, BRIEF-0028-b — decomposed from `writes.py`).
+- `events.py` — `event` canon-write chokepoint -- the event journal (TICKET-0114, BRIEF-0114-C; decisions F1, D1, E1, K-a, V1, W1 and X1 of the conditions series).
 - `facets.py` — The entity-fact writer (TICKET-0091, BRIEF-0091-E, contract C-05).
 - `factions.py` — `faction_membership`/`faction_role` canon-write chokepoints (TICKET-0028, BRIEF-0028-b — decomposed from `writes.py`).
 - `facts.py` — `fact`/`fact_participant`/`fact_default` canon-write chokepoint (TICKET-0082, BRIEF-0082-b; `fact_default` added at BRIEF-0082-c).
@@ -392,6 +393,7 @@
 - `event_assist.py` — G1 check for TICKET-0022/BRIEF-0022-b — AI event-draft assistant.
 - `event_journal.py` — G1 check for TICKET-0114 -- the event journal's vocabulary: a world's event types, their roles, who learns them, its sortes.
 - `event_tab.py` — G1 check for TICKET-0022/BRIEF-0022-a — Événements creator tab.
+- `event_writes.py` — G1 check for TICKET-0114 -- the event journal's writer: an event, its participants by role, its fact, who learns it.
 - `fact_facets.py` — G1 check for TICKET-0091 (BRIEF-0091-A) — the facet registry and the facet-bearing fact chokepoint.
 - `fact_learning.py` — G1 check for TICKET-0105 -- what a character keeps of a fact.
 - `fact_spine.py` — G1 check for TICKET-0082 (BRIEF-0082-b) — the fact spine invariants.

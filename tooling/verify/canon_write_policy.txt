@@ -92,6 +92,9 @@ src/world_engine/writes/event_types.py::set_sorte_status       event_sorte
 src/world_engine/writes/schema.py::create_entity_type          entity_type entity_type_history
 src/world_engine/writes/events.py::write_event                 event
 src/world_engine/writes/events.py::write_event_update           event
+# TICKET-0114, BRIEF-0114-C: the journal -- _add_participants adds an event's participants (never takes one away; their knowledge goes through write_knowledge, allow-listed above), _write_scopes replaces an event's fact's scopes whole (the full-replace shape; each row through create_fact_default). Creator CRUD and _apply_mutation's event_creation.
+src/world_engine/writes/events.py::_add_participants           event_participant
+src/world_engine/writes/events.py::_write_scopes               fact_default
 src/world_engine/writes/goals_agendas.py::write_agenda         agenda
 src/world_engine/writes/goals_agendas.py::write_agenda_step    agenda_step
 src/world_engine/writes/goals_agendas.py::write_agenda_step_status agenda_step
