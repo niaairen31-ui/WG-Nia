@@ -1,0 +1,42 @@
+{
+  "ticket": "TICKET-0114-event-journal",
+  "when": "2026-10-12T16:34:44.782354+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "event_journal.py",
+      "status": "PASS",
+      "msg": "PASS: event_journal -- v2.24 keeps a world's event types with their roles, the entity types each accepts, who learns them, and its sortes; nothing in use is taken away; every earlier event is typed by its category, its links become participants and it gets its fact; Cr\u00c3\u00a9ation keeps the vocabulary in one tab and asks before a near name"
+    },
+    {
+      "check": "event_writes.py",
+      "status": "PASS",
+      "msg": "PASS: event_writes -- an event is written with its type, its participants by role, its fact, the type's scopes made concrete and its participants' knowledge, secret each as said; a correction keeps its type and its participants; an approved proposal, typed or not, is written the same way"
+    },
+    {
+      "check": "event_contexts.py",
+      "status": "PASS",
+      "msg": "PASS: event_contexts -- the MJ reads the chronicle the player knows, the tick what everyone knows; the MJ reads the states a player may see, never a hidden one; v2.25 drops the columns nobody reads"
+    },
+    {
+      "check": "event_conditions.py",
+      "status": "PASS",
+      "msg": "PASS: event_conditions -- a condition counts the events its subject lived, by type, role, place, window and filters, summing quantities; a player counts only those he knows; a quest step says when it has failed, shown and never acting; the offer editor writes both"
+    },
+    {
+      "check": "event_interpreter.py",
+      "status": "PASS",
+      "msg": "PASS: event_interpreter -- the interpreter shows the model the world's event types with their roles and its sortes, writes an event leaf by role, place, window and filters and reads it back, waits for a pick on an ambiguous name, proposes a missing type or sorte the creator creates or picks -- nothing written before -- and its prompt is delivered fragment by fragment"
+    },
+    {
+      "check": "event_analyzer.py",
+      "status": "PASS",
+      "msg": "PASS: event_analyzer -- Play's analyzer reads the world's event types by code and its sortes, proposes an event by type and role, fail-closed, and may propose its type, written with the event in one savepoint; its prompt is delivered fragment by fragment"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u00e2\u20ac\u201d 156 check(s) discovered, 156 executed, 156 passed"
+    }
+  ]
+}
