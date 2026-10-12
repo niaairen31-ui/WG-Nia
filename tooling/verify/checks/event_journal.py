@@ -51,6 +51,29 @@ EA6 -- migration `scripts/migrate_v2_24_event_journal.py`, on a v2.23
    `schema_meta` to v2.24; a second run writes nothing.
 EA7 -- the reader writes nothing (static, AST). `event_vocab.py` calls no
    `add`, `commit`, `delete`, `execute` or `flush`.
+EB1 -- the routes (BRIEF-0114-B, route functions on the EA world made
+   active). `event_vocabulary` lists the types (the retired included, each
+   with `in_condition` and its count of events), the sortes, the world's
+   entity types, the seven domains, the four scope kinds and five levels
+   (never `unaware`). A new type named near another (« Tuers » beside
+   « Tuer ») answers `saved: false` with the near one and writes nothing;
+   `confirm_near` writes it; saving a type under its own name asks nothing;
+   a refused type answers 422 and writes nothing; a type is retired then
+   restored. A sorte near another (« Loups ») asks, `confirm_near` writes
+   it, and an unknown sorte answers 404.
+EB2 -- the Création surfaces (static). `tabs.js` has no `etats` entry; its
+   `vocabulaire` entry mounts the `vocabulary` island in
+   `creation-vocabulaire` and routes « + Nouveau » through
+   `triggerPrimaryAction('vocabulary')`; `registry.js` declares
+   `vocabulary` as origin 'new', created by TICKET-0114, and no `states`
+   island; `mount.js` maps `vocabulary` to `Vocabulary`; `creation.css`
+   sizes `#creation-vocabulaire`; `Vocabulary.svelte` exports
+   `primaryAction` and renders `<States`, `<EventTypes` and `<Sortes`;
+   `EventTypes.svelte` and `Sortes.svelte` export `primaryAction`;
+   `EventTypes.svelte` renders `<EventTypeForm`, which offers the three
+   flags, a role's entity types and its sorte, and the scopes;
+   `eventVocab.svelte.js` exports `typeDraft` and `typeBody` and sends
+   `confirm_near`.
 
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that collects nothing fails.
@@ -577,6 +600,112 @@ def check_ea7() -> None:
             fail(f"EA7: event_vocab.py calls .{call.func.attr} on line {call.lineno}")
 
 
+# --- EB1 -------------------------------------------------------------------------
+
+def check_eb1(engine, ids: dict) -> None:
+    from fastapi import HTTPException
+    from sqlmodel import Session, func, select
+
+    from world_engine.cockpit.routes import event_types as routes
+    from world_engine.models import EventSorte, EventType, World
+
+    def count(db, model) -> int:
+        return db.exec(select(func.count()).select_from(model)).one()
+
+    with Session(engine) as db:
+        db.get(World, ids["world"]).is_active = True
+        db.commit()
+        listed = routes.event_vocabulary(db)
+        if not listed["types"] or not all("in_condition" in t and "events" in t for t in listed["types"]):
+            fail(f"EB1: event_vocabulary lists types {listed['types'][:1]}")
+        shape = (len(listed["domains"]), len(listed["scope_kinds"]), [l["value"] for l in listed["levels"]])
+        if shape != (7, 4, ["rumor", "suspicious", "partial", "knows", "fully_understands"]) \
+                or not listed["entity_types"]:
+            fail(f"EB1: event_vocabulary's lists are {shape}")
+        before = count(db, EventType)
+        body = routes.EventTypeBody(name="Tuers", roles=[routes.RoleBody(name="x", entity_types=["character"])])
+        asked = routes.create_event_type(body, db)
+        if asked.get("saved") is not False or "Tuer" not in [n["name"] for n in asked.get("near", [])] \
+                or count(db, EventType) != before:
+            fail(f"EB1: a near type name answered {asked}")
+        body.confirm_near = True
+        made = routes.create_event_type(body, db)
+        if made.get("saved") is not True or count(db, EventType) != before + 1:
+            fail(f"EB1: confirm_near answered {made}")
+        type_id = made["type"]["id"]
+        roles = [routes.RoleBody(name="x", entity_types=["character"], id=made["type"]["roles"][0]["id"])]
+        same = routes.save_event_type(type_id, routes.EventTypeBody(name="Tuers", roles=roles), db)
+        if same.get("saved") is not True:
+            fail(f"EB1: saving a type under its own name answered {same}")
+        try:
+            routes.create_event_type(routes.EventTypeBody(name="Vide", confirm_near=True), db)
+            fail("EB1: a type with no role was accepted")
+        except HTTPException as exc:
+            if exc.status_code != 422 or count(db, EventType) != before + 1:
+                fail(f"EB1: a type with no role answered {exc.status_code}")
+        retired = routes.event_type_status(type_id, routes.StatusBody(status="retired"), db)["status"]
+        restored = routes.event_type_status(type_id, routes.StatusBody(status="active"), db)["status"]
+        if (retired, restored) != ("retired", "active"):
+            fail(f"EB1: a type was {retired} then {restored}")
+        sortes = count(db, EventSorte)
+        asked = routes.create_sorte(routes.SorteBody(name="Loups"), db)
+        if asked.get("saved") is not False or count(db, EventSorte) != sortes:
+            fail(f"EB1: a near sorte answered {asked}")
+        if routes.create_sorte(routes.SorteBody(name="Loups", confirm_near=True), db).get("saved") is not True:
+            fail("EB1: confirm_near did not write the sorte")
+        try:
+            routes.save_sorte("nope", routes.SorteBody(name="x"), db)
+            fail("EB1: an unknown sorte was saved")
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                fail(f"EB1: an unknown sorte answered {exc.status_code}")
+
+
+# --- EB2 -------------------------------------------------------------------------
+
+def check_eb2() -> None:
+    front = ROOT / "frontend" / "src" / "creation"
+
+    def read(path: pathlib.Path) -> str:
+        if not path.exists():
+            fail(f"EB2: {path.name} is missing")
+            return ""
+        return path.read_text(encoding="utf-8")
+
+    tabs = read(front / "tabs.js")
+    if re.search(r"\n  etats: \{", tabs):
+        fail("EB2: tabs.js still has an etats entry")
+    entry = re.search(r"\n  vocabulaire: \{(.*?)\n  \},", tabs, re.S)
+    body = entry.group(1) if entry else ""
+    for needle in ("{ key: 'vocabulary', containerId: 'creation-vocabulaire' }",
+                   "triggerPrimaryAction('vocabulary')", "label: 'Vocabulaire du monde'"):
+        if needle not in body:
+            fail(f"EB2: tabs.js's vocabulaire entry lacks {needle}")
+    registry = read(front / "registry.js")
+    island = re.search(r"\n  vocabulary: Object\.freeze\(\{(.*?)\}\),", registry, re.S)
+    if not island or "origin: 'new'" not in island.group(1) or "createdBy: 'TICKET-0114'" not in island.group(1):
+        fail("EB2: registry.js does not declare the vocabulary island as new, TICKET-0114")
+    if re.search(r"\n  states: Object\.freeze", registry):
+        fail("EB2: registry.js still declares a states island")
+    if "vocabulary: Vocabulary" not in read(front / "mount.js"):
+        fail("EB2: mount.js does not map vocabulary to Vocabulary")
+    if "#creation-vocabulaire" not in read(ROOT / "frontend" / "public" / "creation.css"):
+        fail("EB2: creation.css does not size #creation-vocabulaire")
+    needles = {
+        "Vocabulary.svelte": ("export function primaryAction", "<States", "<EventTypes", "<Sortes"),
+        "EventTypes.svelte": ("export function primaryAction", "<EventTypeForm"),
+        "Sortes.svelte": ("export function primaryAction",),
+        "EventTypeForm.svelte": ("draft.counts_quantity", "draft.in_chronicle", "draft.participants_secret",
+                                 "role.entity_types", "role.accepts_sorte", "draft.scopes"),
+        "eventVocab.svelte.js": ("export function typeDraft", "export function typeBody", "confirm_near"),
+    }
+    for name, wanted in needles.items():
+        text = read(front / name)
+        for needle in wanted:
+            if needle not in text:
+                fail(f"EB2: {name} lacks {needle}")
+
+
 def main() -> int:
     _fresh_db()
     from world_engine.db import create_db_and_tables, engine
@@ -591,7 +720,7 @@ def main() -> int:
     rules = (
         ("EA1", check_ea1), ("EA2", ea2), ("EA3", lambda: check_ea3(engine, ids, state["tuer"])),
         ("EA4", lambda: check_ea4(engine, ids)), ("EA5", lambda: check_ea5(engine, ids)),
-        ("EA6", check_ea6), ("EA7", check_ea7),
+        ("EA6", check_ea6), ("EA7", check_ea7), ("EB1", lambda: check_eb1(engine, ids)), ("EB2", check_eb2),
     )
     for name, rule in rules:
         try:
@@ -604,7 +733,8 @@ def main() -> int:
         return 1
     print("PASS: event_journal -- v2.24 keeps a world's event types with their roles, the entity types each "
           "accepts, who learns them, and its sortes; nothing in use is taken away; every earlier event is "
-          "typed by its category, its links become participants and it gets its fact")
+          "typed by its category, its links become participants and it gets its fact; Création keeps the "
+          "vocabulary in one tab and asks before a near name")
     return 0
 
 

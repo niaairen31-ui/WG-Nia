@@ -69,10 +69,9 @@ AC2 -- nearness (fixture). `near_attributes` finds « Maudite » for
    vitale », never an attribute it excludes, nothing for « Porte rouge »;
    `lore_resolve.near_in_surfaces` and `near_attributes` both score through
    `near_ratio` (static).
-AC3 -- the Création surfaces (static). `tabs.js`'s `etats` entry mounts
-   the `states` island in `creation-etats` and routes « + Nouvel état »
-   through `triggerPrimaryAction('states')`; `registry.js` declares
-   `states` as origin 'new', created by TICKET-0113; `States.svelte` exports
+AC3 -- the Création surfaces (static). `Vocabulary.svelte` renders the
+   states section (since TICKET-0114, T3: its tab and island are
+   `event_journal.py` EB2's); `States.svelte` exports
    `primaryAction` and renders `<AttributeDefinitionForm`;
    `attributes.svelte.js` exports `definitionDraft` and `definitionBody`
    and sends `confirm_near`; `Sheet.svelte` renders `<StatesPanel` for a
@@ -663,16 +662,11 @@ def check_ac3() -> None:
             return ""
         return path.read_text(encoding="utf-8")
 
-    tabs = read("tabs.js")
-    entry = re.search(r"\n  etats: \{(.*?)\n  \},", tabs, re.S)
-    body = entry.group(1) if entry else ""
-    for needle in ("{ key: 'states', containerId: 'creation-etats' }", "triggerPrimaryAction('states')"):
-        if needle not in body:
-            fail(f"AC3: tabs.js's etats entry lacks {needle}")
-    registry = read("registry.js")
-    island = re.search(r"\n  states: Object\.freeze\(\{(.*?)\}\),", registry, re.S)
-    if not island or "origin: 'new'" not in island.group(1) or "createdBy: 'TICKET-0113'" not in island.group(1):
-        fail("AC3: registry.js does not declare the states island as new, TICKET-0113")
+    # Since TICKET-0114 (BRIEF-0114-B, T3) the states are a section of the
+    # « Vocabulaire du monde » island, whose own entry `event_journal.py`
+    # (EB2) holds; here: the island renders States.svelte.
+    if "<States bind:this={refs.states}" not in read("Vocabulary.svelte"):
+        fail("AC3: Vocabulary.svelte does not render the states section")
     states = read("States.svelte")
     for needle in ("export function primaryAction", "<AttributeDefinitionForm"):
         if needle not in states:

@@ -19281,6 +19281,31 @@ of BRIEF-0114-D reads them. v2.24 moves `schema_meta` to v2.24 only: v2.25
 universal roles), D2 (an entity standing for a species: it pollutes the
 NPC lists and `name_index`), D3 (named entities only), W2 (three scopes).
 
+## THE WORLD'S VOCABULARY LIVES IN ONE CRÉATION TAB (TICKET-0114) -- STATES, EVENT TYPES AND SORTES SIDE BY SIDE, A NEAR NAME PICKED BEFORE IT IS WRITTEN (BRIEF-0114-b, no schema change)
+
+**T3.** What a world can say grows by data, so the creator keeps it in one
+place: the « Vocabulaire du monde » tab (`tabs.js` `vocabulaire`, the
+`vocabulary` island, `Vocabulary.svelte`) shows one section at a time --
+its states (TICKET-0113's `States.svelte`, unchanged, no longer an island of
+its own), its event types (`EventTypes.svelte`, one type edited through
+`EventTypeForm.svelte`) and its sortes (`Sortes.svelte`). The tab's
+« + Nouveau » goes to the section shown. The « Événements » tab keeps the
+journal itself (BRIEF-0114-C).
+
+**The routes** (`cockpit/routes/event_types.py`, creator CRUD):
+`GET /api/event-vocabulary` and the type and sorte writes, each refusal a
+422 and one commit. A name near another type's or sorte's answers
+`saved: false` with the near ones until the creator confirms
+(`confirm_near`) -- the WK2 rule of TICKET-0113: she opens the existing one
+or creates anyway, the tool never picks. A type or a sorte is retired or
+restored, never deleted. `event_type_spec` / `typeDraft` / `typeBody` are
+shared with the journal and with the interpreter's and analyzer's proposal
+cards.
+
+**Rejected.** T1 (a tab of its own for event types: the bar grows, the
+sortes need another), T2 (types inside the « Événements » tab: the
+vocabulary split from the states it sits beside).
+
 ---
 
 *Co-built with Claude, June 2026.*

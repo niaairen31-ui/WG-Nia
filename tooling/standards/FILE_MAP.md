@@ -269,6 +269,7 @@
 - `creator.py` — Creator-mode generation + composite routes: entity/world/player/skill- catalogue/agenda/event draft generation, world CRUD, bootstrap, player-character composite create, NPC listing.
 - `day.py` — Day declaration, plan-emission and resolution routes (TICKET-0075, BRIEF-0075-a — the declaration socle: plumbing only; BRIEF-0075-b — plan emission and budget; BRIEF-0075-c — extraction and concordance; BRIEF-0075-d — resolution, the fact sheet and narration; BRIEF-0075-g — the feasibility veto, decision Y1).
 - `debts.py` — Debt routes (TICKET-0110, BRIEF-0110-B, contract C-07).
+- `event_types.py` — The event journal's vocabulary routes (TICKET-0114, BRIEF-0114-B; decisions B1, C1, D1, T3 and W1 of the conditions series) -- creator CRUD, a sanctioned canon-write path:
 - `link_agent.py` — NPC link agent — batch staging lifecycle, pair-pass, coherence pass and commit routes (TICKET-0036, BRIEF-0036-a/b/c).
 - `lore.py` — Lore consultation routes (TICKET-0085, BRIEF-0085-c).
 - `lore_choices.py` — Model-choice review routes (TICKET-0095, K1, C-07).
