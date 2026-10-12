@@ -21,6 +21,10 @@ Layout, by stratum:
                         AttributeDefinitionType, AttributeChoice,
                         AttributeValue, AttributeChange; TICKET-0113,
                         schema v2.22), canon.
+    canon_event.py   — the event journal's vocabulary and participants
+                        (EventType, EventTypeRole, EventTypeRoleType,
+                        EventTypeScope, EventSorte, EventParticipant;
+                        TICKET-0114, schema v2.24), canon.
     config.py        — canon curated-config tables too new/small to justify
                         growing canon.py at its module_budget cap
                         (ConversationWindowConfig, TICKET-0050).
@@ -44,7 +48,7 @@ This module re-exports the ENTIRE former public surface of the flat
 (`_uuid`, `_created_ts`) — so every existing `from .models import X` /
 `from world_engine.models import X` in `src/` and `scripts/` resolves
 unchanged. Import order (canon, canon_faction, canon_knowledge,
-canon_attribute, config,
+canon_attribute, canon_event, config,
 ephemeral, pipeline, observation, quests) keeps table registration on
 `SQLModel.metadata` deterministic;
 cross-stratum foreign keys (string table-name references) resolve
@@ -102,12 +106,26 @@ from .canon_attribute import (
     AttributeDefinitionType,
     AttributeValue,
 )
+from .canon_event import (
+    EVENT_DOMAINS,
+    EVENT_SCOPE_KINDS,
+    EVENT_SCOPE_LEVELS,
+    EVENT_VOCAB_STATUSES,
+    EventParticipant,
+    EventSorte,
+    EventType,
+    EventTypeRole,
+    EventTypeRoleType,
+    EventTypeScope,
+)
 from .config import (
     CONDITION_OPS,
     CONDITION_ROLES,
+    CONDITION_WINDOWS,
     AgendaStep,
     Condition,
     ConditionNode,
+    ConditionNodeFilter,
     ConversationWindowConfig,
     SkillRank,
 )
@@ -202,6 +220,16 @@ __all__ = [
     "ATTRIBUTE_TYPE_SIDES",
     "ATTRIBUTE_STATUSES",
     "ATTRIBUTE_CHANGE_KINDS",
+    "EventType",
+    "EventTypeRole",
+    "EventTypeRoleType",
+    "EventTypeScope",
+    "EventSorte",
+    "EventParticipant",
+    "EVENT_DOMAINS",
+    "EVENT_SCOPE_KINDS",
+    "EVENT_SCOPE_LEVELS",
+    "EVENT_VOCAB_STATUSES",
     "NpcGoal",
     "GoalPrerequisite",
     "Ledger",
@@ -249,7 +277,9 @@ __all__ = [
     "AgendaStep",
     "Condition",
     "ConditionNode",
+    "ConditionNodeFilter",
     "CONDITION_OPS",
+    "CONDITION_WINDOWS",
     "CONDITION_ROLES",
     "QUEST_OFFER_STATUSES",
     "Quest",

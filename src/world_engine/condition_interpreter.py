@@ -71,6 +71,7 @@ ROLE_LABELS_FR: dict[str, str] = {
     "eligibility": "à qui l'offre est proposée",
     "prerequisite": "ce qu'il faut pour tenter l'étape",
     "completion": "quand l'objectif de l'étape est atteint",
+    "failure": "quand l'étape a échoué",
 }
 
 # What each form takes as its target, in the model's form (C-03). One line

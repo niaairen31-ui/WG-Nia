@@ -19227,6 +19227,60 @@ leaving a definition behind). Adding a missing label to an existing
 attribute from the interpreter: deferred (reactivation: the journal shows
 proposals refused because the existing attribute lacks the label).
 
+## WHAT HAPPENS IN A WORLD IS ONE OF ITS OWN EVENT TYPES (TICKET-0114) -- TYPES, ROLES, SORTES AND WHO LEARNS THEM, AS DATA; EVERY EARLIER EVENT TYPED BY ITS CATEGORY (BRIEF-0114-a, schema v2.24)
+
+**F1, B1, C1, D1 of the conditions series.** The `event` table stays the one
+journal; what it lacked was a vocabulary. A world names its own event types
+(`event_type`): « Tuer », « Repérer », « Pacte » -- each with a domain (one
+of the seven former `event.type` categories), whether it counts a quantity,
+whether it enters the chronicle the models read, whether its participants
+keep it secret by default (X1). A type has roles in order
+(`event_type_role`, C1), each accepting the entity types it names
+(`event_type_role_type`, the `attribute_definition_type` shape) and, when
+`accepts_sorte`, a sorte (`event_sorte`, D1): « 3 loups » needs no wolf to
+be an entity. `event_participant` (V1) says who took part in which role --
+an entity or a sorte, exactly one -- and replaces `event_entity` (dropped at
+v2.25): one way to say « took part ». The vocabulary grows by data, never by
+code.
+
+**K-a, W1.** Who learns an event besides its participants is declared by its
+type (`event_type_scope`): its place, everyone, the acquaintances of a
+role's entity, the faction a role names, each at a level. They become
+`fact_default` rows on the event's own fact when it is written
+(BRIEF-0114-C); no row is the participants only.
+
+**Nothing in use is taken away.** A role an event or a condition names, an
+entity type a participant holds, a sorte role's sorte, a quantity an event
+carries. A role dropped is retired, never deleted, and named again comes
+back; a type or a sorte is retired, refused while a condition names it.
+`_write_roles` / `_write_scopes` replace a role's types and a type's scopes
+whole, named in `single_canon_write.py`. Names are compared through
+`lore_resolve.normalize_surface`; `event_vocab.near_event_types` /
+`near_sortes` let the creator pick before a near duplicate.
+`writes/event_types.py` is the one writer, `event_vocab.py` the reader.
+
+**N1, O1, V1: the events written before.** `migrate_v2_24_event_journal.py`
+types each by its former category -- the world's type named after that
+domain (« Social », « Autre »), with one role « Impliqué » accepting every
+entity type of the world (`writes.event_types.ensure_domain_type` makes the
+same type at run time for what still arrives untyped) --, moves its
+`event_entity` rows into `event_participant`, and gives it its fact
+(`fact.event_id`, facet `evenement`): a `public` or `confirmed` event a
+`world` default at `knows`, a `secret` one none -- known by no one, as
+before. No knowledge row is written.
+
+**The language's side, ahead of its readers.** `condition` and
+`condition_draft` gain the role `failure` (H1), `condition_node` a `since`
+column (F1: `always`, `quest`, `step`) and `condition_node_filter` (a leaf's
+filters on the other roles), `agenda_step` a `started_at`: the `event` form
+of BRIEF-0114-D reads them. v2.24 moves `schema_meta` to v2.24 only: v2.25
+(BRIEF-0114-C) drops what this one keeps.
+
+**Rejected.** V2 (keep `event_entity` beside a roles table: two ways to say
+« took part »), N2 (an optional type: two sorts of events forever), C2 (fixed
+universal roles), D2 (an entity standing for a species: it pollutes the
+NPC lists and `name_index`), D3 (named entities only), W2 (three scopes).
+
 ---
 
 *Co-built with Claude, June 2026.*

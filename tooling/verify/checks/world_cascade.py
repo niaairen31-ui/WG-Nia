@@ -126,6 +126,18 @@ _FIXTURE: tuple[tuple[str, dict], ...] = (
               "target_location_id": "{w}-loc", "x": 0.0, "y": 0.0}),
     ("event", {"id": "ev-{w}", "world_id": "{w}", "title": "t"}),
     ("event_entity", {"id": "eve-{w}", "event_id": "ev-{w}", "entity_id": "{w}-char"}),
+    # TICKET-0114 (BRIEF-0114-A): a type, its role and scope, a sorte, a
+    # participant, and a filter on the condition leaf above.
+    ("event_type", {"id": "et-{w}", "world_id": "{w}", "name": "Tuer"}),
+    ("event_type_role", {"id": "etr-{w}", "world_id": "{w}", "type_id": "et-{w}", "name": "tueur"}),
+    ("event_type_role_type", {"id": "etrt-{w}", "world_id": "{w}", "role_id": "etr-{w}",
+                              "entity_type": "character"}),
+    ("event_type_scope", {"id": "ets-{w}", "world_id": "{w}", "type_id": "et-{w}", "scope_kind": "world"}),
+    ("event_sorte", {"id": "eso-{w}", "world_id": "{w}", "name": "loup"}),
+    ("event_participant", {"id": "ep-{w}", "world_id": "{w}", "event_id": "ev-{w}", "role_id": "etr-{w}",
+                           "entity_id": "{w}-char"}),
+    ("condition_node_filter", {"id": "cnf-{w}", "world_id": "{w}", "node_id": "cnn-{w}", "role_id": "etr-{w}",
+                               "sorte_id": "eso-{w}"}),
     ("fact", {"id": "fa-{w}", "world_id": "{w}", "content": "c",
               "created_by": "creator_crud"}),
     ("fact_default", {"id": "fd-{w}", "world_id": "{w}", "fact_id": "fa-{w}",

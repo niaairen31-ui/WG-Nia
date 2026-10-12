@@ -109,6 +109,7 @@
 - `migrate_v2_21_condition_draft.py` — Migration v2.21 — `condition_draft`, the condition interpreter's journal (TICKET-0112, BRIEF-0112-B, decision IH1).
 - `migrate_v2_22_attributes.py` — Migration v2.22 — the state of the world (TICKET-0113, BRIEF-0113-A; decisions WA3, WB2, WC1, WD1 and WH1 of the conditions series).
 - `migrate_v2_23_attribute_leaves.py` — Migration v2.23 — the `vital_status` form becomes an `attribute` leaf (TICKET-0113, BRIEF-0113-B; decisions WE1 and WG1 of the conditions series).
+- `migrate_v2_24_event_journal.py` — Migration v2.24 — the event journal's vocabulary (TICKET-0114, BRIEF-0114-A; decisions F1, B1, C1, D1, H1, K-a, N1, O1 and V1 of the conditions series).
 - `observation_metrics.py` — Observation run metrics (TICKET-0051, BRIEF-0051-g, decision J2/Q).
 - `preview_npc_schedule.py` — Preview `where_is` / `who_is_at` / `unresolved_npcs` — the concrete reader for `world.current_phase` (T-A1) and the live-gate instrument for TICKET-0074, BRIEF-0074-a.
 - `preview_tick_context.py` — Preview the full-interiority briefing a world tick would send to one NPC (TICKET-0014, BRIEF-0014-a; TICKET-0015, BRIEF-0015-a adds --interval) — the concrete reader for `assemble_tick_context` in this brief, and the live-gate instrument for the T1 review.
@@ -154,6 +155,7 @@
 - `encounters.py` — Encounter registry writer and reads (TICKET-0091, BRIEF-0091-C, C-07).
 - `entity_author.py` — AI entity-authoring assistant (NPC, Location) — BRIEF-24, BRIEF-25.
 - `event_author.py` — AI event/agenda-authoring assistant — extracted from `entity_author.py` (TICKET-0028, BRIEF-0028-d, decision H1).
+- `event_vocab.py` — The event journal's vocabulary, read (TICKET-0114, BRIEF-0114-A; decisions B1, C1, D1, N1 and W1 of the conditions series).
 - `facet_reads.py` — Facet reads (TICKET-0091, BRIEF-0091-D, C-10): one call to read what is said of an entity, facet by facet.
 - `facets.py` — The facet registry (TICKET-0091, BRIEF-0091-A, contract C-01).
 - `fact_refs.py` — Fact references (TICKET-0097): how a model names a fact, and how the mutation pipeline tells two knowledge proposals apart.
@@ -288,6 +290,7 @@
 - `__init__.py` — SQLModel table classes for the World Engine — package entry point (TICKET-0028, BRIEF-0028-c: split of the former flat `models.py` into a package by schema stratum).
 - `canon.py` — Canon SQLModel table classes — every table listed in ``canon_write_policy.txt``'s ``[CANON_TABLES]`` (TICKET-0028, BRIEF-0028-c — package split of the former flat ``models.py``, by schema stratum).
 - `canon_attribute.py` — Canon SQLModel table classes -- the state of the world (TICKET-0113, BRIEF-0113-A, schema v2.22; decisions WA3, WB2, WC1, WD1 and WH1 of the conditions series).
+- `canon_event.py` — Canon SQLModel table classes -- the event journal's vocabulary and its participants (TICKET-0114, BRIEF-0114-A, schema v2.24; decisions F1, B1, C1, D1, K-a, N1, V1 and W1 of the conditions series).
 - `canon_faction.py` — Canon SQLModel table classes — faction domain, extracted from ``canon.py`` (TICKET-0048, BRIEF-0048-a) to keep each stratum module under the `module_budget.py` line cap.
 - `canon_knowledge.py` — Canon SQLModel table classes — perception domain (what an entity holds about the world, and the typed links between entities), extracted from ``canon.py`` (TICKET-0082, BRIEF-0082-a) to keep each stratum module under the `module_budget.py` line cap.
 - `config.py` — Conversation-window curated config (TICKET-0050, BRIEF-0050-a); `AgendaStep` (TICKET-0075, BRIEF-0075-b); `condition` and `condition_node` (TICKET-0111, BRIEF-0111-C), which replaced `agenda_step_requirement`.
@@ -308,6 +311,7 @@
 - `config.py` — Full-replace curated-config canon-write chokepoints (TICKET-0028, BRIEF-0028-b — decomposed from `writes.py`).
 - `debt_sources.py` — Where a debt comes from besides the creator's hand (TICKET-0110, BRIEF-0110-B, S2 and A2, contract C-05).
 - `debts.py` — Debts: the writers (TICKET-0110, BRIEF-0110-B, J2, C2, T1, F-a, F-b1, U1, V1, X1, contract C-03).
+- `event_types.py` — The writer of the event journal's vocabulary (TICKET-0114, BRIEF-0114-A; decisions B1, C1, D1, N1 and W1 of the conditions series): the one writer of `event_type`, `event_type_role`, `event_type_role_type`, `event_type_scope` and `event_sorte`.
 - `events.py` — `event` canon-write chokepoints (TICKET-0028, BRIEF-0028-b — decomposed from `writes.py`).
 - `facets.py` — The entity-fact writer (TICKET-0091, BRIEF-0091-E, contract C-05).
 - `factions.py` — `faction_membership`/`faction_role` canon-write chokepoints (TICKET-0028, BRIEF-0028-b — decomposed from `writes.py`).
@@ -385,6 +389,7 @@
 - `env_guard.py` — G1 check: no scripts/*.py reaches the engine without an env resolvable at import time (TICKET-0049, BRIEF-0049-d).
 - `escalation_writer.py` — G1 check for TICKET-0117 (BRIEF-0117-a, J2-a) -- an escalation lives in the ticket it stops, written only by `tooling/glue/escalation.py`.
 - `event_assist.py` — G1 check for TICKET-0022/BRIEF-0022-b — AI event-draft assistant.
+- `event_journal.py` — G1 check for TICKET-0114 -- the event journal's vocabulary: a world's event types, their roles, who learns them, its sortes.
 - `event_tab.py` — G1 check for TICKET-0022/BRIEF-0022-a — Événements creator tab.
 - `fact_facets.py` — G1 check for TICKET-0091 (BRIEF-0091-A) — the facet registry and the facet-bearing fact chokepoint.
 - `fact_learning.py` — G1 check for TICKET-0105 -- what a character keeps of a fact.

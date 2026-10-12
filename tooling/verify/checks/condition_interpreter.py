@@ -342,7 +342,7 @@ def check_na2(engine) -> None:
 DRAFT_COLUMNS = ("id", "attempt_id", "world_ref", "world_name", "role", "instruction", "outcome", "retried",
                  "offer_ref", "saved_as_proposed", "payload", "model_calls", "created_at", "decided_at")
 DRAFT_CHECKS = {
-    "ck_condition_draft_role": "role IN ('eligibility','prerequisite','completion')",
+    "ck_condition_draft_role": "role IN ('eligibility','prerequisite','completion','failure')",
     "ck_condition_draft_outcome": "outcome IN ('proposed','needs_choice','refused','unavailable','parse_error',"
                                   "'inserted','discarded','saved')",
     "ck_condition_draft_saved": "(offer_ref IS NOT NULL) = (outcome = 'saved') "

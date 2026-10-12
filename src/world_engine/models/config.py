@@ -98,6 +98,10 @@ class AgendaStep(SQLModel, table=True):
     domain: Optional[str] = None
     created_at: datetime = _created_ts()
     updated_at: datetime = _created_ts()
+    # v2.24 (TICKET-0114, BRIEF-0114-A, F1): when the step became active --
+    # the « depuis le début de l'étape » window. NULL on a step activated
+    # before v2.24 (its quest's `accepted_at` stands in).
+    started_at: Optional[datetime] = None
     change_history: list = Field(
         default_factory=list,
         sa_column=Column(JSON, nullable=False, server_default=text("'[]'")),
@@ -127,14 +131,19 @@ class AgendaStep(SQLModel, table=True):
 # Curated plan metadata, the requirement rows' family: no `change_history`
 # (an offer snapshots itself; a save replaces its conditions whole).
 # -----------------------------------------------------------------------------
-CONDITION_ROLES: tuple[str, ...] = ("eligibility", "prerequisite", "completion")
+# `failure` (v2.24, TICKET-0114, H1): when the step has failed -- shown, never
+# acting, like `completion` (M1).
+CONDITION_ROLES: tuple[str, ...] = ("eligibility", "prerequisite", "completion", "failure")
 CONDITION_OPS: tuple[str, ...] = ("all", "any", "not", "at_least", "leaf")
+# F1 (v2.24, TICKET-0114): since when a leaf counts -- ever, since its quest
+# was accepted, since its step became active.
+CONDITION_WINDOWS: tuple[str, ...] = ("always", "quest", "step")
 
 
 class Condition(SQLModel, table=True):
     __tablename__ = "condition"
     __table_args__ = (
-        CheckConstraint("role IN ('eligibility','prerequisite','completion')", name="ck_condition_role"),
+        CheckConstraint("role IN ('eligibility','prerequisite','completion','failure')", name="ck_condition_role"),
         CheckConstraint(
             "(quest_offer_id IS NOT NULL) + (quest_offer_step_id IS NOT NULL) + (agenda_step_id IS NOT NULL) = 1",
             name="ck_condition_owner",
@@ -161,7 +170,7 @@ class ConditionNode(SQLModel, table=True):
         CheckConstraint("(op = 'leaf') = (form IS NOT NULL)", name="ck_condition_node_leaf"),
         CheckConstraint(
             "op = 'leaf' OR (subject_role IS NULL AND subject_entity_id IS NULL AND target_entity_id IS NULL "
-            "AND target_key IS NULL AND threshold IS NULL AND value IS NULL)",
+            "AND target_key IS NULL AND threshold IS NULL AND value IS NULL AND since IS NULL)",
             name="ck_condition_node_connector",
         ),
         CheckConstraint(
@@ -172,6 +181,8 @@ class ConditionNode(SQLModel, table=True):
             "subject_role IS NULL OR subject_role IN ('doer','giver','contact')", name="ck_condition_node_role",
         ),
         CheckConstraint("(op = 'at_least') = (n IS NOT NULL) AND (n IS NULL OR n >= 1)", name="ck_condition_node_n"),
+        CheckConstraint(f"since IS NULL OR since IN ({','.join(repr(w) for w in CONDITION_WINDOWS)})",
+                        name="ck_condition_node_since"),
         Index("idx_condition_node_condition", "condition_id", "parent_id", "position"),
     )
 
@@ -189,6 +200,31 @@ class ConditionNode(SQLModel, table=True):
     target_key: Optional[str] = None
     threshold: Optional[int] = None
     value: Optional[str] = None
+    # v2.24 (TICKET-0114, F1): since when a leaf counts what happened --
+    # `CONDITION_WINDOWS`; NULL on every leaf that counts nothing.
+    since: Optional[str] = None
+
+
+# A leaf's filters on the other roles of its event type (v2.24, TICKET-0114,
+# BRIEF-0114-A, decision 3 of the lot): « un loup », « à Ombreval » -- one row
+# per role, filled by an entity or a sorte, exactly one. Rows, never JSON
+# (INV-20); written only by `writes.conditions.write_condition`.
+class ConditionNodeFilter(SQLModel, table=True):
+    __tablename__ = "condition_node_filter"
+    __table_args__ = (
+        CheckConstraint(
+            "(entity_id IS NOT NULL) + (sorte_id IS NOT NULL) = 1", name="ck_condition_node_filter_one",
+        ),
+        Index("idx_condition_node_filter_node", "node_id"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    node_id: str = Field(foreign_key="condition_node.id", nullable=False)
+    role_id: str = Field(foreign_key="event_type_role.id", nullable=False)
+    entity_id: Optional[str] = Field(default=None, foreign_key="entity.id")
+    sorte_id: Optional[str] = Field(default=None, foreign_key="event_sorte.id")
+    position: int = Field(default=0, sa_column_kwargs={"server_default": text("0")})
 
 
 # -----------------------------------------------------------------------------

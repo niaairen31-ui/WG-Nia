@@ -65,6 +65,13 @@ Layout, by canon domain:
                           `clean_definition`, `write_attribute_definition`,
                           `set_attribute_status`, `write_attribute_value`
                           (TICKET-0113, BRIEF-0113-A).
+    event_types.py      — the event journal's vocabulary: `event_type`,
+                          `event_type_role`, `event_type_role_type`,
+                          `event_type_scope`, `event_sorte`:
+                          `clean_event_type`, `write_event_type`,
+                          `set_event_type_status`, `write_sorte`,
+                          `set_sorte_status`, `ensure_domain_type`
+                          (TICKET-0114, BRIEF-0114-A).
     worlds.py           — `delete_world_cascade` (the sole delete-side
                           helper, wildcard-allowed in canon_write_policy.txt).
 
@@ -171,6 +178,18 @@ from .attributes import (
     set_attribute_status,
     write_attribute_definition,
     write_attribute_value,
+)
+from .event_types import (
+    EventTypeSpec,
+    RoleSpec,
+    ScopeSpec,
+    clean_event_type,
+    clean_sorte_name,
+    ensure_domain_type,
+    set_event_type_status,
+    set_sorte_status,
+    write_event_type,
+    write_sorte,
 )
 from .pipeline import (
     BATCH_RESOLVED_STATUS,

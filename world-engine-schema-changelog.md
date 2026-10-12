@@ -13,6 +13,25 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.24** — TICKET-0114, BRIEF-0114-A: the event journal's vocabulary.
+  `event_type` (a world's type of event: its name, its domain -- one of the
+  seven former categories --, whether it counts a quantity, enters the
+  chronicle, is kept secret by its participants by default; retired never
+  deleted), `event_type_role` (its roles, in order; a role may accept a
+  sorte), `event_type_role_type` (the entity types a role accepts),
+  `event_type_scope` (who learns an event of it: its place, everyone, the
+  acquaintances or the faction of a role, at a level), `event_sorte` (a
+  world's anonymous kinds), `event_participant` (who took part, in which
+  role: an entity or a sorte) and `condition_node_filter` (an `event`
+  leaf's filters on the other roles). `event` gains `type_id` and
+  `quantity`, `agenda_step` gains `started_at`; `condition` and
+  `condition_draft` are rebuilt with the role `failure`, `condition_node`
+  with a `since` column.
+  `migrate_v2_24_event_journal.py` types every event by its former category
+  (the world's type named after it, one role « Impliqué »), moves its
+  `event_entity` rows into `event_participant`, gives it its fact (a
+  `world` default at `knows` when it was `public` or `confirmed`), refuses
+  a database older than v2.23 and moves `schema_meta` to v2.24.
 - **v2.23** — TICKET-0113, BRIEF-0113-B: no table change. The condition
   form `vital_status` is retired: its leaves become `attribute` leaves
   reading the system attribute `sys:vital_status` (`target_key`), subject

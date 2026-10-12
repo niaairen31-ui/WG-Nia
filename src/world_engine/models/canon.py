@@ -498,6 +498,10 @@ class Event(SQLModel, table=True):
     consequences: Optional[Any] = Field(default=None, sa_column=Column(JSON))
     occurred_at: Optional[datetime] = None
     recorded_at: datetime = _created_ts()
+    # v2.24 (TICKET-0114, BRIEF-0114-A, N1): the world's type it is one of
+    # (`models/canon_event.py`), and how many, when its type counts (D1).
+    type_id: Optional[str] = Field(default=None, foreign_key="event_type.id")
+    quantity: Optional[int] = None
 
 
 # -----------------------------------------------------------------------------

@@ -83,12 +83,14 @@ single-row correction): `write_npc_prices`, `write_world_laws`,
 (TICKET-0111: one owner's condition and its nodes) and
 `write_offer_terms` (TICKET-0109, BRIEF-0109-B: an offer's terms) and
 `writes/attributes.py::_write_types` (TICKET-0113, BRIEF-0113-A: an
-attribute definition's entity types) each
+attribute definition's entity types) and `writes/event_types.py::_write_roles`
+/ `_write_scopes` (TICKET-0114, BRIEF-0114-A: a role's entity types, an
+event type's scopes -- never a role itself, retired instead) each
 `DELETE FROM` their table(s) scoped to one parent (NPC / world / location /
-location / offer / definition) then re-insert the submitted set, in one
+location / offer / definition / role / type) then re-insert the submitted set, in one
 transaction — creator-CRUD and world-bootstrap only (`set_npc_prices`,
 `create_world`, `set_location_geometry`, `set_location_doors`,
-`save_offer`, the attribute definition routes;
+`save_offer`, the attribute definition routes, the event type routes;
 `location_subculture` and
 its writer were dropped in schema v2.06, TICKET-0091, BRIEF-0091-I), never
 reachable from any AI or play path. These
