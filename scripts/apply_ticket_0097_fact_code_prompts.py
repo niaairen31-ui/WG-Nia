@@ -74,7 +74,7 @@ _UPDATES: tuple[tuple[str, str, str, list[str], str], ...] = (
         "pt-conversation-analysis",
         seed_pilot.CONVERSATION_ANALYSIS_SYSTEM_PROMPT,
         seed_pilot.CONVERSATION_ANALYSIS_USER_TEMPLATE,
-        ["transcript", "injected_context"],
+        list(seed_pilot.CONVERSATION_ANALYSIS_VARIABLES),  # the seed's: its text names them (TICKET-0114)
         "TICKET-0097 BRIEF-0097-F -- no subject, no knowledge_change (M1, N1)",
     ),
     (

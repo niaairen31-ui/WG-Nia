@@ -59,6 +59,7 @@ from typing import Any, Optional
 from sqlmodel import Session, select
 
 from . import llm_parse, ollama_client
+from .event_analysis import AnalysisVocabulary, analysis_vocabulary, typed_payload
 from .models import Character, Entity, Fact, Knowledge, ProposedMutation, PromptTemplate
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
@@ -452,12 +453,19 @@ def _guard_goal_change(item: dict, attribution: AttributionContext) -> tuple[dic
     return item, False
 
 
-def _apply_type_guards(item: dict, attribution: AttributionContext) -> tuple[dict | None, bool]:
+def _apply_type_guards(item: dict, attribution: AttributionContext, db: Session | None = None,
+                       world_id: str | None = None,
+                       vocab: AnalysisVocabulary | None = None) -> tuple[dict | None, bool]:
     """Type-specific fail-closed guards, run after payload construction.
     Returns (item-or-None, unattributed). Order and rejection semantics
     frozen: every rejection path rejects identically to the
-    pre-decomposition code."""
+    pre-decomposition code. TICKET-0114 (BRIEF-0114-H): a typed
+    `event_creation` is read against the world's event vocabulary
+    (`event_analysis.typed_payload`) when the call showed it."""
     mt = item["mutation_type"]
+    if mt == "event_creation" and vocab is not None and db is not None:
+        item["payload"] = typed_payload(db, world_id, item["payload"], vocab)
+        return (item if item["payload"] is not None else None), False
     if mt == "relation_change":
         return _guard_relation_change(item), False
     if mt == "resource_change":
@@ -480,6 +488,7 @@ def _normalize_to_schema(
     world_id: str,
     attribution: AttributionContext,
     db: Session,
+    vocab: AnalysisVocabulary | None = None,
 ) -> tuple[dict | None, bool, str]:
     """Map a model's natural output object to our ProposedMutation schema fields.
 
@@ -504,7 +513,7 @@ def _normalize_to_schema(
     if not item.get("payload"):
         return None, unattributed, mt
 
-    item, guard_unattributed = _apply_type_guards(item, attribution)
+    item, guard_unattributed = _apply_type_guards(item, attribution, db, world_id, vocab)
     unattributed = unattributed or guard_unattributed
     if item is None:
         return None, unattributed, mt
@@ -556,7 +565,7 @@ def _mutation_match_key(mutation_type: str, payload: dict):
 
 def _window_call_model(
     db: Session, world_id: str, transcript: str, injected_ctx_str: str,
-    model: str, host: str,
+    model: str, host: str, vocab: AnalysisVocabulary | None = None,
 ) -> list:
     """Model call + JSON parse. Raises llm_parse.LlmParseError (logged here
     with the raw snippet) on a parse failure — analyze_transcript does not
@@ -572,6 +581,9 @@ def _window_call_model(
         .replace("{transcript}", transcript)
         .replace("{injected_context}", injected_ctx_str)
     )
+    # TICKET-0114 (BRIEF-0114-H): the world's event types and sortes.
+    for name, value in (vocab.prompt_values() if vocab is not None else {}).items():
+        user_message = user_message.replace("{" + name + "}", value)
     llm_messages = [
         {"role": "system", "content": version.system_prompt},
         {"role": "user", "content": user_message},
@@ -594,13 +606,14 @@ def _window_call_model(
 
 def _window_build_mutations(
     items: list, world_id: str, attribution: AttributionContext, db: Session, covered: set,
+    vocab: AnalysisVocabulary | None = None,
 ) -> tuple[list[ProposedMutation], int, dict[str, int]]:
     now = datetime.now(UTC)
     mutations: list[ProposedMutation] = []
     dropped_unattributed = 0
     dropped_by_type: dict[str, int] = {}
     for i, raw_item in enumerate(items):
-        normalized, unattributed, mt = _normalize_to_schema(raw_item, world_id, attribution, db)
+        normalized, unattributed, mt = _normalize_to_schema(raw_item, world_id, attribution, db, vocab)
         if normalized is None:
             if unattributed:
                 dropped_unattributed += 1
@@ -652,9 +665,10 @@ def analyze_transcript(
     Raises llm_parse.LlmParseError on a model-output parse failure — the
     caller decides what "failure" means for its own marker/commit semantics.
     """
-    items = _window_call_model(db, world_id, transcript, injected_context, model, host)
+    vocab = analysis_vocabulary(db, world_id)
+    items = _window_call_model(db, world_id, transcript, injected_context, model, host, vocab)
     mutations, dropped_unattributed, dropped_by_type = _window_build_mutations(
-        items, world_id, attribution, db, covered_keys,
+        items, world_id, attribution, db, covered_keys, vocab,
     )
     return TranscriptAnalysis(
         mutations=mutations,

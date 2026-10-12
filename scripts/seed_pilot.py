@@ -288,7 +288,7 @@ Every element must have these EXACT 5 keys — no other keys allowed:
 Payload shapes:
   relation_change  → {"entity_a_id":"…","entity_b_id":"…","relation_type":"…","intensity_delta":<signed int>}
   new_knowledge    → {"entity_id":"…","level":"rumor|partial|knows|…","content":"…","source":"…","subject_entity_id":"…" (OPTIONAL — see rubric below)}
-  event_creation   → {"title":"…","description":"…","type":"social|political|other","involved_entities":[…]}
+  event_creation   → {"title":"…","description":"…","event_type":"t2","participants":[{"role":"…","entity_id":"…"},{"role":"…","sorte":"…"}],"quantity":<int> (OPTIONAL),"location_id":"…" (OPTIONAL),"new_type":{…} (OPTIONAL — see rubric below)}
   resource_change  → {"entity_id":"char-player","amount":<signed int>,"counterparty_id":"…","reason":"…","knowledge":{"entity_id":"…","level":"…","content":"…","source":"…","is_secret":false} (knowledge is OPTIONAL — only when information changed hands)}
   goal_change      → {"action":"complete|abandon|create_short","goal":"…"}
 
@@ -351,6 +351,21 @@ indique son id dans "subject_entity_id". Quand le fait n'a pas de sujet
 identifiable — une rumeur générale, une information abstraite, un fait qui
 ne désigne aucune entité précise — omets entièrement le champ
 "subject_entity_id" plutôt que d'y mettre une valeur incertaine ou devinée.
+
+=== EVENT_CREATION RUBRIC ===
+event_creation — émets-en un quand il S'EST PASSÉ dans la scène quelque
+chose qui compte pour le monde (un combat, une capture, une découverte, un
+pacte, une mort), pas une simple conversation. "event_type" est le code
+d'un type de la liste TYPES D'ÉVÉNEMENTS ("t2"). Chaque participant tient
+un des rôles du type, nommé par son nom : une entité par son id
+("entity_id", pris dans NPC CONTEXT), ou une sorte anonyme de la liste
+SORTES par son nom ("sorte":"Loup") quand le rôle en accepte une.
+"quantity" seulement si le type se compte (« 3 loups »). Si aucun type de
+la liste ne dit ce qui s'est passé, n'en force pas un : propose-le dans
+"new_type" — {"name":"…","domain":"military|political|magical|criminal|social|mystery|other","roles":[{"name":"…","for":["character"],"sorte":false}],"quantity":false}
+— sans "event_type", ses participants nommant ses rôles. Une sorte absente
+de SORTES se nomme telle quelle : elle sera créée avec l'événement. La
+créatrice valide le type proposé avec l'événement.
 
 === GOAL_CHANGE RUBRIC ===
 goal_change — le bloc NPC CONTEXT peut contenir une section
@@ -415,10 +430,52 @@ CONVERSATION_ANALYSIS_USER_TEMPLATE = """\
 NPC CONTEXT (what the NPC was authorised to know):
 {injected_context}
 
+TYPES D'ÉVÉNEMENTS (code — nom, rôles) :
+{event_types}
+
+SORTES :
+{sortes}
+
 TRANSCRIPT:
 {transcript}
 
 JSON array of canon mutations ([] if nothing changed):"""
+
+# TICKET-0114 (BRIEF-0114-H, I2, R1): the analyzer names an event's type by
+# code, its participants by role, and may propose a type. The texts above
+# hold each new fragment; scripts/apply_ticket_0114_analysis_prompt.py
+# applies the same (field, old, new) triples to the CURRENT version, so an
+# edit the creator made in the Prompts tab is kept (event_analyzer.py keeps
+# the triples and the texts above equal).
+CONVERSATION_ANALYSIS_VARIABLES: tuple[str, ...] = ("transcript", "injected_context", "event_types", "sortes")
+CONVERSATION_ANALYSIS_FRAGMENTS_0114: tuple[tuple[str, str, str], ...] = (
+    ("system_prompt",
+     '  event_creation   → {"title":"…","description":"…","type":"social|political|other","involved_entities":[…]}',
+     '  event_creation   → {"title":"…","description":"…","event_type":"t2","participants":[{"role":"…",'
+     '"entity_id":"…"},{"role":"…","sorte":"…"}],"quantity":<int> (OPTIONAL),"location_id":"…" (OPTIONAL),'
+     '"new_type":{…} (OPTIONAL — see rubric below)}'),
+    ("system_prompt",
+     "=== GOAL_CHANGE RUBRIC ===",
+     "=== EVENT_CREATION RUBRIC ===\n"
+     "event_creation — émets-en un quand il S'EST PASSÉ dans la scène quelque\n"
+     "chose qui compte pour le monde (un combat, une capture, une découverte, un\n"
+     "pacte, une mort), pas une simple conversation. \"event_type\" est le code\n"
+     "d'un type de la liste TYPES D'ÉVÉNEMENTS (\"t2\"). Chaque participant tient\n"
+     "un des rôles du type, nommé par son nom : une entité par son id\n"
+     "(\"entity_id\", pris dans NPC CONTEXT), ou une sorte anonyme de la liste\n"
+     "SORTES par son nom (\"sorte\":\"Loup\") quand le rôle en accepte une.\n"
+     "\"quantity\" seulement si le type se compte (« 3 loups »). Si aucun type de\n"
+     "la liste ne dit ce qui s'est passé, n'en force pas un : propose-le dans\n"
+     "\"new_type\" — {\"name\":\"…\",\"domain\":\"military|political|magical|criminal|social|mystery|other\","
+     "\"roles\":[{\"name\":\"…\",\"for\":[\"character\"],\"sorte\":false}],\"quantity\":false}\n"
+     "— sans \"event_type\", ses participants nommant ses rôles. Une sorte absente\n"
+     "de SORTES se nomme telle quelle : elle sera créée avec l'événement. La\n"
+     "créatrice valide le type proposé avec l'événement.\n\n"
+     "=== GOAL_CHANGE RUBRIC ==="),
+    ("user_template",
+     "TRANSCRIPT:\n{transcript}",
+     "TYPES D'ÉVÉNEMENTS (code — nom, rôles) :\n{event_types}\n\nSORTES :\n{sortes}\n\nTRANSCRIPT:\n{transcript}"),
+)
 
 
 # Overhearing classification prompt — Tier 4, acquisition-only pass.
@@ -2884,7 +2941,7 @@ def seed(session: Session) -> None:
         usage="conversation_analysis",
         system_prompt=CONVERSATION_ANALYSIS_SYSTEM_PROMPT,
         user_template=CONVERSATION_ANALYSIS_USER_TEMPLATE,
-        variables=["transcript", "injected_context"],
+        variables=list(CONVERSATION_ANALYSIS_VARIABLES),
         destination="local",
     )
 

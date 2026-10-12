@@ -32,6 +32,7 @@
 - `apply_ticket_0110_link_prompt.py` — One-shot, idempotent delivery of the TICKET-0110 prompt update onto the live DB (BRIEF-0110-A, I2): the NPC link agent's pair pass no longer offers the relation type `debt` -- « X owes Y » is a `debt` row, never a link.
 - `apply_ticket_0112_condition_prompt.py` — One-shot, idempotent delivery of the TICKET-0112 condition interpreter's prompt head onto the live DB (BRIEF-0112-C).
 - `apply_ticket_0113_condition_prompt.py` — One-shot, idempotent delivery of the TICKET-0113 condition interpreter's prompt update onto the live DB (BRIEF-0113-D): the model reads the world's attributes -- the `a` list, a new variable `attributes` -- and writes an `attribute` leaf.
+- `apply_ticket_0114_analysis_prompt.py` — One-shot, idempotent delivery of the TICKET-0114 conversation analysis prompt update onto the live DB (BRIEF-0114-H): the analyzer reads the world's event types -- the `t` list, a new variable `event_types` -- and its sortes (`sortes`), names an event's type by code and its participants by role, and may propose a type (I2).
 - `apply_ticket_0114_condition_prompt.py` — One-shot, idempotent delivery of the TICKET-0114 condition interpreter's prompt update onto the live DB (BRIEF-0114-F): the model reads the world's event types -- the `t` list, a new variable `event_types` -- and its sortes (`sortes`), and writes an `event` leaf.
 - `backup.py` — Timestamped, rotated backup of the live world-engine database.
 - `cockpit.py` — Launch the World Engine Cockpit on 127.0.0.1:8000.
@@ -156,6 +157,7 @@
 - `debt_reads.py` — Debts: what the two surfaces read (TICKET-0110, BRIEF-0110-B, contract C-06).
 - `encounters.py` — Encounter registry writer and reads (TICKET-0091, BRIEF-0091-C, C-07).
 - `entity_author.py` — AI entity-authoring assistant (NPC, Location) — BRIEF-24, BRIEF-25.
+- `event_analysis.py` — The play analyzer's typed events (TICKET-0114, BRIEF-0114-H; decisions I2 and R1 of the conditions series).
 - `event_author.py` — AI event/agenda-authoring assistant — extracted from `entity_author.py` (TICKET-0028, BRIEF-0028-d, decision H1).
 - `event_payloads.py` — A model's event proposal, read into the journal's spec (TICKET-0114, BRIEF-0114-C; decisions D1, E1, I2, N1 and O1 of the conditions series).
 - `event_proposals.py` — The event types and sortes a model proposes (TICKET-0114, BRIEF-0114-G; decisions R1 and I2 of the conditions series).
@@ -395,6 +397,7 @@
 - `env_fail_closed.py` — G1 check: db.py's engine URL resolver is fail-closed (TICKET-0049, BRIEF-0049-a/d).
 - `env_guard.py` — G1 check: no scripts/*.py reaches the engine without an env resolvable at import time (TICKET-0049, BRIEF-0049-d).
 - `escalation_writer.py` — G1 check for TICKET-0117 (BRIEF-0117-a, J2-a) -- an escalation lives in the ticket it stops, written only by `tooling/glue/escalation.py`.
+- `event_analyzer.py` — G1 check for TICKET-0114 -- Play's analyzer proposes typed events, and may propose their type, approved with the event.
 - `event_assist.py` — G1 check for TICKET-0022/BRIEF-0022-b — AI event-draft assistant.
 - `event_conditions.py` — G1 check for TICKET-0114 -- a condition counts the events its subject lived, and a quest step says when it has failed.
 - `event_contexts.py` — G1 check for TICKET-0114 -- the models read the journal by what is known, and the MJ reads the states a player may see.

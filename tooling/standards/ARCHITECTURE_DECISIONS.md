@@ -19454,6 +19454,33 @@ ref to a real id keeps one validation path (`clean_leaf`), with no unsaved
 type to carry through the offer's save. A type created for a proposal she
 then discards stays in the vocabulary, where she can retire it.
 
+## PLAY'S ANALYZER PROPOSES TYPED EVENTS, AND MAY PROPOSE THEIR TYPE, APPROVED WITH THE EVENT (TICKET-0114) -- `event_analysis.py` (BRIEF-0114-h, no schema change)
+
+**R1 in Play.** The conversation analysis shows the model the world's event
+types as a coded list (`t`, each with its roles) and its sortes by name.
+Its `event_creation` names the type by code, each participant by the name
+of the role it holds -- an entity by id, a sorte by name -- and a quantity
+when the type counts one. `event_analysis.typed_payload` reads it
+fail-closed: an unknown code drops the proposal; a participant whose role
+the type lacks, or whose entity is not one the role accepts in this world,
+is left out, never guessed; a quantity the type does not count is dropped.
+A payload naming no type keeps the former shape (typed by its domain at
+apply, as the tick's until TICKET-0119).
+
+**I2.** When no type says what happened, the model proposes one
+(`new_type`), cleaned by the writer's own rules when it is read -- refused,
+the proposal is dropped. The queue's card names the proposed type and its
+roles: the creator approves the type with the event, and the applier
+writes both in its one savepoint (`event_payloads`): refused, neither is
+written. A sorte the world lacks keeps its name and is written likewise. A
+type or sorte the world has by then under that very name is used, never
+duplicated.
+
+**Prompt.** Three fragments of `CONVERSATION_ANALYSIS_FRAGMENTS_0114` (the
+typed shape, an EVENT_CREATION RUBRIC, the two lists in the message),
+delivered by `apply_ticket_0114_analysis_prompt.py`, fragment by fragment:
+the creator's edits are kept.
+
 ---
 
 *Co-built with Claude, June 2026.*
