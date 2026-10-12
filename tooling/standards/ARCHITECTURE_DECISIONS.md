@@ -19631,6 +19631,41 @@ days.
 **Replay.** `resolve_day` already refuses while the standing agenda holds a
 proposed step change (BB1), so a day is never proposed twice.
 
+## LORE DECLARES EVENTS -- IN THE WRITING PANEL'S PROPOSAL, AND BY A BUTTON STRAIGHT TO THE JOURNAL (TICKET-0119) -- U1, G3 (BRIEF-0119-g, no schema change)
+
+**U1 in the panel.** The lore writing call reads the world's event types
+(the coded `t` list) and its sortes, and may return events: a type by code,
+participants by role -- an entity of the statement by its ref, a sorte by
+name --, a quantity, a place by ref. `lore_write_draft._event` reads each
+fail-closed: an unknown code drops the event, an unknown role or a sorte the
+world lacks drops that participant, each with a note. A known type's
+effects pre-fill the event's changes on the entities the world already has
+(M-c). The panel edits each event in the shared `EventEditor`, its entities
+being the statement's refs until the commit (so its « Pré-remplir » is
+hidden: the draft arrives pre-filled).
+
+**A proposed type.** When no type fits, the model proposes one; the panel
+shows it in `EventTypeForm` and creates it with « Créer ce type » (the
+vocabulary's routes) before the commit -- the interpreter's rule (0114, G).
+An event still carrying `new_type` refuses the proposal: the commit never
+writes vocabulary.
+
+**The commit.** Events are written after the entities, facts, memberships
+and controls, each through the journal's one writer (`spec_from_payload`,
+`record_event`), its refs made ids; every row it wrote is recorded against
+the entry (INV-57: `lore_entry_row` names `event`, `event_participant`,
+`attribute_value`, `attribute_change` since v2.26). One refused event
+refuses the whole proposal. The history labels an event by its title, a
+state by « entité : état -> valeur ».
+
+**G3.** « Déclarer un événement » opens the editor on a blank event with
+the world's entities and writes it straight to the journal (`POST
+/api/events`): no statement, no lore entry -- the journal is its record.
+
+**Prompt.** Three fragments of `LORE_PROPOSAL_FRAGMENTS_0119`, delivered by
+`apply_ticket_0119_lore_prompt.py` fragment by fragment: the creator's
+edits are kept.
+
 ---
 
 *Co-built with Claude, June 2026.*

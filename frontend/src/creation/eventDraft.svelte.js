@@ -111,19 +111,23 @@ function changesBody(draft) {
                    value: c.value === '' ? null : c.value }));
 }
 
-/** The request body's draft part (`EventBody`, beside the plain fields).
- *  A correction carries no change: the event already made them. */
-export function eventDraftBody(isNew = true) {
+/** A draft's body for POST /api/events (`EventBody`, beside the plain
+ *  fields). A correction carries no change: the event already made them. */
+export function eventBodyFrom(draft, isNew = true) {
   return {
-    type_id: eventDraftState.typeId,
-    quantity: eventDraftState.quantity === null || eventDraftState.quantity === '' ? null
-      : Number(eventDraftState.quantity),
-    participants: eventDraftState.participants.map((p) => ({
+    type_id: draft.typeId,
+    quantity: draft.quantity === null || draft.quantity === '' ? null : Number(draft.quantity),
+    participants: draft.participants.map((p) => ({
       role_id: p.role_id, entity_id: p.entity_id, sorte_id: p.sorte_id, secret: p.entity_id ? !!p.secret : null,
     })),
-    scopes: eventDraftState.customScopes ? eventDraftState.scopes.map((s) => ({ ...s })) : null,
-    state_changes: isNew ? changesBody(eventDraftState) : [],
+    scopes: draft.customScopes ? draft.scopes.map((s) => ({ ...s })) : null,
+    state_changes: isNew ? changesBody(draft) : [],
   };
+}
+
+/** The journal sheet's draft part, from its store. */
+export function eventDraftBody(isNew = true) {
+  return eventBodyFrom(eventDraftState, isNew);
 }
 
 /** A typed `event_creation` payload as a draft the review card edits. */

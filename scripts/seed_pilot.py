@@ -2005,13 +2005,26 @@ entrent dans une faction ({"entity_ref", "faction_ref"}) ; "controls" \
 liste qui possède ou dirige un lieu ({"owner_ref", "location_ref"}). La \
 possession s'écrit aussi comme un fait de facette "statut".
 
+ÉVÉNEMENTS. Quand le texte dit qu'il S'EST PASSÉ quelque chose (un \
+combat, une mort, un pacte, un incendie), liste-le dans "events" : \
+"event_type" est le code d'un type de la liste des types d'événements \
+("t2") ; "participants" nomme chaque participant par le rôle qu'il tient : \
+{"role": "...", "ref": "e1"} pour une entité, {"role": "...", "sorte": \
+"Loup"} pour une sorte de la liste ; "quantity" seulement si le type se \
+compte ; "place_ref" le lieu ; "title" et "description" en une phrase. \
+Si aucun type ne dit ce qui s'est passé, propose-le dans "new_type" \
+({"name": "...", "domain": "military|political|magical|criminal|social|mystery|other", \
+"roles": [{"name": "...", "for": ["character"], "sorte": false}], \
+"quantity": false}) sans "event_type" : la créatrice le crée avant \
+d'écrire.
+
 Suis les réponses de la créatrice à la lettre. Réponds UNIQUEMENT avec ce \
 JSON :
 {"entities": [{"ref": "e1", "name": "...", "category": "person"}],
  "facts": [{"action": "create", "content": "...", "facet": "preference",
    "participants": ["e1"], "defaults": [{"scope_type": "rencontre",
    "scope_ref": "e1"}], "knowers": []}],
- "memberships": [], "controls": []}\
+ "memberships": [], "controls": [], "events": []}\
 """
 
 LORE_STATEMENT_TO_PROPOSAL_USER_TEMPLATE = """\
@@ -2024,12 +2037,40 @@ Entités connues que le texte nomme :
 Faits déjà connus (code — texte) :
 {facts}
 
+Types d'événements (code — nom, rôles) :
+{event_types}
+
+Sortes :
+{sortes}
+
 Texte de la créatrice :
 {statement}
 
 Réponses de la créatrice aux questions :
 {answers}\
 """
+
+
+# TICKET-0119 (BRIEF-0119-G, U1): the proposal call reads the world's event
+# types and sortes and may return events. The texts above hold each new
+# fragment; scripts/apply_ticket_0119_lore_prompt.py applies the same
+# (field, old, new) triples to the CURRENT version of the proposal head, so
+# an edit the creator made in the Prompts tab is kept (event_lore.py keeps
+# the triples and the texts above equal).
+LORE_PROPOSAL_VARIABLES: tuple[str, ...] = ("facets", "entities", "facts", "statement", "answers", "event_types",
+                                            "sortes")
+LORE_PROPOSAL_FRAGMENTS_0119: tuple[tuple[str, str, str], ...] = (
+    ("system_prompt",
+     "Suis les réponses de la créatrice à la lettre. Réponds UNIQUEMENT avec ce JSON :",
+     LORE_STATEMENT_TO_PROPOSAL_SYSTEM_PROMPT[
+         LORE_STATEMENT_TO_PROPOSAL_SYSTEM_PROMPT.index("ÉVÉNEMENTS."):
+         LORE_STATEMENT_TO_PROPOSAL_SYSTEM_PROMPT.index("Suis les réponses de la créatrice")]
+     + "Suis les réponses de la créatrice à la lettre. Réponds UNIQUEMENT avec ce JSON :"),
+    ("system_prompt", ' "memberships": [], "controls": []}', ' "memberships": [], "controls": [], "events": []}'),
+    ("user_template", "{facts}\n\nTexte de la créatrice :",
+     "{facts}\n\nTypes d'événements (code — nom, rôles) :\n{event_types}\n\nSortes :\n{sortes}\n\n"
+     "Texte de la créatrice :"),
+)
 
 
 # The lore writing heads, one tuple read by the seed and by
@@ -2053,7 +2094,7 @@ LORE_WRITE_PROMPT_HEADS = (
         world_id=None,
         system_prompt=LORE_STATEMENT_TO_PROPOSAL_SYSTEM_PROMPT,
         user_template=LORE_STATEMENT_TO_PROPOSAL_USER_TEMPLATE,
-        variables=["facets", "entities", "facts", "statement", "answers"],
+        variables=list(LORE_PROPOSAL_VARIABLES),
         destination="local",
     ),
 )

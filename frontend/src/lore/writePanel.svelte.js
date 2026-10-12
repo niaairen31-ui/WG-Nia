@@ -16,8 +16,20 @@
    TICKET-0103 (BRIEF-0103-D): `attemptId` names one use of the panel, from
    the text to its commit, for the usage journal. A fresh one comes with
    every blank state (a new text, a world change); every request of the use
-   carries it. */
+   carries it.
+
+   TICKET-0119 (BRIEF-0119-G, U1, G3): the draft's EVENTS are edited in the
+   shared EventEditor, on drafts whose entity ids are the statement's refs
+   (`eventEntities`: the entities kept, by ref) -- mapped back to refs in
+   the proposal, made ids by the server at commit. A type the model
+   proposed is created from its card first (`createProposedType`, POST
+   /api/event-types), its participants then bound to its roles by name.
+   « Déclarer un événement » (`declareState`) writes one event straight to
+   the journal (POST /api/events), with the world's entities. */
 import { api } from '../creation/sheetRequest.svelte.js';
+import { serverState } from '../lib/serverState.svelte.js';
+import { blankEventDraft, eventBodyFrom } from '../creation/eventDraft.svelte.js';
+import { typeBody, typeDraft, loadVocabulary, vocabState } from '../creation/eventVocab.svelte.js';
 
 export const ENTITY_TYPES = Object.freeze([
   { value: 'character', label: 'personnage' },
@@ -44,6 +56,9 @@ function blank() {
     attemptId: crypto.randomUUID(),
   };
 }
+
+/* G3: one event declared straight to the journal, no statement. */
+export const declareState = $state({ open: false, draft: null, busy: false, error: '', saved: '' });
 
 export const writeState = $state(blank());
 
@@ -98,9 +113,73 @@ async function draftNow() {
     else if (entity.status === 'ambiguous') entity.decision = '';
     else entity.decision = entity.type ? 'create' : '';
   }
+  draft.events = (draft.events || []).map((item) => loreEventDraft(item, draft));
+  if (draft.events.length) await loadVocabulary(serverState.worldId);
   writeState.draft = draft;
   writeState.result = null;
   writeState.stage = 'draft';
+}
+
+/* An event of the draft as the shared editor's draft: its entity ids are
+   the statement's refs. */
+function loreEventDraft(item, draft) {
+  const named = (ref) => ((draft.entities || []).find((e) => e.ref === ref) || {}).name || ref;
+  return {
+    ...blankEventDraft(), ref: item.ref, typeId: item.type_id || '', newType: item.new_type || null,
+    typeEdit: item.new_type ? typeDraft(item.new_type) : null, quantity: item.quantity ?? null,
+    participants: (item.participants || []).map((p) => ({
+      role_id: p.role_id, role: p.role, entity_id: p.entity_ref, sorte_id: p.sorte_id, sorte_name: null,
+      name: p.entity_ref ? named(p.entity_ref) : '', secret: p.secret, saved: false,
+    })),
+    changes: (item.state_changes || []).map((c) => ({ entity_id: c.entity_ref, attribute: c.attribute,
+                                                     mode: c.mode, value: c.value })),
+    title: item.title || '', description: item.description || '', locationId: item.location_ref || null,
+  };
+}
+
+/** The statement's kept entities, by ref, for the event editor. */
+export function eventEntities() {
+  return liveRefs().map((e) => ({ id: e.ref, name: refLabel(e.ref), type: e.type }));
+}
+
+/** A proposed type, created as the creator edited it; the event then names
+ *  its roles by id. */
+export function createProposedType(event) {
+  return run(async () => {
+    const saved = await post('/api/event-types', typeBody(event.typeEdit, true));
+    await loadVocabulary(serverState.worldId);
+    const type = vocabState.types.find((t) => t.id === saved.type.id);
+    const byName = Object.fromEntries((type ? type.roles : []).map((r) => [r.name, r.id]));
+    event.typeId = saved.type.id;
+    event.newType = null;
+    event.typeEdit = null;
+    event.participants = event.participants.filter((p) => byName[p.role]).map((p) => ({ ...p, role_id: byName[p.role] }));
+  });
+}
+
+export function openDeclare() {
+  return run(async () => {
+    await loadWorldEntities();
+    await loadVocabulary(serverState.worldId);
+    Object.assign(declareState, { open: true, draft: blankEventDraft(), error: '', saved: '' });
+  });
+}
+
+export async function saveDeclared() {
+  const draft = declareState.draft;
+  if (!draft || !draft.typeId || !draft.title.trim()) { declareState.error = 'Un titre et un type sont requis.'; return; }
+  declareState.busy = true;
+  declareState.error = '';
+  try {
+    const body = { title: draft.title, description: draft.description || null, location_id: draft.locationId || null,
+                   ...eventBodyFrom(draft, true) };
+    const saved = await post('/api/events', body);
+    Object.assign(declareState, { open: false, draft: null, saved: `Événement écrit : ${saved.title}` });
+  } catch (e) {
+    declareState.error = e.message;
+  } finally {
+    declareState.busy = false;
+  }
 }
 
 export function makeDraft() {
@@ -212,8 +291,32 @@ export function blockers() {
       if (d.scope_type !== 'world' && !d.scope_ref) out.push('Une portée ne nomme pas son entité.');
     }
   }
-  if (!draft.facts.length && !draft.memberships.length && !draft.controls.length) {
+  for (const ev of draft.events || []) {
+    if (ev.newType) out.push(`Crée le type « ${ev.newType.name} » ou retire l'événement « ${ev.title} ».`);
+    else if (!ev.typeId) out.push(`Choisis le type de l'événement « ${ev.title} ».`);
+  }
+  if (!draft.facts.length && !draft.memberships.length && !draft.controls.length && !(draft.events || []).length) {
     out.push('La proposition n’écrit rien.');
+  }
+  return out;
+}
+
+function eventProposal(ev, keep) {
+  const out = {
+    ref: ev.ref, type_id: ev.typeId, title: ev.title, description: ev.description || null,
+    quantity: ev.quantity === null || ev.quantity === '' ? null : Number(ev.quantity),
+    location_ref: keep(ev.locationId) ? ev.locationId : null,
+    participants: ev.participants.filter((p) => !p.entity_id || keep(p.entity_id)).map((p) => ({
+      role_id: p.role_id, role: p.role, entity_ref: p.entity_id || null, sorte_id: p.sorte_id || null,
+      secret: p.entity_id && typeof p.secret === 'boolean' ? p.secret : null,
+    })),
+    state_changes: ev.changes.filter((c) => c.entity_id && c.attribute && keep(c.entity_id)).map((c) => ({
+      entity_ref: c.entity_id, attribute: c.attribute, mode: c.mode || 'set', value: c.value === '' ? null : c.value,
+    })),
+  };
+  if (ev.customScopes) {
+    out.scopes = ev.scopes.filter((sc) => sc.scope_type === 'world' || keep(sc.scope_id))
+      .map((sc) => ({ scope_type: sc.scope_type, scope_ref: sc.scope_type === 'world' ? null : sc.scope_id, level: sc.level }));
   }
   return out;
 }
@@ -247,6 +350,7 @@ function toProposal() {
     questions: writeState.questions.join('\n') || null, entities, facts,
     memberships: draft.memberships.filter((m) => keep(m.entity_ref) && keep(m.faction_ref)),
     controls: draft.controls.filter((c) => keep(c.owner_ref) && keep(c.location_ref)),
+    events: (draft.events || []).map((ev) => eventProposal(ev, keep)),
   };
 }
 

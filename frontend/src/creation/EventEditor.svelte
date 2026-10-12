@@ -17,7 +17,9 @@
      dropped, and new ones added -- an entity, a state that applies to it, a
      value of the state's kind (an integer set or added, D3). `withChanges`
      off (a correction from the journal) hides them: a correction changes no
-     state.
+     state. `canPrefill` off (Lore, whose entities are the statement's refs
+     until the commit) hides « Pré-remplir »: Lore's draft arrives
+     pre-filled.
 
      `entities` are the world's ({id, name, type}); `playerCharIds` a Set of
      the player characters' ids. The types, sortes, levels and states come
@@ -28,6 +30,7 @@
 
   let {
     draft, entities = [], playerCharIds = null, typeFixed = false, withText = false, withChanges = true,
+    canPrefill = true,
   } = $props();
 
   let prefillError = $state('');
@@ -264,7 +267,7 @@
     {/each}
     {#if !draft.changes.length}<div style="color:var(--muted); font-size:12px;">Aucun état ne change.</div>{/if}
     <div style="display:flex; gap:6px; margin-top:4px">
-      {#if !draft.newType && draft.typeId}<button onclick={prefill}>Pré-remplir depuis le type</button>{/if}
+      {#if canPrefill && !draft.newType && draft.typeId}<button onclick={prefill}>Pré-remplir depuis le type</button>{/if}
       <button onclick={addChange}>+ changement</button>
     </div>
     {#if prefillError}<div style="font-size:12px; color:var(--muted)">{prefillError}</div>{/if}

@@ -178,7 +178,7 @@ def check_ey3() -> None:
         "QueueCard.svelte": ("<EventEditor", "payloadFromDraft(eventDraft"),
         "eventDraft.svelte.js": ("export function draftFromPayload", "export function payloadFromDraft",
                                  "export async function prefilledChanges", "'/api/events/changes'",
-                                 "state_changes: isNew ? changesBody(eventDraftState) : []"),
+                                 "state_changes: isNew ? changesBody(draft) : []"),
     }
     for name, needles in wanted.items():
         path = FRONT / name

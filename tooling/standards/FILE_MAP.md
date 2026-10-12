@@ -34,6 +34,7 @@
 - `apply_ticket_0113_condition_prompt.py` — One-shot, idempotent delivery of the TICKET-0113 condition interpreter's prompt update onto the live DB (BRIEF-0113-D): the model reads the world's attributes -- the `a` list, a new variable `attributes` -- and writes an `attribute` leaf.
 - `apply_ticket_0114_analysis_prompt.py` — One-shot, idempotent delivery of the TICKET-0114 conversation analysis prompt update onto the live DB (BRIEF-0114-H): the analyzer reads the world's event types -- the `t` list, a new variable `event_types` -- and its sortes (`sortes`), names an event's type by code and its participants by role, and may propose a type (I2).
 - `apply_ticket_0114_condition_prompt.py` — One-shot, idempotent delivery of the TICKET-0114 condition interpreter's prompt update onto the live DB (BRIEF-0114-F): the model reads the world's event types -- the `t` list, a new variable `event_types` -- and its sortes (`sortes`), and writes an `event` leaf.
+- `apply_ticket_0119_lore_prompt.py` — One-shot, idempotent delivery of the TICKET-0119 Lore proposal prompt update onto the live DB (BRIEF-0119-G, U1): the lore writing call reads the world's event types -- the `t` list, a new variable `event_types` -- and its sortes (`sortes`), and may return events, or a type the world lacks.
 - `apply_ticket_0119_tick_prompt.py` — One-shot, idempotent delivery of the TICKET-0119 world tick events prompt update onto the live DB (BRIEF-0119-E): the scope-level tick reads the world's event types -- the `t` list, a new variable `event_types` -- and its sortes (`sortes`), and names an event's type by code and its participants by role and name; it proposes no new type (A1).
 - `backup.py` — Timestamped, rotated backup of the live world-engine database.
 - `cockpit.py` — Launch the World Engine Cockpit on 127.0.0.1:8000.
@@ -413,6 +414,7 @@
 - `event_effects.py` — G1 check for TICKET-0119 -- what an event type does to the state of the world: its effects, written and read.
 - `event_interpreter.py` — G1 check for TICKET-0114 -- the condition interpreter reads the world's event types and sortes and writes an event leaf.
 - `event_journal.py` — G1 check for TICKET-0114 -- the event journal's vocabulary: a world's event types, their roles, who learns them, its sortes.
+- `event_lore.py` — G1 check for TICKET-0119 -- Lore declares events: in the writing panel's proposal, and by a button straight to the journal.
 - `event_tab.py` — G1 check for TICKET-0022/BRIEF-0022-a — Événements creator tab.
 - `event_tick.py` — G1 check for TICKET-0119 -- the world tick proposes typed events: the world's types by code, participants by role and name; never a new type.
 - `event_writes.py` — G1 check for TICKET-0114 -- the event journal's writer: an event, its participants by role, its fact, who learns it.

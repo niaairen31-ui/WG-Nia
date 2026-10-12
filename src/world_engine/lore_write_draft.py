@@ -16,6 +16,17 @@ writes what the creator confirmed.
 
 Ollama down surfaces as `ollama_client.OllamaError` to the route, which
 answers `WRITE_UNAVAILABLE_MESSAGE` (K1: no fallback extractor).
+
+TICKET-0119 (BRIEF-0119-G, U1, G3): the proposal call also sees the world's
+event types (the coded `t` list, `event_analysis.analysis_vocabulary`) and
+its sortes, and may return EVENTS: a type by code, participants by role --
+an entity of the statement by its ref, or a sorte by name -- a quantity, a
+place by ref; or a type the world lacks (`new_type`), which the panel offers
+to create before the commit. Code reads each fail-closed (`_event`): an
+unknown code drops the event with a note, a role the type lacks or a sorte
+the world lacks drops that participant with a note. A known type's effects
+pre-fill the event's changes on the entities the statement names that the
+world already has (M-c).
 """
 
 from __future__ import annotations
@@ -26,15 +37,19 @@ from typing import Any, Optional
 from sqlmodel import Session, select
 
 from . import model_exchange, prompt_call
+from .event_analysis import AnalysisVocabulary, analysis_vocabulary
+from .event_changes import type_changes
+from .event_proposals import type_definition, type_spec
 from .facet_reads import creator_only_fact_ids
 from .facets import FACETS
 from .fact_refs import CodedRefs, code_facts
-from .lore_resolve import near_candidates, resolve_named
+from .lore_resolve import near_candidates, normalize_surface, resolve_named
 from .models import Entity, Fact, FactParticipant
 from .name_index import CREATOR
 from .ollama_client import chat
 from .prose_render import TOKEN_RE
 from .prose_tokens import tokenize
+from .writes.event_types import clean_event_type
 from .writes.knowledge import KNOWLEDGE_LEVEL_LADDER
 
 QUESTIONS_USAGE = "lore_statement_questions"
@@ -121,14 +136,18 @@ def _call(db: Session, usage: str, values: dict[str, str], exchanges: Exchanges)
     return prompt_call.call_json(db, usage, values, exchanges, chat)
 
 
-def _values(context: DraftContext, statement: str, answers: str = "") -> dict[str, str]:
-    return {
+def _values(context: DraftContext, statement: str, answers: str = "",
+            vocab: Optional[AnalysisVocabulary] = None) -> dict[str, str]:
+    values = {
         "statement": statement.strip(),
         "answers": answers.strip() or "(aucune réponse)",
         "entities": "\n".join(context.entity_lines) or "(aucune entité connue nommée)",
         "facts": "\n".join(context.coded.lines) or "(aucun fait connu)",
         "facets": _facet_lines(),
     }
+    if vocab is not None:
+        values.update(vocab.prompt_values())
+    return values
 
 
 def draft_questions(
@@ -238,6 +257,86 @@ def _pairs(raw: Any, keys: tuple[str, str], known: set[str]) -> list[dict]:
     return out
 
 
+def _event_type(db: Session, world_id: str, raw: dict, vocab: AnalysisVocabulary, notes: list[str]):
+    """(type id or None, type name, {role name key: (role id or None, name)},
+    counts quantity, new type definition or None), or None to drop."""
+    code = raw.get("event_type")
+    if code not in (None, "") and not isinstance(code, dict):
+        type_id = vocab.codes.resolve(code)
+        if type_id is None:
+            notes.append(f"Un événement de type inconnu ({code!r}) a été ignoré.")
+            return None
+        view = vocab.types[type_id]
+        roles = {normalize_surface(r.name): (r.id, r.name) for r in view.active_roles()}
+        return type_id, view.name, roles, view.counts_quantity, None
+    if not isinstance(raw.get("new_type"), dict):
+        notes.append("Un événement sans type a été ignoré.")
+        return None
+    try:
+        clean = clean_event_type(db, world_id, type_spec(raw["new_type"]))
+    except ValueError as exc:
+        notes.append(f"Un type d'événement proposé a été refusé ({exc}).")
+        return None
+    roles = {normalize_surface(r.name): (None, r.name) for r in clean.roles}
+    return None, clean.name, roles, clean.counts_quantity, type_definition(clean)
+
+
+def _event_participant(raw: Any, roles: dict, by_ref: dict, vocab: AnalysisVocabulary,
+                       notes: list[str]) -> Optional[dict]:
+    if not isinstance(raw, dict):
+        return None
+    role = roles.get(normalize_surface(str(raw.get("role") or "")))
+    if role is None:
+        notes.append(f"Un participant d'un rôle inconnu ({raw.get('role')!r}) a été ignoré.")
+        return None
+    out = {"role_id": role[0], "role": role[1], "entity_ref": None, "sorte_id": None, "secret": None}
+    if str(raw.get("sorte") or "").strip():
+        name = normalize_surface(str(raw["sorte"]))
+        out["sorte_id"] = next((sid for sid, s in vocab.sortes.items() if normalize_surface(s) == name), None)
+        if out["sorte_id"] is None:
+            notes.append(f"La sorte « {raw['sorte']} » n'existe pas : crée-la dans Vocabulaire du monde.")
+            return None
+        return out
+    if raw.get("ref") not in by_ref:
+        return None
+    out["entity_ref"] = raw["ref"]
+    return out
+
+
+def _event(db: Session, world_id: str, raw: Any, vocab: AnalysisVocabulary, by_ref: dict,
+           notes: list[str]) -> Optional[dict]:
+    """One event of the model, read fail-closed (see the module docstring)."""
+    if not isinstance(raw, dict):
+        return None
+    found = _event_type(db, world_id, raw, vocab, notes)
+    if found is None:
+        return None
+    type_id, type_name, roles, counts, definition = found
+    participants = [p for p in (_event_participant(r, roles, by_ref, vocab, notes)
+                                for r in _as_list(raw.get("participants"))) if p is not None]
+    quantity = raw.get("quantity")
+    item: dict[str, Any] = {
+        "type_id": type_id, "type_name": type_name,
+        "title": str(raw.get("title") or "").strip() or type_name,
+        "description": str(raw.get("description") or "").strip() or None,
+        "quantity": quantity if counts and isinstance(quantity, int) and not isinstance(quantity, bool)
+        and quantity >= 1 else None,
+        "location_ref": raw.get("place_ref") if raw.get("place_ref") in by_ref else None,
+        "participants": participants, "state_changes": [],
+    }
+    if definition is not None:
+        item["new_type"] = definition
+        return item
+    known = {by_ref[p["entity_ref"]]["entity_id"]: p["entity_ref"] for p in participants
+             if p["entity_ref"] and by_ref[p["entity_ref"]].get("entity_id")}
+    changes = type_changes(db, world_id, vocab.types[type_id],
+                           [(p["role_id"], by_ref[p["entity_ref"]].get("entity_id")) for p in participants
+                            if p["entity_ref"]])
+    item["state_changes"] = [{"entity_ref": known[c["entity_id"]], "attribute": c["attribute"],
+                              "mode": c["mode"], "value": known.get(c["value"], c["value"])} for c in changes]
+    return item
+
+
 def _preset_kind(db: Session, fact_id: str) -> str:
     """The rewrite kind preselected for a fact's facet (TICKET-0105, H1)."""
     fact = db.get(Fact, fact_id)
@@ -254,7 +353,8 @@ def draft_proposal(
     an id or dropped with a note. `OllamaError` and `LlmParseError`
     propagate. `exchanges`: see `_call` (TICKET-0103, C-03)."""
     context = draft_context(db, world_id, statement)
-    parsed = _call(db, PROPOSAL_USAGE, _values(context, statement, answers), exchanges)
+    vocab = analysis_vocabulary(db, world_id)
+    parsed = _call(db, PROPOSAL_USAGE, _values(context, statement, answers, vocab), exchanges)
     notes: list[str] = []
     entities = [e for e in (_entity(db, world_id, raw, notes)
                             for raw in _as_list(parsed.get("entities"))) if e is not None]
@@ -269,11 +369,17 @@ def draft_proposal(
         fact["ref"] = f"f{index}"
         if fact["action"] == "rewrite":
             fact["kind"] = _preset_kind(db, fact["fact_id"])
+    by_ref = {e["ref"]: e for e in entities}
+    events = [e for e in (_event(db, world_id, raw, vocab, by_ref, notes)
+                          for raw in _as_list(parsed.get("events"))) if e is not None]
+    for index, event in enumerate(events, start=1):
+        event["ref"] = f"v{index}"
     return {
         "statement": statement.strip(), "answers": answers.strip() or None,
         "entities": entities, "facts": facts,
         "memberships": _pairs(parsed.get("memberships"), ("entity_ref", "faction_ref"), seen),
         "controls": _pairs(parsed.get("controls"), ("owner_ref", "location_ref"), seen),
+        "events": events,
         "notes": notes,
         "facets": [{"name": name, "label": spec.label} for name, spec in FACETS.items()
                    if spec.granularity != "typed"],

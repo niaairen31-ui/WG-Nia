@@ -3,14 +3,23 @@
      shell: the creator writes lore in prose, answers at most one round of
      questions, corrects the proposal and commits it. A second bounded
      reopening of the shell's read-only lock (H1); the consultation view is
-     untouched. Every entity is chosen from a list. */
+     untouched. Every entity is chosen from a list.
+
+     TICKET-0119 (BRIEF-0119-G, U1, G3): the proposal's events, each in the
+     shared EventEditor on the statement's entities (by ref), a proposed type
+     created from its card first; and « Déclarer un événement », one event
+     written straight to the journal. */
   import { serverState } from '../lib/serverState.svelte.js';
   import {
     writeState, ENTITY_TYPES, SCOPE_TYPES, LEVELS, reloadForWorld, askQuestions, makeDraft,
     pickExisting, refLabel, liveRefs, scopeOptions, scopeValue, pickScope, setScopeType,
     addKnower, addDefault, removeAt, blockers,
     commit, restart, loadEntries, worldEntity,
+    eventEntities, createProposedType, declareState, openDeclare, saveDeclared,
   } from './writePanel.svelte.js';
+  import { vocabState } from '../creation/eventVocab.svelte.js';
+  import EventEditor from '../creation/EventEditor.svelte';
+  import EventTypeForm from '../creation/EventTypeForm.svelte';
 
   let { visible = false } = $props();
 
@@ -54,11 +63,23 @@
       disabled={writeState.busy || writeState.stage !== 'text'}
     ></textarea>
     {#if writeState.stage === 'text'}
-      <div>
+      <div class="row">
         <button disabled={writeState.busy || !writeState.statement.trim()} onclick={() => askQuestions()}>
           {writeState.busy ? '⟳ Lecture…' : 'Proposer des faits'}
         </button>
+        <button disabled={writeState.busy || declareState.open} onclick={() => openDeclare()}>Déclarer un événement</button>
       </div>
+      {#if declareState.saved}<div class="muted">{declareState.saved}</div>{/if}
+      {#if declareState.open && declareState.draft}
+        <div class="card">
+          <EventEditor draft={declareState.draft} entities={writeState.entities || []} withText={true} />
+          {#if declareState.error}<div class="r-err">{declareState.error}</div>{/if}
+          <div class="row">
+            <button disabled={declareState.busy} onclick={() => saveDeclared()}>Écrire l'événement</button>
+            <button onclick={() => { declareState.open = false; declareState.draft = null; }}>Annuler</button>
+          </div>
+        </div>
+      {/if}
     {/if}
 
     {#if writeState.stage === 'questions'}
@@ -193,6 +214,22 @@
         {#each draft.controls as c, ci (ci)}
           <div class="row">{refLabel(c.owner_ref)} possède {refLabel(c.location_ref)}
             <button onclick={() => removeAt(draft.controls, ci)}>×</button></div>
+        {/each}
+      {/if}
+
+      {#if (draft.events || []).length}
+        <h3>Événements</h3>
+        {#each draft.events as ev, ei (ev.ref)}
+          <div class="card">
+            <div class="row"><strong>{ev.title}</strong>
+              <button onclick={() => removeAt(draft.events, ei)}>Retirer</button></div>
+            {#if ev.newType && ev.typeEdit}
+              <div class="muted">Type proposé — crée-le avant d'écrire :</div>
+              <EventTypeForm draft={ev.typeEdit} vocab={vocabState} />
+              <button disabled={writeState.busy} onclick={() => createProposedType(ev)}>Créer ce type</button>
+            {/if}
+            <EventEditor draft={ev} entities={eventEntities()} withText={true} canPrefill={false} />
+          </div>
         {/each}
       {/if}
 
