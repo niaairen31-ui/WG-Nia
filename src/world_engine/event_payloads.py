@@ -13,7 +13,10 @@ proposal's payload into that writer's `EventSpec`. Two payload shapes:
   then under that name is used instead), its participants naming its roles
   by `role`; a participant's `sorte_name` is a sorte the world lacked,
   written likewise (`write_sorte`) unless it exists by then. All inside the
-  applier's savepoint: refused, nothing is written.
+  applier's savepoint: refused, nothing is written. Since TICKET-0119 a
+  typed payload carries its `state_changes` (M-c) -- pre-filled from its
+  type's effects, edited by the creator on the card -- read by
+  `event_changes.payload_changes` for the writer to clean.
 - untyped (the world tick until TICKET-0119, and every proposal written
   before): `type` (a former category), `involved_entities`,
   `knowledge_status`, `location_id`. It is typed by its domain
@@ -39,6 +42,7 @@ from typing import Optional
 
 from sqlmodel import Session
 
+from .event_changes import payload_changes
 from .event_proposals import type_spec
 from .event_vocab import role_accepts, type_view, world_event_types, world_sortes
 from .lore_resolve import normalize_surface
@@ -107,7 +111,7 @@ def _typed(db: Session, world_id: str, payload: dict) -> EventSpec:
         type_id=str(type_id), title=str(payload.get("title") or ""),
         description=payload.get("description"), location_id=payload.get("location_id") or None,
         quantity=quantity if isinstance(quantity, int) and not isinstance(quantity, bool) else None,
-        participants=tuple(participants),
+        participants=tuple(participants), changes=payload_changes(payload.get("state_changes")),
     )
 
 

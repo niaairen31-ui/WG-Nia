@@ -7,7 +7,9 @@ by role (an entity or a sorte, each entity keeping it secret or not, X1),
 and who learns it besides them (its fact's scopes, the type's by default,
 W1). `POST /api/events` writes one, `PUT /api/events/{id}` corrects one --
 its type stays and no participant is taken away -- both through
-`writes.events`; every refusal is a 422.
+`writes.events`; every refusal is a 422. Since TICKET-0119 (BRIEF-0119-C,
+M-c) a new event carries its `state_changes` -- what it changes in the
+world, written with it, all or none; a correction carries none.
 
 `_event_dict` is what the journal shows: the participants with their role
 and their secret (read from their own knowledge row), the scopes with what
@@ -16,7 +18,7 @@ they name.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Union
 
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -29,6 +31,7 @@ from ...writes.events import (
     EventScopeSpec,
     EventSpec,
     ParticipantSpec,
+    StateChangeSpec,
     event_fact,
     write_event,
     write_event_update,
@@ -100,6 +103,15 @@ class EventScopeBody(BaseModel):
     level: str = "knows"
 
 
+class StateChangeBody(BaseModel):
+    """One change of a new event (M-c): `value` a choice key, an integer,
+    an entity id, or None."""
+    entity_id: str
+    attribute: str
+    mode: str = "set"
+    value: Optional[Union[int, str]] = None
+
+
 class EventBody(BaseModel):
     title: str
     description: Optional[str] = None
@@ -109,6 +121,7 @@ class EventBody(BaseModel):
     participants: list[ParticipantBody] = Field(default_factory=list)
     # None: the type's scopes (W1); a list, even empty: exactly these.
     scopes: Optional[list[EventScopeBody]] = None
+    state_changes: list[StateChangeBody] = Field(default_factory=list)
 
 
 def event_spec(body: EventBody) -> EventSpec:
@@ -118,6 +131,7 @@ def event_spec(body: EventBody) -> EventSpec:
         participants=tuple(ParticipantSpec(p.role_id, p.entity_id, p.sorte_id, p.secret) for p in body.participants),
         scopes=None if body.scopes is None else tuple(EventScopeSpec(s.scope_type, s.scope_id, s.level)
                                                        for s in body.scopes),
+        changes=tuple(StateChangeSpec(c.entity_id, c.attribute, c.value, c.mode) for c in body.state_changes),
     )
 
 

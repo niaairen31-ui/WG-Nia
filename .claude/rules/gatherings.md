@@ -18,6 +18,7 @@ paths:
   never inside `generate_gatherings`. [no check]
 - **INV-25** Creator-CRUD edits that change a character's
   `current_location_id`, or set an entity's `status` to a non-active value,
+  and an event's change of a status or vital state (`write_system_state`),
   close that entity's open `gathering_member` rows via
   `close_open_memberships` (gatherings are not canon — no `_apply_mutation`,
   no `change_history`). A location change also attaches the entity to the

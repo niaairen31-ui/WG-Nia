@@ -60,7 +60,6 @@ from ..writes import (
     write_agenda_step,
     write_agenda_step_status,
     write_character_location,
-    write_event,
     write_faction_role,
     write_goal_agenda_link,
     write_knowledge,
@@ -70,6 +69,7 @@ from ..writes import (
     write_npc_goal_status,
     write_relation,
 )
+from ..writes.events import record_event
 from ..writes.zone_promotion import promotion_preview
 from ..zone_rules import ZoneRefusal, require_visitable
 from .routes import mutations as _routes_mutations
@@ -696,15 +696,22 @@ def _mutation_apply_event_creation(mut: ProposedMutation, payload: dict, db: Ses
     analyzer) or untyped (the world tick, earlier proposals) -- is read into
     an `EventSpec` (`event_payloads.spec_from_payload`) and written by the
     journal's one writer, its fact, scopes and participants' knowledge with
-    it. Any refusal of the writer is "Needs attention", nothing written."""
+    it. Any refusal of the writer is "Needs attention", nothing written.
+    Since TICKET-0119 (BRIEF-0119-C, M-c) its `state_changes` are written
+    with it, all or none (F1); a system state it changed keeps its before
+    and after in the payload (`applied_changes`), since its column keeps no
+    history."""
     if not payload.get("title"):
         return "event_creation: payload must contain title"
     session_id, batch_id = provenance(db, mut)
     try:
         spec = spec_from_payload(db, mut.world_id, payload, session_id=session_id, batch_id=batch_id)
-        write_event(db, world_id=mut.world_id, spec=spec, created_by=f"mutation:{mut.id}")
+        written = record_event(db, world_id=mut.world_id, spec=spec, created_by=f"mutation:{mut.id}")
     except ValueError as exc:
         return f"event_creation: {exc}"
+    if written.system_changes:
+        mut.payload = {**payload, "applied_changes": written.system_changes}
+        db.add(mut)
     return None
 
 

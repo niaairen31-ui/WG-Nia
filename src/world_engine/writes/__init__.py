@@ -36,7 +36,8 @@ Layout, by canon domain:
                           `agenda_step`/`goal_agenda_link`.
     events.py           — the event journal: `event`, `event_participant`,
                           its fact, scopes and participants' knowledge:
-                          `clean_event`, `write_event`, `write_event_update`
+                          `clean_event`, `write_event`, `record_event`
+                          (TICKET-0119: with its changes), `write_event_update`
                           (TICKET-0114, BRIEF-0114-C).
     prompts.py          — `prompt_version`/`prompt_variable` (non-canon;
                           moved for module hygiene, not policy).
@@ -102,7 +103,17 @@ from .config import (
     write_npc_schedule,
     write_world_laws,
 )
-from .events import EventScopeSpec, EventSpec, ParticipantSpec, clean_event, event_fact_text, write_event, write_event_update
+from .events import (
+    EventScopeSpec,
+    EventSpec,
+    ParticipantSpec,
+    StateChangeSpec,
+    clean_event,
+    event_fact_text,
+    record_event,
+    write_event,
+    write_event_update,
+)
 from .facts import (
     attach_participants,
     create_fact,
@@ -241,6 +252,8 @@ __all__ = [
     "write_ledger_entry",
     "write_membership",
     "write_event",
+    "record_event",
+    "StateChangeSpec",
     "write_prompt_version",
     "delete_world_cascade",
     "WorldDeleteRefused",

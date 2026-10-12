@@ -19530,6 +19530,34 @@ its `effects`, a role's NAME for an entity state; `EventTypeBody.effects`
 is read into the writer's `EffectSpec`. Every rule stays in
 `writes/event_types.py`; a refused effect is a 422.
 
+## AN EVENT WRITES WHAT IT CHANGES IN THE WORLD, ALL OR NONE (TICKET-0119) -- ITS TYPE PRE-FILLS THE CHANGES; `record_event`, `write_system_state` (BRIEF-0119-c, no schema change)
+
+**M-c.** An event carries its CHANGES (`EventSpec.changes`, a payload's
+`state_changes`): each names an entity of the world, a state that applies
+to it, and a value of the state's kind. They are PRE-FILLED from its type's
+effects (`event_changes.type_changes`: each entity in the effect's role; a
+sorte changes nothing; an entity state takes the first entity of its value
+role), and the creator keeps, edits or drops them. Play's typed proposal
+carries them from this brief on; the tick, Journée and Lore follow.
+
+**F1.** One change refused and the whole event is refused: nothing is
+written -- in the applier's savepoint, the journal's route, Lore's
+transaction. A correction of an event changes no state (L1): the event
+already did, or never did.
+
+**The writes.** A definition's change is a `changement` naming its event
+(`write_attribute_value`); an integer `add` is added to the current value
+(D3). A system state is written by `writes.entity_states.write_system_state`
+(E1): a location is never made active again by an event (its fiche asks
+about a zone promotion, TICKET-0101), and an entity leaving `active`, or a
+character leaving `alive`, leaves its gatherings (INV-25's repair). Those
+columns keep no history: the approved proposal keeps their before and after
+(`applied_changes`), so a later history table can recover every change an
+event made.
+
+**`record_event`.** The journal's writer returns every row it wrote, for
+Lore to record them (INV-57); `write_event` stays its thin form.
+
 ---
 
 *Co-built with Claude, June 2026.*

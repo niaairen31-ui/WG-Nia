@@ -82,6 +82,8 @@ src/world_engine/writes/event_types.py::_write_roles           event_type_role e
 src/world_engine/writes/event_types.py::_write_scopes          event_type_scope
 # TICKET-0119, BRIEF-0119-A: _write_effects replaces a type's effects whole (an effect only pre-fills a proposal; nothing holds it). Same callers as write_event_type.
 src/world_engine/writes/event_types.py::_write_effects         event_type_effect
+# TICKET-0119, BRIEF-0119-C: write_system_state sets the two system states an event may change -- character.vital_status and entity.status (E1) -- for writes/events.py's changes only: an approved event_creation, the journal, Lore.
+src/world_engine/writes/entity_states.py::write_system_state   character entity
 src/world_engine/writes/event_types.py::set_event_type_status  event_type
 src/world_engine/writes/event_types.py::write_sorte            event_sorte
 src/world_engine/writes/event_types.py::set_sorte_status       event_sorte
@@ -93,7 +95,8 @@ src/world_engine/writes/event_types.py::set_sorte_status       event_sorte
 # INSERTs into entity_type / entity_type_history are row writes and are
 # allow-listed here.
 src/world_engine/writes/schema.py::create_entity_type          entity_type entity_type_history
-src/world_engine/writes/events.py::write_event                 event
+# TICKET-0119, BRIEF-0119-C: record_event is write_event's body, returning every row it wrote (write_event now calls it).
+src/world_engine/writes/events.py::record_event                event
 src/world_engine/writes/events.py::write_event_update           event
 # TICKET-0114, BRIEF-0114-C: the journal -- _add_participants adds an event's participants (never takes one away; their knowledge goes through write_knowledge, allow-listed above), _write_scopes replaces an event's fact's scopes whole (the full-replace shape; each row through create_fact_default). Creator CRUD and _apply_mutation's event_creation.
 src/world_engine/writes/events.py::_add_participants           event_participant

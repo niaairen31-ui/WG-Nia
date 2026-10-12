@@ -160,6 +160,7 @@
 - `entity_author.py` — AI entity-authoring assistant (NPC, Location) — BRIEF-24, BRIEF-25.
 - `event_analysis.py` — The play analyzer's typed events (TICKET-0114, BRIEF-0114-H; decisions I2 and R1 of the conditions series).
 - `event_author.py` — AI event/agenda-authoring assistant — extracted from `entity_author.py` (TICKET-0028, BRIEF-0028-d, decision H1).
+- `event_changes.py` — What an event's type proposes it changes in the world (TICKET-0119, BRIEF-0119-C; decisions M-c, D3 and E1 of the conditions series).
 - `event_payloads.py` — A model's event proposal, read into the journal's spec (TICKET-0114, BRIEF-0114-C; decisions D1, E1, I2, N1 and O1 of the conditions series).
 - `event_proposals.py` — The event types and sortes a model proposes (TICKET-0114, BRIEF-0114-G; decisions R1 and I2 of the conditions series).
 - `event_reads.py` — The journal as the models read it (TICKET-0114, BRIEF-0114-D; decisions K-a and Q1 of the conditions series).
@@ -321,6 +322,7 @@
 - `config.py` — Full-replace curated-config canon-write chokepoints (TICKET-0028, BRIEF-0028-b — decomposed from `writes.py`).
 - `debt_sources.py` — Where a debt comes from besides the creator's hand (TICKET-0110, BRIEF-0110-B, S2 and A2, contract C-05).
 - `debts.py` — Debts: the writers (TICKET-0110, BRIEF-0110-B, J2, C2, T1, F-a, F-b1, U1, V1, X1, contract C-03).
+- `entity_states.py` — The writer of the system states an event may change (TICKET-0119, BRIEF-0119-C; decision E1 of the conditions series): `character.vital_status` (`sys:vital_status`) and `entity.status` (`sys:status`), the two columns `writes.event_types.EFFECT_SYSTEM_KEYS` names.
 - `event_types.py` — The writer of the event journal's vocabulary (TICKET-0114, BRIEF-0114-A; decisions B1, C1, D1, N1 and W1 of the conditions series): the one writer of `event_type`, `event_type_role`, `event_type_role_type`, `event_type_scope`, `event_type_effect` (TICKET-0119) and `event_sorte`.
 - `events.py` — `event` canon-write chokepoint -- the event journal (TICKET-0114, BRIEF-0114-C; decisions F1, D1, E1, K-a, V1, W1 and X1 of the conditions series).
 - `facets.py` — The entity-fact writer (TICKET-0091, BRIEF-0091-E, contract C-05).
@@ -400,6 +402,7 @@
 - `escalation_writer.py` — G1 check for TICKET-0117 (BRIEF-0117-a, J2-a) -- an escalation lives in the ticket it stops, written only by `tooling/glue/escalation.py`.
 - `event_analyzer.py` — G1 check for TICKET-0114 -- Play's analyzer proposes typed events, and may propose their type, approved with the event.
 - `event_assist.py` — G1 check for TICKET-0022/BRIEF-0022-b — AI event-draft assistant.
+- `event_changes.py` — G1 check for TICKET-0119 -- what an event changes in the world: pre-filled from its type, written with it, all or none.
 - `event_conditions.py` — G1 check for TICKET-0114 -- a condition counts the events its subject lived, and a quest step says when it has failed.
 - `event_contexts.py` — G1 check for TICKET-0114 -- the models read the journal by what is known, and the MJ reads the states a player may see.
 - `event_effects.py` — G1 check for TICKET-0119 -- what an event type does to the state of the world: its effects, written and read.
