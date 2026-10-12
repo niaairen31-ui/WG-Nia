@@ -19513,6 +19513,23 @@ event never makes a `correction`.
 `event_participant`, `attribute_value` and `attribute_change`, so an event
 Lore declares (BRIEF-0119-G) is recorded with every row it wrote.
 
+## « VOCABULAIRE DU MONDE » EDITS WHAT A TYPE DOES TO THE STATE OF THE WORLD (TICKET-0119) -- A TYPE'S EFFECTS IN ITS FORM (BRIEF-0119-b, no schema change)
+
+**The form.** `EventTypeForm` lists a type's effects, each « role -> state
+= value »: the role is one of the type's that holds an entity; the state
+one that applies to an entity the role accepts; the value a choice of the
+state, an integer that the effect sets or adds to (D3), or another role
+whose entity the state may name. The same form serves the tab and the
+proposal cards of TICKET-0114, so a type proposed there may carry effects
+too.
+
+**The routes.** `GET /api/event-vocabulary` lists `states`: the two system
+states an effect may change (E1) and the world's active definitions, each
+with its kind, holder and value types and choices. A type's dict carries
+its `effects`, a role's NAME for an entity state; `EventTypeBody.effects`
+is read into the writer's `EffectSpec`. Every rule stays in
+`writes/event_types.py`; a refused effect is a 422.
+
 ---
 
 *Co-built with Claude, June 2026.*

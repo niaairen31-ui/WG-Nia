@@ -5,7 +5,9 @@ sanctioned canon-write path:
     GET  /api/event-vocabulary            the active world's event types
                                           (the retired included), its sortes,
                                           and what a type may name: entity
-                                          types, domains, scope kinds, levels
+                                          types, domains, scope kinds, levels,
+                                          and the states its effects may
+                                          change (TICKET-0119)
     POST /api/event-types                 define one type
     PUT  /api/event-types/{id}            save one
     POST /api/event-types/{id}/status     retire or restore one
@@ -25,13 +27,13 @@ Every rule lives in `writes/event_types.py`; what is shown, in
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import Session, func, select
 
-from ...attributes import world_entity_type_labels
+from ...attributes import AttributeView, world_attributes, world_entity_type_labels
 from ...db import get_session
 from ...event_vocab import (
     DOMAIN_LABELS_FR,
@@ -45,6 +47,8 @@ from ...event_vocab import (
 )
 from ...models import EVENT_DOMAINS, EVENT_SCOPE_KINDS, ConditionNode, Event, EventSorte, EventType
 from ...writes.event_types import (
+    EFFECT_SYSTEM_KEYS,
+    EffectSpec,
     EventTypeSpec,
     RoleSpec,
     ScopeSpec,
@@ -81,6 +85,16 @@ class ScopeBody(BaseModel):
     level: str = "knows"
 
 
+class EffectBody(BaseModel):
+    """One effect (M-c, TICKET-0119): `role`, and for an entity state
+    `value`, are role NAMES; `value` is otherwise a choice key or an
+    integer."""
+    role: str
+    attribute: str
+    mode: str = "set"
+    value: Optional[Union[int, str]] = None
+
+
 class EventTypeBody(BaseModel):
     name: str
     domain: str = "other"
@@ -89,6 +103,7 @@ class EventTypeBody(BaseModel):
     in_chronicle: bool = True
     participants_secret: bool = False
     scopes: list[ScopeBody] = Field(default_factory=list)
+    effects: list[EffectBody] = Field(default_factory=list)
     confirm_near: bool = False
 
 
@@ -110,6 +125,7 @@ def event_type_spec(body: EventTypeBody) -> EventTypeSpec:
         counts_quantity=body.counts_quantity, in_chronicle=body.in_chronicle,
         participants_secret=body.participants_secret,
         scopes=tuple(ScopeSpec(s.kind, s.role, s.level) for s in body.scopes),
+        effects=tuple(EffectSpec(e.role, e.attribute, e.value, e.mode) for e in body.effects),
     )
 
 
@@ -129,8 +145,18 @@ def type_dict(db: Session, view: EventTypeView) -> dict:
         "roles": [{"id": r.id, "name": r.name, "entity_types": list(r.entity_types),
                    "accepts_sorte": r.accepts_sorte, "status": r.status} for r in view.roles],
         "scopes": [{"kind": s.kind, "role": names.get(s.role_id), "level": s.level} for s in view.scopes],
+        "effects": [{"role": names.get(e.role_id), "attribute": e.attribute, "mode": e.mode,
+                     "value": names.get(e.value) if e.value_kind == "role" else e.value} for e in view.effects],
         "in_condition": _in_condition(db, view.id), "events": events,
     }
+
+
+def state_dict(view: AttributeView) -> dict:
+    """One state an effect may change, as the type form offers it."""
+    return {"key": view.key, "name": view.name, "kind": view.kind, "system": view.system,
+            "holder_types": list(view.holder_types) if view.holder_types is not None else None,
+            "value_types": list(view.value_types),
+            "choices": [{"value": key, "label": label} for key, label in view.choices]}
 
 
 def sorte_dict(sorte: EventSorte) -> dict:
@@ -151,6 +177,8 @@ def event_vocabulary(db: Session = Depends(get_session)) -> dict:
         "domains": [{"value": d, "label": DOMAIN_LABELS_FR[d]} for d in EVENT_DOMAINS],
         "scope_kinds": [{"value": k, "label": SCOPE_LABELS_FR[k]} for k in EVENT_SCOPE_KINDS],
         "levels": [{"value": v, "label": label} for v, label in LEVEL_LABELS_FR.items()],
+        "states": [state_dict(v) for v in world_attributes(db, world_id)
+                   if not v.system or v.key in EFFECT_SYSTEM_KEYS],
     }
 
 

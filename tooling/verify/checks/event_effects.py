@@ -1,6 +1,7 @@
 """G1 check for TICKET-0119 -- what an event type does to the state of the world: its effects, written and read.
 
-BRIEF-0119-A's rules (M-c, C1, D3 and E1 of the conditions series). An effect
+BRIEF-0119-A's rules (M-c, C1, D3 and E1 of the conditions series), and
+BRIEF-0119-B's (the « Vocabulaire du monde » tab edits them). An effect
 only pre-fills an event's proposal; what an approved event writes is
 `event_changes.py`'s.
 
@@ -36,6 +37,18 @@ EF5 -- migration `scripts/migrate_v2_26_event_effects.py`, on a v2.25
    and changes nothing; at v2.25 it creates the table, adds the column and
    index, rebuilds `lore_entry_row` (its CHECK naming `event`), keeps both
    rows, and sets `schema_meta` to v2.26; a second run writes nothing.
+EF6 -- the routes (BRIEF-0119-B, route functions, a world made active).
+   `event_vocabulary` lists `states`: the system states an effect may name
+   and the world's active definitions, each with its kind, holder and value
+   types and choices; a type's dict carries its `effects` (role name, state,
+   mode, value -- a role's NAME for an entity state). A type saved with an
+   effect through `create_event_type` writes it; a refused effect answers
+   422 and writes nothing.
+EF7 -- the form (BRIEF-0119-B, static). `EventTypeForm.svelte` renders the
+   effects (`draft.effects`), offers `add` beside `set`, and names a role for
+   an entity state; `eventVocab.svelte.js`'s `typeDraft` and `typeBody`
+   carry `effects`, and `loadVocabulary` keeps `states`.
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that collects nothing fails.
 """
@@ -50,6 +63,7 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = ROOT / "src" / "world_engine"
+FRONT = ROOT / "frontend" / "src" / "creation"
 MIGRATION = ROOT / "scripts" / "migrate_v2_26_event_effects.py"
 
 FAILURES: list[str] = []
@@ -427,6 +441,69 @@ def check_ef5() -> None:
         fail(f"EF5: a second run exit {again.returncode}: {again.stdout.strip()[-200:]}")
 
 
+# --- EF6, EF7 (BRIEF-0119-B) --------------------------------------------------------
+
+def check_ef6(engine, ids: dict) -> None:
+    from fastapi import HTTPException
+    from sqlmodel import Session, func, select
+
+    from world_engine.cockpit.routes import event_types as routes
+    from world_engine.models import EventTypeEffect, World
+
+    with Session(engine) as db:
+        db.get(World, ids["world"]).is_active = True
+        db.commit()
+        listed = routes.event_vocabulary(db)
+        states = {s["key"]: s for s in listed.get("states", [])}
+        if "sys:vital_status" not in states or "sys:status" not in states or "sys:magic_status" in states \
+                or ids["occupe"] not in states:
+            fail(f"EF6: event_vocabulary lists the states {sorted(states)}")
+        elif states[ids["occupe"]].get("value_types") != ["character"] or not states["sys:status"].get("choices"):
+            fail(f"EF6: a state's shape is {states[ids['occupe']]}")
+        usurper = next((t for t in listed["types"] if t["name"] == "Usurper"), None)
+        if usurper is None or usurper.get("effects") != [
+                {"role": "Trône", "attribute": ids["occupe"], "mode": "set", "value": "Usurpateur"}]:
+            fail(f"EF6: « Usurper »'s effects are {usurper and usurper.get('effects')}")
+        body = routes.EventTypeBody(
+            name="Briser", domain="other", roles=[{"name": "Briseur", "entity_types": ["character"]},
+                                                  {"name": "Chose", "entity_types": ["location"]}],
+            effects=[{"role": "Chose", "attribute": "sys:status", "mode": "set", "value": "destroyed"}],
+            confirm_near=True)
+        saved = routes.create_event_type(body, db)
+        count = db.exec(select(func.count()).select_from(EventTypeEffect)).one()
+        if not saved.get("saved") or saved["type"].get("effects") != [
+                {"role": "Chose", "attribute": "sys:status", "mode": "set", "value": "destroyed"}]:
+            fail(f"EF6: create_event_type answered {saved}")
+        bad = routes.EventTypeBody(
+            name="Briser mal", domain="other", roles=[{"name": "Chose", "entity_types": ["location"]}],
+            effects=[{"role": "Chose", "attribute": "sys:magic_status", "mode": "set", "value": "active"}],
+            confirm_near=True)
+        try:
+            routes.create_event_type(bad, db)
+            fail("EF6: an effect on Magie was not refused")
+        except HTTPException as exc:
+            if exc.status_code != 422:
+                fail(f"EF6: a refused effect answered {exc.status_code}")
+        if db.exec(select(func.count()).select_from(EventTypeEffect)).one() != count:
+            fail("EF6: the refused effect wrote a row")
+
+
+def check_ef7() -> None:
+    wanted = {
+        "EventTypeForm.svelte": ("draft.effects", "'add'", "value_role"),
+        "eventVocab.svelte.js": ("effects:", "vocabState.states = data.states"),
+    }
+    for name, needles in wanted.items():
+        path = FRONT / name
+        if not path.exists():
+            fail(f"EF7: {name} is missing")
+            continue
+        text = path.read_text(encoding="utf-8")
+        for needle in needles:
+            if needle not in text:
+                fail(f"EF7: {name} lacks {needle}")
+
+
 def main() -> int:
     _fresh_db()
     from world_engine.db import create_db_and_tables, engine
@@ -441,6 +518,7 @@ def main() -> int:
     rules = (
         ("EF1", check_ef1), ("EF2", ef2), ("EF3", lambda: check_ef3(engine, ids, state["made"])),
         ("EF4", lambda: check_ef4(engine, ids)), ("EF5", check_ef5),
+        ("EF6", lambda: check_ef6(engine, ids)), ("EF7", check_ef7),
     )
     for name, rule in rules:
         try:
@@ -453,7 +531,7 @@ def main() -> int:
         return 1
     print("PASS: event_effects -- v2.26 keeps what an event type does to the state of the world: the role whose "
           "entity changes, the state, and a value of its kind; a state an effect names is never taken away, and "
-          "a change keeps the event that made it")
+          "a change keeps the event that made it; Création edits a type's effects")
     return 0
 
 

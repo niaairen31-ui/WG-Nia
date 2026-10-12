@@ -7,7 +7,10 @@
    A name near another's comes back `saved: false` with the near ones: the
    creator opens the existing one or creates anyway (`confirm_near`).
    `typeDraft` / `typeBody` are shared with the journal's sheet and the
-   interpreter's and analyzer's proposal cards (BRIEF-0114-C/G/H). */
+   interpreter's and analyzer's proposal cards (BRIEF-0114-C/G/H). Since
+   TICKET-0119 (BRIEF-0119-B) a type carries its effects -- what an event of
+   it does to the state of the world -- and `states` lists what they may
+   change. */
 import { api } from './sheetRequest.svelte.js';
 
 export const vocabState = $state({
@@ -17,6 +20,7 @@ export const vocabState = $state({
   domains: [],
   scopeKinds: [],
   levels: [],
+  states: [], // TICKET-0119: the states an effect may change, {key, name, kind, system, holder_types, value_types, choices}
   loadError: '',
   typeDraft: null, // typeDraft(), plus `id` when it edits one
   sorteDraft: null, // { id, name }
@@ -31,7 +35,7 @@ export function typeDraft(type) {
   if (!type) {
     return { id: null, name: '', domain: 'other', counts_quantity: false, in_chronicle: true,
              participants_secret: false, roles: [{ id: null, name: '', entity_types: ['character'], accepts_sorte: false }],
-             scopes: [] };
+             scopes: [], effects: [] };
   }
   return {
     id: type.id || null, name: type.name, domain: type.domain, counts_quantity: !!type.counts_quantity,
@@ -40,6 +44,9 @@ export function typeDraft(type) {
       id: r.id || null, name: r.name, entity_types: [...(r.entity_types || [])], accepts_sorte: !!r.accepts_sorte,
     })),
     scopes: (type.scopes || []).map((s) => ({ kind: s.kind, role: s.role || null, level: s.level })),
+    // TICKET-0119 (M-c): what an event of the type does to the state of the world.
+    effects: (type.effects || []).map((e) => ({ role: e.role, attribute: e.attribute, mode: e.mode || 'set',
+                                                value: e.value })),
   };
 }
 
@@ -52,6 +59,8 @@ export function typeBody(draft, confirmNear) {
                                      accepts_sorte: r.accepts_sorte })),
     scopes: draft.scopes.map((s) => ({ kind: s.kind, role: ['rencontre', 'faction'].includes(s.kind) ? s.role : null,
                                        level: s.level })),
+    effects: (draft.effects || []).map((e) => ({ role: e.role, attribute: e.attribute, mode: e.mode || 'set',
+                                                 value: e.value })),
     confirm_near: !!confirmNear,
   };
 }
@@ -96,6 +105,7 @@ export async function loadVocabulary(worldId) {
     vocabState.domains = data.domains;
     vocabState.scopeKinds = data.scope_kinds;
     vocabState.levels = data.levels;
+    vocabState.states = data.states || [];
   } catch (e) {
     vocabState.loadError = e.message;
   }

@@ -7,7 +7,13 @@
      level. `draft` is a `typeDraft` owned by the caller -- the « Vocabulaire
      du monde » tab, or a proposal card (BRIEF-0114-G/H); `vocab` the
      vocabulary lists (`vocabState`). The server refuses taking away what is
-     in use. */
+     in use.
+
+     TICKET-0119 (BRIEF-0119-B, M-c, D3, E1): its effects -- what an event of
+     it does to the state of the world, each « role -> state = value »: a
+     choice of the state, an integer set or added (`'add'`), or the entity of
+     another role (`value_role`, for a state naming an entity). They
+     pre-fill an event's proposal; the creator keeps, edits or drops each. */
   let { draft, vocab } = $props();
 
   function toggle(list, type) {
@@ -25,6 +31,40 @@
   }
 
   const withRole = (kind) => kind === 'rencontre' || kind === 'faction';
+
+  function stateOf(key) {
+    return (vocab.states || []).find((s) => s.key === key) || null;
+  }
+
+  function roleTypes(name) {
+    const role = draft.roles.find((r) => r.name === name);
+    return role ? role.entity_types : [];
+  }
+
+  // The states that apply to an entity the role holds.
+  function statesFor(roleName) {
+    const types = roleTypes(roleName);
+    return (vocab.states || []).filter((s) => s.holder_types === null || s.holder_types.some((t) => types.includes(t)));
+  }
+
+  // value_role: for a state naming an entity, the other roles whose entities it may name.
+  function valueRoles(effect, state) {
+    return draft.roles.filter((r) => r.name && r.name !== effect.role
+      && r.entity_types.some((t) => state.value_types.includes(t)));
+  }
+
+  function addEffect() {
+    const role = draft.roles.find((r) => r.name && r.entity_types.length);
+    if (!draft.effects) draft.effects = [];
+    draft.effects.push({ role: role ? role.name : '', attribute: '', mode: 'set', value: null });
+  }
+
+  function onState(effect) {
+    const state = stateOf(effect.attribute);
+    effect.mode = 'set';
+    effect.value = state && state.kind === 'choice' && state.choices.length ? state.choices[0].value
+      : state && state.kind === 'integer' ? 1 : null;
+  }
 </script>
 
 <div class="etype-form">
@@ -82,6 +122,44 @@
     {/each}
     {#if !draft.scopes.length}<div class="etype-hint">Personne d'autre que les participants.</div>{/if}
     <button onclick={addScope}>+ portée</button>
+  </div>
+
+  <div class="etype-block">
+    <span>Ce qu'il change dans le monde (pré-rempli sur chaque événement)</span>
+    {#each draft.effects || [] as effect, k (k)}
+      {@const state = stateOf(effect.attribute)}
+      <div class="etype-line">
+        <select bind:value={effect.role} title="Le rôle dont l'entité change">
+          <option value="">— rôle —</option>
+          {#each draft.roles.filter((r) => r.name && r.entity_types.length) as role, r (r)}
+            <option value={role.name}>{role.name}</option>
+          {/each}
+        </select>
+        <select bind:value={effect.attribute} onchange={() => onState(effect)} title="L'état">
+          <option value="">— état —</option>
+          {#each statesFor(effect.role) as s (s.key)}<option value={s.key}>{s.name}</option>{/each}
+        </select>
+        {#if state && state.kind === 'choice'}
+          <select bind:value={effect.value}>
+            {#each state.choices as c (c.value)}<option value={c.value}>{c.label}</option>{/each}
+          </select>
+        {:else if state && state.kind === 'integer'}
+          <select bind:value={effect.mode}>
+            <option value="set">devient</option>
+            <option value={'add'}>augmente de</option>
+          </select>
+          <input type="number" style="width:70px" bind:value={effect.value}>
+        {:else if state && state.kind === 'entity'}
+          <select bind:value={effect.value} title="value_role : l'entité d'un autre rôle">
+            <option value={null}>— rôle —</option>
+            {#each valueRoles(effect, state) as role, r (r)}<option value={role.name}>{role.name}</option>{/each}
+          </select>
+        {/if}
+        <button class="btn-icon" title="Retirer" onclick={() => draft.effects.splice(k, 1)}>✕</button>
+      </div>
+    {/each}
+    {#if !(draft.effects || []).length}<div class="etype-hint">Aucun état ne change.</div>{/if}
+    <button onclick={addEffect}>+ effet</button>
   </div>
 </div>
 
