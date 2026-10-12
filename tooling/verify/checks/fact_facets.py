@@ -196,7 +196,7 @@ def check_call_sites() -> None:
 def check_case_table(engine) -> None:
     from sqlmodel import Session as DbSession
 
-    from world_engine.models import Entity, Event, Fact, Relation, World, WorldLaw
+    from world_engine.models import Entity, Event, EventType, Fact, Relation, World, WorldLaw
     from world_engine.writes.facts import create_fact
 
     with DbSession(engine) as session:
@@ -209,7 +209,11 @@ def check_case_table(engine) -> None:
         session.add_all([a, b])
         session.commit()
         rel = Relation(world_id=wid, entity_a_id=a.id, entity_b_id=b.id, type="controls")
-        event = Event(world_id=wid, title="an event")
+        # TICKET-0114 (BRIEF-0114-D): an event is one of its world's types.
+        etype = EventType(world_id=wid, name="Fait")
+        session.add(etype)
+        session.flush()
+        event = Event(world_id=wid, title="an event", type_id=etype.id)
         law = WorldLaw(world_id=wid, text_="a law")
         session.add_all([rel, event, law])
         session.commit()

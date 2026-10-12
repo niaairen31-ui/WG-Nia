@@ -28,7 +28,6 @@ from ...models import (
     DiscoverableDetail,
     Entity,
     Event,
-    EventEntity,
     Faction,
     FactionMembership,
     FactionRole,

@@ -4,7 +4,7 @@ package by schema stratum).
 
 Layout, by stratum:
     canon.py         — every table in canon_write_policy.txt's
-                        [CANON_TABLES], plus GoalPrerequisite/EventEntity
+                        [CANON_TABLES], plus GoalPrerequisite
                         (canon-domain writes, absent from [CANON_TABLES] by
                         a known governance gap — Nia's stratum escalation,
                         2026-07-15).
@@ -69,7 +69,6 @@ from .canon import (
     EntityType,
     EntityTypeHistory,
     Event,
-    EventEntity,
     GoalAgendaLink,
     GoalPrerequisite,
     Item,
@@ -254,7 +253,6 @@ __all__ = [
     "ConversationMessage",
     "ProposedMutation",
     "Event",
-    "EventEntity",
     "Artifact",
     "Item",
     "ItemHolding",

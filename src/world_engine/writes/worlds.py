@@ -48,7 +48,6 @@ _SUBQUERY_SCOPED_DELETES: tuple[tuple[str, str, str], ...] = (
     ("artifact", "id", "entity"),
     ("item", "id", "entity"),
     ("agenda_step", "agenda_id", "agenda"),
-    ("event_entity", "event_id", "event"),
     ("obstacle_vertex", "obstacle_id", "obstacle"),
     ("observation_beat", "run_id", "observation_run"),
     ("observation_intent", "run_id", "observation_run"),

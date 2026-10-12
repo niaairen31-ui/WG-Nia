@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from sqlmodel import Session, select
 
+from .attributes import perceived_states
 from .facet_reads import facts_of, joined, known_facts_of
 from .models import (
     Character,
@@ -127,5 +128,8 @@ def _mj_context_co_presents(
                 db, perceiver_id=player_character_id, entity_id=co_entity.id,
                 facets=("tenue",),
             ), sep=" "),
+            # The states the player may see (TICKET-0114, BRIEF-0114-D, WL1):
+            # never a hidden one; visual, so none when blindfolded.
+            "states": None if blindfolded else (perceived_states(db, co_entity.world_id, co_entity) or None),
         })
     return co_presents

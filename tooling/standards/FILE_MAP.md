@@ -110,6 +110,7 @@
 - `migrate_v2_22_attributes.py` — Migration v2.22 — the state of the world (TICKET-0113, BRIEF-0113-A; decisions WA3, WB2, WC1, WD1 and WH1 of the conditions series).
 - `migrate_v2_23_attribute_leaves.py` — Migration v2.23 — the `vital_status` form becomes an `attribute` leaf (TICKET-0113, BRIEF-0113-B; decisions WE1 and WG1 of the conditions series).
 - `migrate_v2_24_event_journal.py` — Migration v2.24 — the event journal's vocabulary (TICKET-0114, BRIEF-0114-A; decisions F1, B1, C1, D1, H1, K-a, N1, O1 and V1 of the conditions series).
+- `migrate_v2_25_event_columns.py` — Migration v2.25 — the journal drops what it no longer reads (TICKET-0114, BRIEF-0114-D; decisions L1, N1, O1 and V1 of the conditions series).
 - `observation_metrics.py` — Observation run metrics (TICKET-0051, BRIEF-0051-g, decision J2/Q).
 - `preview_npc_schedule.py` — Preview `where_is` / `who_is_at` / `unresolved_npcs` — the concrete reader for `world.current_phase` (T-A1) and the live-gate instrument for TICKET-0074, BRIEF-0074-a.
 - `preview_tick_context.py` — Preview the full-interiority briefing a world tick would send to one NPC (TICKET-0014, BRIEF-0014-a; TICKET-0015, BRIEF-0015-a adds --interval) — the concrete reader for `assemble_tick_context` in this brief, and the live-gate instrument for the T1 review.
@@ -156,6 +157,7 @@
 - `entity_author.py` — AI entity-authoring assistant (NPC, Location) — BRIEF-24, BRIEF-25.
 - `event_author.py` — AI event/agenda-authoring assistant — extracted from `entity_author.py` (TICKET-0028, BRIEF-0028-d, decision H1).
 - `event_payloads.py` — A model's event proposal, read into the journal's spec (TICKET-0114, BRIEF-0114-C; decisions D1, E1, I2, N1 and O1 of the conditions series).
+- `event_reads.py` — The journal as the models read it (TICKET-0114, BRIEF-0114-D; decisions K-a and Q1 of the conditions series).
 - `event_vocab.py` — The event journal's vocabulary, read (TICKET-0114, BRIEF-0114-A; decisions B1, C1, D1, N1 and W1 of the conditions series).
 - `facet_reads.py` — Facet reads (TICKET-0091, BRIEF-0091-D, C-10): one call to read what is said of an entity, facet by facet.
 - `facets.py` — The facet registry (TICKET-0091, BRIEF-0091-A, contract C-01).
@@ -391,6 +393,7 @@
 - `env_guard.py` — G1 check: no scripts/*.py reaches the engine without an env resolvable at import time (TICKET-0049, BRIEF-0049-d).
 - `escalation_writer.py` — G1 check for TICKET-0117 (BRIEF-0117-a, J2-a) -- an escalation lives in the ticket it stops, written only by `tooling/glue/escalation.py`.
 - `event_assist.py` — G1 check for TICKET-0022/BRIEF-0022-b — AI event-draft assistant.
+- `event_contexts.py` — G1 check for TICKET-0114 -- the models read the journal by what is known, and the MJ reads the states a player may see.
 - `event_journal.py` — G1 check for TICKET-0114 -- the event journal's vocabulary: a world's event types, their roles, who learns them, its sortes.
 - `event_tab.py` — G1 check for TICKET-0022/BRIEF-0022-a — Événements creator tab.
 - `event_writes.py` — G1 check for TICKET-0114 -- the event journal's writer: an event, its participants by role, its fact, who learns it.

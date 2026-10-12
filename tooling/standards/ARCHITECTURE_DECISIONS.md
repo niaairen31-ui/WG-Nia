@@ -19344,6 +19344,37 @@ TICKET-0119 makes the tick propose typed events.
 mutation's conversation or declared action): the calendar of TICKET-0120
 will place every event on it without guessing.
 
+## THE MODELS READ THE JOURNAL BY WHAT IS KNOWN, AND THE MJ SEES THE STATES A PLAYER MAY SEE (TICKET-0114) -- `knowledge_status` RETIRED, v2.25 DROPS WHAT NOBODY READS (BRIEF-0114-d, schema v2.25)
+
+**Q1.** Who knows an event is its fact's knowledge and scopes; no reader
+filters a status any more (`event_reads.py`). The MJ of Play reads the
+chronicle events the player knows (`known_chronicle_events`: his own rows,
+then the scopes he is in contact with, the 0105 resolver) -- the MJ
+context's `public_events` and the return-visit delta. The world tick reads
+what everyone knows (`public_chronicle_events`: a `world` scope) at a
+place, or with a faction taking part. Only a type that enters the
+chronicle (`in_chronicle`) is told to a model: an event that only counts --
+« un loup tué » -- is known as a fact, never told as news. An event the
+player knows also reaches the MJ as his knowledge, as every fact he holds.
+
+**WL1.** The MJ reads the states a player may see
+(`attributes.perceived_states`): the place's and each co-present's, every
+active world definition that applies and is not hidden (WH1), its value or
+its default, written « États : Ouvert : oui ». Visual, so none blindfolded
+(BRIEF-12). A system attribute is left out: its column reaches the MJ, or
+never does, through its own reader.
+
+**L1, v2.25.** `event` loses `type`, `knowledge_status`,
+`has_magic_impact`, `consequences` and `occurred_at` (the four production
+events carried none of them for real: `consequences` was the JSON `null`);
+`type_id` is required; `event_entity` is dropped. The migration first types
+what was left untyped, exactly as v2.24 does (its `_backfill`, imported),
+and refuses when a link has no participant twin.
+
+**Rejected.** Q2 (the strict equivalent everywhere -- `world` scope only:
+the MJ would not remember that the player killed the wolf), L2 (keep the
+columns dormant).
+
 ---
 
 *Co-built with Claude, June 2026.*

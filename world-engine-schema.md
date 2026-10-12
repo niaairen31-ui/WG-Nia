@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.24
+Current schema version: v2.25
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -1600,75 +1600,46 @@ read side rather than normalized).
 
 ### `event`
 
-Facts that occur in the world, arising from sessions or generated.
+What happens in the world -- the event journal (TICKET-0114). One happening
+of one of the world's event types (`event_type`, required since v2.25): its
+title and description, its place, how many when its type counts (`quantity`,
+1 or more), the session and day it was proposed in (`session_id`,
+`batch_id`, E1: the calendar of TICKET-0120 places it from them). Its
+participants by role are `event_participant`; who knows it is its fact's
+knowledge and scopes (`fact.event_id`, facet `evenement`, its title then its
+description): each character taking part holds a `knowledge` row at
+`knows`, secret or not as said (X1), and the fact's `fact_default` rows are
+its type's scopes made concrete unless the event says its own (W1).
+
+Written only by `writes/events.py` -- from the creator's journal
+(`cockpit/crud/events.py`) and from `_apply_mutation`'s `event_creation`, a
+model's proposal the creator approved (`event_payloads.py` reads its
+payload, typed or not). Never deleted (C3): a retraction empties its scopes.
+A model reads only an event whose type enters the chronicle: the MJ of Play
+the ones the player knows, the world tick the ones everyone knows (a
+`world` scope) -- `event_reads.py`.
+
+v2.25 (BRIEF-0114-D) dropped `type` (a type's `domain` now),
+`knowledge_status` (the fact's knowledge and scopes say it, v2.24 converted
+it), `has_magic_impact`, `consequences` and `occurred_at` (no reader, no
+value), and the table `event_entity` (its rows became `event_participant`
+at v2.24).
 
 ```sql
 CREATE TABLE event (
-  id                    TEXT PRIMARY KEY,
-  world_id              TEXT NOT NULL REFERENCES world(id),
-  session_id            TEXT REFERENCES session(id),
-  batch_id              TEXT REFERENCES batch(id),
-  title                 TEXT NOT NULL,
-  description           TEXT,
-  type                  TEXT,
-                        -- political | magical | criminal | military |
-                        -- social | mystery | other
-  knowledge_status      TEXT DEFAULT 'secret',
-                        -- secret | rumor | confirmed | public
-  location_id           TEXT REFERENCES entity(id),
-  has_magic_impact      BOOLEAN DEFAULT FALSE,
-  consequences          JSON,     -- changes applied to the world
-  occurred_at           DATETIME,
-  recorded_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
-  type_id               TEXT REFERENCES event_type(id),   -- v2.24
-  quantity              INTEGER                           -- v2.24
+  id           TEXT PRIMARY KEY,
+  world_id     TEXT NOT NULL REFERENCES world(id),
+  session_id   TEXT REFERENCES session(id),
+  batch_id     TEXT REFERENCES batch(id),
+  type_id      TEXT NOT NULL REFERENCES event_type(id),
+  title        TEXT NOT NULL,
+  description  TEXT,
+  location_id  TEXT REFERENCES entity(id),
+  quantity     INTEGER CHECK (quantity IS NULL OR quantity >= 1),
+  recorded_at  DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-```
-
-`type_id` / `quantity` (v2.24, TICKET-0114, BRIEF-0114-A; F1, N1, D1): the
-world's event type this event is one of (`event_type`), and how many when
-its type counts (« 3 loups »). The v2.24 migration typed every earlier event
-by its former category -- the world's type named after that domain, one
-role « Impliqué » -- moved its `event_entity` rows into `event_participant`,
-and gave it its fact (`fact.event_id`, facet `evenement`): a `public` or
-`confirmed` event a `world` default at `knows`, a `secret` one none (O1).
-
-Two producers write this table (TICKET-0017/BRIEF-0017-a, no schema
-change), both through `_apply_mutation`'s `event_creation` branch ->
-`write_event` (the single canon-write site): a scope-level `world_tick`
-call for location/faction-scoped invocations (closed payload shape
-`{title, description, type, knowledge_status, involved_entities,
-location_id}`, quota-bounded), and the analyzer's conversation-sourced
-channel (minimal shape `{title, description, type, involved_entities}` —
-no `knowledge_status`/`location_id`, so this column's `DEFAULT 'secret'`
-applies). The model may propose `secret`/`public` only; `confirmed` is
-creator-reserved, accepted only at apply time. Duplicate guard is
-canon-existence (normalized title + `location_id`, same world), never
-tick_id/conversation-id equality, and applies to both producers alike.
-`session_id`/`batch_id` stay NULL for tick-sourced rows — the sibling
-`proposed_mutation` row's `tick_id`/`conversation_id` is the provenance
-anchor. Read by `context.py`'s MJ context assembler and the return-visit
-delta (TICKET-0016), both filtering `knowledge_status IN
-('public','confirmed')` at query construction. `involved_entities` (the
-payload key both producers still emit) is relationalized on write into
-`event_entity` — see below.
-
------
-
-### `event_entity`
-
-`event` <-> entity link (schema v1.79, TICKET-0025, BRIEF-0025-c —
-replaces the FK-less `event.involved_entities` JSON id array). Real FK
-integrity for the first time; membership queries are joins/EXISTS instead
-of a Python `in` over a JSON list.
-
-```sql
-CREATE TABLE event_entity (
-  id        TEXT PRIMARY KEY,
-  event_id  TEXT NOT NULL REFERENCES event(id),
-  entity_id TEXT NOT NULL REFERENCES entity(id)
-);
-CREATE UNIQUE INDEX idx_event_entity_unique ON event_entity(event_id, entity_id);
+CREATE INDEX idx_event_world ON event(world_id);
+CREATE INDEX idx_event_type ON event(type_id);
 ```
 
 -----
@@ -1794,7 +1765,8 @@ CREATE UNIQUE INDEX idx_event_sorte_name ON event_sorte(world_id, name COLLATE N
 ### `event_participant`
 
 Who took part in one event, in which role (V1): an entity or a sorte,
-exactly one. It replaces `event_entity` (dropped at v2.25). Written only by
+exactly one. It replaced `event_entity` (v1.79-v2.24, dropped at v2.25).
+Written only by
 `writes/events.py`.
 
 ```sql

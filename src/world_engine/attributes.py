@@ -324,3 +324,18 @@ def _history(db: Session, view: AttributeView, entity_id: str) -> list[dict]:
 def _change_raw(change: AttributeChange, side: str, kind: str) -> RawValue:
     column = {"choice": "choice_id", "integer": "integer", "entity": "entity_id"}[kind]
     return getattr(change, f"{side}_{column}")
+
+
+def perceived_states(db: Session, world_id: str, entity: Entity) -> str:
+    """WL1 (TICKET-0114, BRIEF-0114-D): the states of `entity` a player may
+    see, as the MJ reads them -- « Ouvert : oui · Occupé par : Ysa » -- every
+    active definition of the world that applies to it and is NOT hidden
+    (WH1), its current value or its default. A system attribute is left
+    out: its column already reaches the MJ (or never does) through its own
+    reader. Empty when there is none."""
+    parts = []
+    for view in world_attributes(db, world_id):
+        if view.system or view.hidden or not applies_to(view, entity.type):
+            continue
+        parts.append(f"{view.name} : {current_value(db, view, entity).label}")
+    return " · ".join(parts)

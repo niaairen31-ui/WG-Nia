@@ -35,7 +35,6 @@ from ...models import (
     EntityTrait,
     EntityType,
     Event,
-    EventEntity,
     Faction,
     FactionMembership,
     FactionRole,

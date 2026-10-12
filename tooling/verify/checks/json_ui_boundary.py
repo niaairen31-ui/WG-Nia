@@ -66,7 +66,6 @@ JSON_COLUMN_ALLOWLIST = {
     "Visit.present_npc_ids",
     # No UI consumer today. The FIRST UI consumer of any of these
     # MUST migrate it to relational storage in the same brief.
-    "Event.consequences",
     "Artifact.known_properties",
     "Artifact.actual_behavior",
     # NPC link agent staging (TICKET-0036, BRIEF-0036-a) — ephemeral

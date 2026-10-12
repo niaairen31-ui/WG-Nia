@@ -13,6 +13,16 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.25** — TICKET-0114, BRIEF-0114-D: the journal drops what it no
+  longer reads. `event` is rebuilt without `type` (a type's `domain` now),
+  `knowledge_status` (who knows an event is its fact's knowledge and
+  scopes), `has_magic_impact`, `consequences` and `occurred_at` (no reader,
+  no value); `type_id` is required and `quantity` checked (1 or more);
+  `idx_event_type` is added. `event_entity` is dropped (its rows became
+  `event_participant` at v2.24). `migrate_v2_25_event_columns.py` first
+  types any event left untyped exactly as v2.24 does, refuses a database
+  older than v2.24 or an `event_entity` row no participant twins, and moves
+  `schema_meta` to v2.25.
 - **v2.24** — TICKET-0114, BRIEF-0114-A: the event journal's vocabulary.
   `event_type` (a world's type of event: its name, its domain -- one of the
   seven former categories --, whether it counts a quantity, enters the

@@ -21,6 +21,7 @@ from ..context import (
     assemble_npc_context,
 )
 from ..db import engine
+from ..event_reads import known_chronicle_events
 from ..facet_reads import facts_of, joined
 from ..facets import FACETS
 from ..models import (
@@ -30,7 +31,6 @@ from ..models import (
     ConversationMessage,
     DiscoverableDetail,
     Entity,
-    Event,
     Gathering,
     Location,
     PromptTemplate,
@@ -609,8 +609,8 @@ def _compute_return_delta(
     uses the tick's location-scope predicate VERBATIM (public, alive, active
     NPCs). Departed names resolve from `Entity` WITHOUT the alive/active
     filter (RECON-0016 F5) — the player saw them, their absence is public.
-    The event leg applies the SAME structural exclusion as the only other
-    Event reader (context.py) — secret events can never surface here.
+    The event leg reads what the player knows (`event_reads.known_chronicle_
+    events`, TICKET-0114), the same structural exclusion as the MJ context.
     """
     previous = db.exec(
         select(Visit)
@@ -653,17 +653,11 @@ def _compute_return_delta(
     if arrived_names:
         lines.append(f"- Arrivé·e·s : {', '.join(arrived_names)}")
 
-    events = db.exec(
-        select(Event)
-        .where(
-            Event.world_id == world_id,
-            Event.location_id == location_id,
-            Event.knowledge_status.in_(("public", "confirmed")),
-            Event.recorded_at > previous.entered_at,
-        )
-        .order_by(Event.recorded_at)
-    ).all()
-    for e in events:
+    # TICKET-0114 (BRIEF-0114-D, Q1): the chronicle events at this place the
+    # player knows -- entering it is a contact with its scope (0105).
+    events = known_chronicle_events(db, player_id, world_id, location_id=location_id,
+                                    since=previous.entered_at)
+    for e in reversed(events):
         line = f"- Événement : {e.title}"
         if e.description:
             first_sentence = e.description.split(".")[0].strip()

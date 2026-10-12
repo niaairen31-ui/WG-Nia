@@ -10,8 +10,8 @@ Asserts:
 1. No `event` delete surface exists anywhere: no `DELETE /api/events` (or
    `/api/events/{id}`) route in the cockpit app, and no client-side call to
    an `/api/events` path anywhere under frontend/src/creation uses DELETE
-   (C3 — `event` is history; retraction is `knowledge_status = 'secret'`,
-   never a delete). Vacuous-proof: at least one non-DELETE `/api/events`
+   (C3 — `event` is history; a retraction empties its fact's scopes since
+   TICKET-0114, never a delete). Vacuous-proof: at least one non-DELETE `/api/events`
    call must be found under frontend/src/creation, or the check fails --
    an empty scan proves nothing.
 2. `Event.occurred_at` appears in no `order_by(...)` anywhere in `src/`

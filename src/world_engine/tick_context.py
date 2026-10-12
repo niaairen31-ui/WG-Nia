@@ -36,6 +36,7 @@ from .knowledge_resolve import (
     resolve_levels_for_entity,
     resolve_public_levels,
 )
+from .event_reads import public_chronicle_events
 from .facet_reads import facts_of, joined, known_fact_texts
 from .fact_refs import CodedRefs, code_facts
 from .prose_render import knowledge_texts
@@ -45,8 +46,6 @@ from .models import (
     AgendaStep,
     Character,
     Entity,
-    Event,
-    EventEntity,
     Fact,
     Faction,
     FactionMembership,
@@ -615,15 +614,9 @@ def assemble_location_event_context(
         else "(aucun lieu connecté)"
     )
 
-    recent = session.exec(
-        select(Event)
-        .where(
-            Event.location_id == location_id,
-            Event.knowledge_status.in_(("public", "confirmed")),
-        )
-        .order_by(Event.recorded_at.desc())
-        .limit(5)
-    ).all()
+    # TICKET-0114 (BRIEF-0114-D, Q1): the chronicle everyone knows, here.
+    place = session.get(Entity, location_id)
+    recent = public_chronicle_events(session, place.world_id, location_id=location_id, limit=5) if place else []
     recent_body = (
         "\n".join(f"- {e.title}" for e in recent)
         if recent
@@ -715,18 +708,10 @@ def _tick_faction_members_block(faction_id: str, session: Session) -> str:
 
 
 def _tick_faction_recent_events_block(faction_id: str, faction_entity: Entity | None, session: Session) -> str:
-    """Faction event filter is a join/EXISTS on event_entity (TICKET-0025,
-    BRIEF-0025-c) — was a Python `in` over event.involved_entities JSON."""
-    recent = session.exec(
-        select(Event)
-        .join(EventEntity, EventEntity.event_id == Event.id)
-        .where(
-            Event.world_id == (faction_entity.world_id if faction_entity else None),
-            Event.knowledge_status.in_(("public", "confirmed")),
-            EventEntity.entity_id == faction_id,
-        )
-        .order_by(Event.recorded_at.desc())
-    ).all()[:5]
+    """The chronicle everyone knows with the faction taking part
+    (TICKET-0114, BRIEF-0114-D: `event_reads.public_chronicle_events`)."""
+    recent = public_chronicle_events(session, faction_entity.world_id, participant_id=faction_id,
+                                     limit=5) if faction_entity else []
     return "\n".join(f"- {e.title}" for e in recent) if recent else "(aucun événement public récent)"
 
 
