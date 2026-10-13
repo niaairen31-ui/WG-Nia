@@ -45,6 +45,7 @@ from ...day_narration import detect_late_delta, narrate, rewrite as rewrite_narr
 from ...day_narration_guard import JudgeVerdict, judge_narration, lowercase_offending_words
 from ...day_plan import emit_plan
 from ...day_resolve import (
+    INQUIRY_BAND,
     FactSheet,
     StepOutcome,
     fact_sheet_dict,
@@ -79,7 +80,13 @@ from ...writes import (
     write_pass_play_resolution,
 )
 from .. import crud as _crud
-from ..day_plan_finalize import _feasibility_dict, _finalize_plan, _plan_step_dict, finalize_inquiry_day
+from ..day_plan_finalize import (
+    _feasibility_dict,
+    _finalize_plan,
+    _plan_step_dict,
+    close_inquiry_steps,
+    finalize_inquiry_day,
+)
 from ..day_reconcile_apply import _reconcile_and_finalize
 
 router = APIRouter()
@@ -801,6 +808,13 @@ def _finalize_resolution(
         db, pass_play=pass_play, fact_sheet=fact_sheet_dict(fact_sheet), prose=prose, judge_verdict=judge_dict,
     )
     db.add(pass_play)
+
+    # T1 (TICKET-0121): an inquiry step is closed directly, before the
+    # mutations (which skip it) are added; never on the judge-failure path.
+    if any(o.band == INQUIRY_BAND for o in outcomes) and pass_play.agenda_id is not None:
+        agenda = db.get(Agenda, pass_play.agenda_id)
+        if agenda is not None:
+            close_inquiry_steps(outcomes, agenda, db)
 
     for mutation in emit_mutations(outcomes, pass_play, character, db):
         db.add(mutation)

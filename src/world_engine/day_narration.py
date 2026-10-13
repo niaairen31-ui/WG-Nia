@@ -43,7 +43,7 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from . import llm_parse, ollama_client
-from .day_resolve import BLOCKED_BAND, FactSheet
+from .day_resolve import BLOCKED_BAND, INQUIRY_BAND, FactSheet
 from .models import Entity, PassPlay, ProposedMutation, PromptTemplate
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
@@ -59,10 +59,12 @@ MAX_REWRITE_ATTEMPTS = 1
 MAX_REPAIR_ATTEMPTS = 1
 
 # Shared with day_narration_guard.py's outcome-survival check — the single
-# source of the band-to-marker mapping. BLOCKED_BAND (BRIEF-0078-b) is
-# day_resolve's own constant, imported rather than restated.
+# source of the band-to-marker mapping. BLOCKED_BAND (BRIEF-0078-b) and
+# INQUIRY_BAND (TICKET-0121) are day_resolve's own constants, imported rather
+# than restated.
 BAND_MARKERS: dict[str, str] = {
     "success": "[RÉUSSITE]", "partial": "[PARTIEL]", "failure": "[ÉCHEC]", BLOCKED_BAND: "[BLOQUÉ]",
+    INQUIRY_BAND: "[RECHERCHE]",  # TICKET-0121 (T1): a search, no answer yet
 }
 
 # French outcome labels the model reads instead of markers (TICKET-0093,
@@ -70,6 +72,7 @@ BAND_MARKERS: dict[str, str] = {
 # them. Key set equal to BAND_MARKERS'.
 BAND_LABELS_FR: dict[str, str] = {
     "success": "réussite", "partial": "réussite partielle", "failure": "échec", BLOCKED_BAND: "bloquée",
+    INQUIRY_BAND: "recherche en cours, sans réponse encore",
 }
 
 

@@ -3,7 +3,8 @@ module-budget headroom (TICKET-0121, BRIEF-0121-D) -- the
 `day_reconcile_apply.py` precedent. Byte-identical otherwise:
 `_feasibility_dict`, `_plan_step_dict`, `_finalize_plan`, in that order.
 `finalize_inquiry_day` (TICKET-0121, BRIEF-0121-D, K1) follows them: the day
-of a declaration that seeks what a day cannot give is a one-step search.
+of a declaration that seeks what a day cannot give is a one-step search;
+`close_inquiry_steps` (T1) closes its step when the day resolves.
 """
 
 from __future__ import annotations
@@ -23,8 +24,9 @@ from ..day_plan import (
     budget_cut,
     evaluate_requirements,
 )
-from ..models import AgendaStep, Character, PassPlay
-from ..writes import write_day_feasibility, write_day_plan
+from ..day_resolve import INQUIRY_BAND
+from ..models import Agenda, AgendaStep, Character, PassPlay
+from ..writes import write_agenda_status, write_agenda_step_status, write_day_feasibility, write_day_plan
 from ..writes.quest_requests import open_request
 
 
@@ -67,6 +69,16 @@ def _finalize_plan(
     # the step's stored condition (E2 — reporting, never refusing: /plan still
     # returns 200 and writes the plan exactly as it does today).
     anchored_steps, dropped_report = anchor_requirements(raw_steps, character, db)
+    # R1 (TICKET-0121): the first step with a knowledge the planner cannot
+    # anchor becomes the day's inquiry step and the plan stops there -- the
+    # steps after it are never written (`inquiry_cut`). Its own requirements
+    # stand as anchored; the dropped leaf is what the request will settle.
+    inquiry_index: Optional[int] = None
+    inquiry_cut = 0
+    if dropped_report:
+        inquiry_index = min(d["step_index"] for d in dropped_report)
+        inquiry_cut = len(anchored_steps) - (inquiry_index + 1)
+        anchored_steps = anchored_steps[: inquiry_index + 1]
     bindings = Bindings(doer=character)
     evaluated_steps = [
         EvaluatedStep(step=step, verdict=evaluate_requirements(step, bindings, db))
@@ -101,6 +113,21 @@ def _finalize_plan(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    # K1b / R1 (TICKET-0121): the requests are born on the written rows. The
+    # inquiry step first -- one request per step, and it is the one that
+    # decides the inquiry band; a blocked step that is also the inquiry step
+    # keeps its `dropped` request (`open_request` is idempotent per step).
+    if inquiry_index is not None or blocked_index is not None:
+        written = db.exec(
+            select(AgendaStep).where(AgendaStep.agenda_id == agenda.id).order_by(AgendaStep.step_order)
+        ).all()
+        for index, trigger in ((inquiry_index, "dropped"), (blocked_index, "blocked")):
+            if index is not None:
+                open_request(
+                    db, world_id=world_id, character_id=character.id, pass_play_id=pass_play.id,
+                    trigger=trigger, declaration=written[index].objective, agenda_step_id=written[index].id,
+                )
+
     # Germs (already staged by `_extract_and_concord`) commit in the same
     # transaction as the plan (Scope IN item 4, all-or-nothing) — never
     # added inside day_concordance.py itself (R1). The feasibility verdict
@@ -127,6 +154,7 @@ def _finalize_plan(
         "anchoring": {"dropped": dropped_report},
         "blocked_at_index": blocked_index,
         "blocked_reason": blocked_text,
+        "inquiry_cut": inquiry_cut,
     }
 
 
@@ -179,5 +207,36 @@ def finalize_inquiry_day(
         "anchoring": {"dropped": []},
         "blocked_at_index": None,
         "blocked_reason": None,
+        "inquiry_cut": 0,
         "inquiry": True,
     }
+
+
+def close_inquiry_steps(outcomes: list, agenda: Agenda, db: Session) -> None:
+    """T1 (TICKET-0121): an `inquiry` outcome's step is closed directly --
+    `completed`, outcome `inquiry` -- and the agenda `completed` when no
+    `pending`/`active` step is left. A decision of 0121, not a proposal
+    (the one exception to V1 of 0075): nothing was achieved, so nothing is
+    proposed, and the day must not leave an active step the next day would
+    walk again. Direct writes in the resolution's transaction; the caller
+    commits. A replay never reaches here with the step open again
+    (`_load_evaluated_steps` excludes terminal steps)."""
+    closed = False
+    for outcome in outcomes:
+        if outcome.band != INQUIRY_BAND:
+            continue
+        step = db.get(AgendaStep, outcome.agenda_step_id)
+        if step is None or step.status in ("completed", "failed"):
+            continue
+        write_agenda_step_status(db, step=step, status="completed", outcome="inquiry")
+        closed = True
+    if not closed:
+        return
+    db.flush()
+    still_open = db.exec(
+        select(AgendaStep.id).where(
+            AgendaStep.agenda_id == agenda.id, AgendaStep.status.in_(("pending", "active")),
+        )
+    ).first()
+    if still_open is None:
+        write_agenda_status(db, agenda=agenda, status="completed")

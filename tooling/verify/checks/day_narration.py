@@ -46,8 +46,9 @@ step forever. Fail-closed and vacuity-guarded.
 
 --- BRIEF-0078-b (blocked band and narration) ---
 
-R13: `BAND_MARKERS`' key set is exactly the four bands, and `"[BLOQUÉ]"` is
-its value for `BLOCKED_BAND`.
+R13: `BAND_MARKERS`' key set is exactly the five bands (TICKET-0121 adds
+`INQUIRY_BAND`, `"[RECHERCHE]"`), and `"[BLOQUÉ]"` is its value for
+`BLOCKED_BAND`.
 R14: `judge_narration` still contains a zero-length `fact_sheet.steps`
 branch that returns `passed=False`; zero such branches located is a
 FAILURE. This does NOT permit an empty fact sheet — that would encode the
@@ -564,14 +565,16 @@ def check_terminal_status_excluded() -> None:
 
 
 def check_band_markers_four_bands() -> None:
-    """R13 (BRIEF-0078-b item 6): BAND_MARKERS' key set is exactly the four
-    bands, and "[BLOQUÉ]" is its value for BLOCKED_BAND."""
+    """R13 (BRIEF-0078-b item 6, widened by TICKET-0121 BRIEF-0121-D): BAND_MARKERS'
+    key set is exactly the five bands, "[BLOQUÉ]" is its value for
+    BLOCKED_BAND and "[RECHERCHE]" its value for INQUIRY_BAND."""
     narration_tree = _parse(DAY_NARRATION_FILE)
     resolve_tree = _parse(DAY_RESOLVE_FILE)
     if narration_tree is None or resolve_tree is None:
         return
 
     blocked_band = None
+    inquiry_band = None
     for node in ast.walk(resolve_tree):
         name, value = None, None
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
@@ -580,8 +583,13 @@ def check_band_markers_four_bands() -> None:
             name, value = node.target.id, node.value
         if name == "BLOCKED_BAND" and isinstance(value, ast.Constant):
             blocked_band = value.value
+        if name == "INQUIRY_BAND" and isinstance(value, ast.Constant):
+            inquiry_band = value.value
     if blocked_band is None:
         fail(f"day_narration R13: {_rel(DAY_RESOLVE_FILE)}: BLOCKED_BAND not found")
+        return
+    if inquiry_band is None:
+        fail(f"day_narration R13: {_rel(DAY_RESOLVE_FILE)}: INQUIRY_BAND not found")
         return
 
     markers_dict = None
@@ -604,15 +612,19 @@ def check_band_markers_four_bands() -> None:
             key_val = k.value
         elif isinstance(k, ast.Name) and k.id == "BLOCKED_BAND":
             key_val = blocked_band
+        elif isinstance(k, ast.Name) and k.id == "INQUIRY_BAND":
+            key_val = inquiry_band
         if key_val is not None and isinstance(v, ast.Constant):
             keys[key_val] = v.value
     if not keys:
         fail(f"day_narration R13: {_rel(DAY_NARRATION_FILE)}: BAND_MARKERS located but holds zero keys")
         return
-    if set(keys) != {"success", "partial", "failure", blocked_band}:
-        fail(f"day_narration R13: BAND_MARKERS keys {sorted(keys)!r} != the four bands")
+    if set(keys) != {"success", "partial", "failure", blocked_band, inquiry_band}:
+        fail(f"day_narration R13: BAND_MARKERS keys {sorted(keys)!r} != the five bands")
     if keys.get(blocked_band) != "[BLOQUÉ]":
         fail(f"day_narration R13: BAND_MARKERS[{blocked_band!r}] is {keys.get(blocked_band)!r}, expected '[BLOQUÉ]'")
+    if keys.get(inquiry_band) != "[RECHERCHE]":
+        fail(f"day_narration R13: BAND_MARKERS[{inquiry_band!r}] is {keys.get(inquiry_band)!r}, expected '[RECHERCHE]'")
 
 
 def check_judge_rejects_empty_fact_sheet() -> None:

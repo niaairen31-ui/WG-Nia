@@ -451,6 +451,7 @@
 - `h1_strip_bounded.py` — G1 gate: the H1 partial-application strip exists ONLY inside the `goal_change complete` path — the project's one sanctioned exception to all-or-nothing mutation apply (TICKET-0024, BRIEF-0024-c).
 - `identity_tokens.py` — G1 check for TICKET-0091 (BRIEF-0091-J) — identity tokens (F1).
 - `import_cycle.py` — G1 check: no import cycle among `src/world_engine` modules (TICKET-0035).
+- `journee_inquiry.py` — G1 check for TICKET-0121 -- Journée routes a declaration to a quest.
 - `json_ui_boundary.py` — G1 gate: UI-visible data is never stored in JSON (TICKET-0025).
 - `knowledge_identity.py` — G1 check for TICKET-0097 -- a knowledge row is identified by the fact it knows, never by its free-text `subject`.
 - `knowledge_resolution.py` — G1 check for TICKET-0082 (BRIEF-0082-c) — scoped default knowledge-level resolution (G2a).

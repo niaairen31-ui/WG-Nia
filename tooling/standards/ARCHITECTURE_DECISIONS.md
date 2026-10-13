@@ -19934,6 +19934,49 @@ path (O1) and the reconciliation paths are unchanged.
 unmeasured until it is run live; a `quest` answer that should have been a
 `plan` costs the player one day of search, never canon.
 
+## A SEARCH IS A DAY WITHOUT DICE (TICKET-0121) -- THE INQUIRY BAND; BLOCKED AND UNANCHORED STEPS OPEN A REQUEST (BRIEF-0121-d, no schema change)
+
+**Decision (K1b, R1, T1).** A day that is a search has no roll to make and
+nothing to propose, yet a step with no domain was `success` and so fired
+every emitter. Three openers now feed the creator's request list, and one new
+band tells the narrator the truth about such a day.
+
+**The openers (C-07).** `finalize_inquiry_day` (K1, the `quest` route) opens
+a `route` request on its one step. In `_finalize_plan`, a step blocked on an
+unmet prerequisite opens a `blocked` request (K1b), and the first step that
+holds a knowledge leaf the planner cannot anchor becomes the day's inquiry
+step: the plan stops there, the steps after it are never written
+(`inquiry_cut` in the response, a count and no id) and a `dropped` request
+is born on it (R1). A secret-only fact reaches the designer through this
+path: the planner may not gate on what no one may confess, so the leaf is
+dropped and the creator decides. One request per step; opening again returns
+the first (an inquiry step that is also the budget-excluded one keeps its
+`dropped` request, the one that decides the band).
+
+**The `inquiry` band (C-08).** `resolve_steps` gives an included step whose
+id `quest_requests.inquiry_step_ids` returns the band `inquiry`: no roll
+(`verdict=None`), the walk stops after it. `BAND_MARKERS["inquiry"]` is
+`[RECHERCHE]`, its label « recherche en cours, sans réponse encore »;
+`emit_mutations` skips it, so no `agenda_step_change`, no `new_knowledge`,
+no event is proposed for a search. A blocked step's unmet `knowledge` verdict
+still proposes its rumor-level lead (U1: unchanged, kept).
+
+**Why its step closes directly (T1).** Left active, the inquiry step would be
+walked again the next day and spend it searching for ever; proposing its
+completion would put a non-event in the review queue and invite the creator
+to approve an achievement that did not happen. `close_inquiry_steps` writes
+`completed` with outcome `inquiry` through `write_agenda_step_status`, and
+`completed` on the agenda when no `pending`/`active` step is left, in the
+resolution's own transaction and never on the judge-failure path. This is an
+exception to V1 of 0075 (every step transition is a proposal) decided by Nia
+for this band and nothing else: the transition carries no canon consequence,
+it only stops a search from repeating. A replay finds the step terminal and
+`_load_evaluated_steps` does not walk it again.
+
+**What the player sees.** Nothing of the request (J2-a1): the step's
+objective is the player's declaration, the narrator reads it and the band
+label, and no response field names a request, an agenda or a step.
+
 ---
 
 *Co-built with Claude, June 2026.*

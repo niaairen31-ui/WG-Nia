@@ -85,6 +85,7 @@ from .models import (
     Entity,
     Skill,
 )
+from .quest_requests import inquiry_step_ids
 from .resolution import Verdict, resolve_physical
 from .skill_ranks import rank_modifier
 
@@ -189,6 +190,12 @@ _TERMINAL_AGENDA_STEP_STATUSES = ("completed", "failed")
 # is not touched).
 BLOCKED_BAND: str = "blocked"
 
+# TICKET-0121 (BRIEF-0121-D, T1): the fifth band. An included step that a
+# quest request opened (trigger `route` or `dropped`) is a search: no roll,
+# no emitter, the walk stops after it, its step is closed directly by the
+# route (`day_plan_finalize.close_inquiry_steps`).
+INQUIRY_BAND: str = "inquiry"
+
 
 def _load_evaluated_steps(
     agenda: Agenda, character: Character, db: Session,
@@ -210,6 +217,7 @@ def _load_evaluated_steps(
 
 def _roll_included_steps(
     ordered_steps: list[AgendaStep], included: tuple[EvaluatedStep, ...], character: Character, db: Session,
+    inquiry_ids: frozenset[str] = frozenset(),
 ) -> list[_RolledStep]:
     """Impure: reads the player's tier and calls `resolve_physical` (the
     ONLY randint call in the day chain, R1) for every domain-bearing
@@ -221,7 +229,10 @@ def _roll_included_steps(
         canon_ids = tuple(sorted({
             r.target_entity_id for r in leaves(evaluated.step.prerequisite) if r.target_entity_id
         }))
-        if evaluated.step.domain is None:
+        if agenda_step.id in inquiry_ids:
+            verdict = None
+            band = INQUIRY_BAND
+        elif evaluated.step.domain is None:
             verdict = None
             band = "success"
         else:
@@ -237,7 +248,8 @@ def _roll_included_steps(
 def _truncate_on_failure(rolled: list[_RolledStep]) -> list[StepOutcome]:
     """Pure (R2): every input is already computed by the caller. A
     `failure` band stops the walk at that step — it and every later step
-    stay unattempted (Scope IN item 1)."""
+    stay unattempted (Scope IN item 1); so does an `inquiry` band (T1,
+    TICKET-0121: the search is the day's last step by construction)."""
     outcomes: list[StepOutcome] = []
     for item in rolled:
         outcomes.append(StepOutcome(
@@ -250,7 +262,7 @@ def _truncate_on_failure(rolled: list[_RolledStep]) -> list[StepOutcome]:
             requirement_verdicts=item.evaluated.blocking,
             canon_ids=item.canon_ids,
         ))
-        if item.band == "failure":
+        if item.band in ("failure", INQUIRY_BAND):
             break
     return outcomes
 
@@ -421,7 +433,9 @@ def resolve_steps(
     included = budget_result.included
     if veto_retained is not None:
         included = included[: max(0, veto_retained)]
-    rolled = _roll_included_steps(ordered_steps, included, character, db)
+    rolled = _roll_included_steps(
+        ordered_steps, included, character, db, inquiry_step_ids(db, agenda.id),
+    )
     outcomes = _truncate_on_failure(rolled)
     _append_blocked_step(ordered_steps, evaluated_steps, budget_result, rolled, outcomes)
     return outcomes
