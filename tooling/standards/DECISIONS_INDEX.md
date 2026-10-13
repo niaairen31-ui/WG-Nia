@@ -353,3 +353,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 19786 | « SUIVI », A CRÉATION TAB THAT READS ONLY (TICKET-0115) -- `Dashboard.svelte`, `dashboard.svelte.js` (BRIEF-0115-e, no schema change) | BRIEF-0115-e |  |
 | 19805 | A DAY IS THE COCKPIT'S DAY (TICKET-0123) -- `local_day.py`, the Lore usage export's `--since` (BRIEF-0123-a, no schema change) | BRIEF-0123-a |  |
 | 19819 | PER-CHECK TIMEOUTS ARE NAMED (TICKET-0123, AMENDMENT-0123-01) -- `corpus_gate.py`'s `SLOW_CHECK_TIMEOUTS` (BRIEF-0123-a, no schema change) | BRIEF-0123-a |  |
+| 19831 | A QUEST FOR ONE CHARACTER IS A LEAF (TICKET-0121) -- THE FORM is_character (BRIEF-0121-a, no schema change) | BRIEF-0121-a |  |

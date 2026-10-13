@@ -19828,6 +19828,24 @@ entries are `lore_usage.py` (13.9-18.2 s once U12f joined it) and
 higher default for every check -- it would hide a fast check that grows
 slow (reactivation: more than a handful of checks need their own entry).
 
+## A QUEST FOR ONE CHARACTER IS A LEAF (TICKET-0121) -- THE FORM is_character (BRIEF-0121-a, no schema change)
+
+E3a: the creator keeps a proposed offer for the character whose day gave it
+birth. The eligibility of an offer is already a condition tree, so « only
+this character » is one more leaf of that language -- `is_character`, whose
+target is a character and whose subject is always the role `doer` -- and
+not a column on `quest_offer`. One language for eligibility (I1 of the
+series); a new primitive is code, no table rebuild and no migration, since
+no CHECK names a form (R-02). The subject is restricted to `doer` in
+`clean_leaf`: the form judges the one who acts, and a fixed or other-role
+subject has no meaning for it. A player reads his own name, so INV-62's
+`seen_by` is unchanged. The planner's four forms (`MODEL_REQUIREMENT_TYPES`)
+are untouched: only the creator writes this leaf.
+
+**Rejected.** A `for_character_id` column on `quest_offer`: a second place
+eligibility lives, outside the tree every reader already judges and
+describes.
+
 ---
 
 *Co-built with Claude, June 2026.*

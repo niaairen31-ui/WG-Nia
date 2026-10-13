@@ -16,7 +16,9 @@
    TICKET-0114 (BRIEF-0114-E, G1): `event` counts the events of one type
    its subject took part in -- its key an event type of
    `choices.event_types`, its value the subject's role (empty: any), its
-   entity the place, plus a window (`since`) and filters on other roles. */
+   entity the place, plus a window (`since`) and filters on other roles.
+   TICKET-0121 (BRIEF-0121-A, E3a): `is_character` -- the offer is for this
+   character only. */
 
 export const REQUIREMENT_FORMS = {
   knowledge: { label: 'Connaît le fait', list: 'facts', column: 'key', threshold: false },
@@ -32,6 +34,7 @@ export const REQUIREMENT_FORMS = {
   item_held: { label: 'Possède au moins (objet)', list: 'items', column: 'entity', threshold: true },
   attribute: { label: 'Est dans l’état', list: 'attributes', column: 'key', threshold: false },
   event: { label: 'A vécu l’événement', list: 'eventTypes', column: 'key', threshold: true },
+  is_character: { label: 'Est le personnage', list: 'characters', column: 'entity', threshold: false },
 };
 
 // TICKET-0114 (F1): an `event` leaf's window. Mirrors

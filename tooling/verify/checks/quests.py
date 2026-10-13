@@ -111,7 +111,8 @@ DEBT_FORMS = ("has_debt_to", "no_debt_to")
 # TICKET-0113 (BRIEF-0113-B, WG1): `attribute` replaces `vital_status`;
 # `attributes.py` owns it.
 # TICKET-0114 (BRIEF-0114-E, G1): `event`; `event_conditions.py` owns it.
-CONDITION_FORMS = ("item_held", "attribute", "event")
+# TICKET-0121 (BRIEF-0121-A, E3a): `is_character`; `character_form.py` owns it.
+CONDITION_FORMS = ("item_held", "attribute", "event", "is_character")
 # QA2 runs the v2.17 migration: the forms it added, the tables it created.
 V217_FORMS = ("has_met", "faction_member", "skill_rank_gte", "quest_completed")
 QUEST_TABLES = ("quest_offer", "quest_offer_step", "quest_offer_requirement", "quest")

@@ -208,6 +208,8 @@ EXPECTED_REQUIREMENT_TYPES = (
     # replaced `quest_completed`. TICKET-0113 (BRIEF-0113-B, WG1): `attribute`
     # replaced `vital_status` at v2.23. TICKET-0114 (BRIEF-0114-E, G1): `event`.
     "item_held", "attribute", "event",
+    # TICKET-0121 (BRIEF-0121-A, E3a): fourteen.
+    "is_character",
 )
 EXPECTED_RECONCILE_VERDICTS = ("continue", "modify", "replace")
 EXPECTED_PLAN_ACTIONS = ("continue", "modify", "replace", "resume")

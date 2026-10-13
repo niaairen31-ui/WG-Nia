@@ -47,6 +47,7 @@ FORM_PHRASES_FR: dict[str, str] = {
     # TICKET-0114 (G1): what happened, counted; `_event_text` adds its
     # filters, its place and its window.
     "event": "{who} a vécu « {target} » {value}, au moins {threshold} fois",
+    "is_character": "{who} est {target}",
 }
 
 # F1 (TICKET-0114): an `event` leaf's window, in French.

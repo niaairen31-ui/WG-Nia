@@ -281,6 +281,8 @@ _BLOCKED_DETAIL_FR: dict[str, str] = {
     "attribute": "« {required} » n'est pas encore le cas",
     # TICKET-0114 (BRIEF-0114-E, G1): its label names the type and the count.
     "event": "il n'a pas encore vécu assez de « {required} »",
+    # TICKET-0121 (BRIEF-0121-A, E3a).
+    "is_character": "cette quête est réservée à {required}",
 }
 
 
