@@ -19783,6 +19783,25 @@ world's secrets: the tab says so beside the button.
 **Rejected.** H2 (metrics typed in the interface), E1 (thresholds with a
 minimum sample: Nia's prod held 3 typed events), I2 (a CSV per table).
 
+## « SUIVI », A CRÉATION TAB THAT READS ONLY (TICKET-0115) -- `Dashboard.svelte`, `dashboard.svelte.js` (BRIEF-0115-e, no schema change)
+
+**H1 of the series -- « Suivi » in Création.** One bespoke tab, one island
+created as one (origin `new`): a world selector (every world, or one --
+J1), two day inputs, a card per metric (its question, the codes it
+watches, its rows as « 3 / 5 (60 %) », « état actuel » when it ignores the
+dates) and the deferral registry (what waits, « Revient si : », the metric
+that watches it, « atteinte » in red). No primary action: nothing is
+created here.
+
+**I1 -- the export button.** It saves `GET /api/dashboard/export` for the
+scope on screen, named after it; the warning beside it says the file holds
+the secrets and the creator's notes and leaves the machine only if she
+sends it.
+
+**Rejected.** A chart per metric: E2 shows numbers, and a chart of three
+events is noise; reactivation: a metric whose rows Nia reads as a trend
+over several weeks.
+
 ---
 
 *Co-built with Claude, June 2026.*

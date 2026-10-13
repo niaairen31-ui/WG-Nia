@@ -350,3 +350,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 19699 | EVERY REVIEW PATH RECORDS ITS ROUND (TICKET-0115) -- `writes/mutation_reviews.py`, `review_diff.py`, `review_verdict.py` (BRIEF-0115-b, no schema change) | BRIEF-0115-b |  |
 | 19727 | WHO PROPOSED IT IS ONE CLOSED LIST (TICKET-0115) -- `proposal_producers.py`; JOURNÉE'S OBJECTIVE EVENT IS THE ENGINE'S (BRIEF-0115-c, no schema change) | BRIEF-0115-c |  |
 | 19750 | THE DASHBOARD IS A REGISTRY IN CODE (TICKET-0115) -- `dashboard_metrics.py`, `dashboard_deferrals.py`, `dashboard_export.py`, `GET /api/dashboard[/export]` (BRIEF-0115-d, no schema change) | BRIEF-0115-d |  |
+| 19786 | « SUIVI », A CRÉATION TAB THAT READS ONLY (TICKET-0115) -- `Dashboard.svelte`, `dashboard.svelte.js` (BRIEF-0115-e, no schema change) | BRIEF-0115-e |  |

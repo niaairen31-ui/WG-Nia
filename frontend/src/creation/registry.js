@@ -577,4 +577,13 @@ export const CREATION_ISLANDS = Object.freeze({
     origin: 'new',
     createdBy: 'TICKET-0114',
   }),
+  // TICKET-0115 (BRIEF-0115-E, H1): the creator's dashboard and the
+  // deferrals she watches -- created directly as an island, no legacy
+  // predecessor.
+  dashboard: Object.freeze({
+    containerId: 'creation-suivi',
+    component: 'Dashboard.svelte',
+    origin: 'new',
+    createdBy: 'TICKET-0115',
+  }),
 });

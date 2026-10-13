@@ -378,6 +378,17 @@ export const CREATION_TABS = {
     islands: [{ key: 'subjectWorklist', containerId: 'creation-subjects' }],
     primaryAction: null, // binds existing knowledge subjects; creates no row
   },
+  // TICKET-0115 (BRIEF-0115-E, H1): the creator's dashboard -- metrics in
+  // code, the deferrals she watches, the export. Reads only.
+  suivi: {
+    label: 'Suivi',
+    archetype: 'bespoke',
+    containers: ['creation-suivi'],
+    loader: null,
+    state: { onTabEnter: null, onWorldSwitch: null },
+    islands: [{ key: 'dashboard', containerId: 'creation-suivi' }],
+    primaryAction: null, // reads only: nothing is created here
+  },
   queue: {
     label: 'Review Queue',
     archetype: 'bespoke',
