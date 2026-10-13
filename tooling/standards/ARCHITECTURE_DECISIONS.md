@@ -19747,6 +19747,42 @@ stamped `local_ai` by Journée's objective event before this brief stay as
 they are (history): the export carries `mutation_type` and `rationale`,
 which tell them apart.
 
+## THE DASHBOARD IS A REGISTRY IN CODE (TICKET-0115) -- `dashboard_metrics.py`, `dashboard_deferrals.py`, `dashboard_export.py`, `GET /api/dashboard[/export]` (BRIEF-0115-d, no schema change)
+
+**H1, E2.** Each metric is a question in French, a computation in code and
+the decision codes it watches -- never SQL typed in the interface. No
+threshold: the numbers are shown, Nia judges (E2). The scope is every world
+or one (J1) and two real-world days on the cockpit's own clock, both
+included; a metric of the world as it stands (conditions, encounters, the
+queue) ignores the dates and says so (`dated`).
+
+**M1 -- the tab reads no JSON.** `ProposedMutation.payload` and
+`ConditionDraft.payload` stay audit material (INV-20): the metrics read
+`mutation_review`, `mutation_review_change`, `condition_draft.outcome` and
+`saved_as_proposed`, `condition_node`, `rencontre`, `skill_resolution`.
+What only the JSON holds -- costs typed into the interpreter (IA2), « cette
+forme n'existe pas » (A2), a missing label -- is measured from the export,
+whose entries say `metric: export`. Reactivation of M2 (the rejected
+alternative: signals made relational now): an analysis of the export shows
+one of those measures deserves a screen.
+
+**F2, K2, L -- the deferral registry.** `DEFERRALS` lists the deferrals Nia
+named, each with its condition in French, the file that declares it and a
+verbatim anchor (`dashboard_registry.py` finds it there once: a reworded
+declaration is red), the metric that watches it, and its status. Two are
+`reached` on entry: WH3 (0114's journal knows the witnesses; TICKET-0122 is
+reserved for it) and the payload's relationalization (the review card has
+edited it field by field since 0119; no ticket yet). A future deferral
+enters by the lot of the ticket that locks it, never by a scan.
+
+**I1 -- the export.** One JSON document for the scope: proposals with their
+payloads, original payloads and review rounds; the interpreter's drafts
+whole; the metrics; the registry -- for a Claude Code session. It holds the
+world's secrets: the tab says so beside the button.
+
+**Rejected.** H2 (metrics typed in the interface), E1 (thresholds with a
+minimum sample: Nia's prod held 3 typed events), I2 (a CSV per table).
+
 ---
 
 *Co-built with Claude, June 2026.*

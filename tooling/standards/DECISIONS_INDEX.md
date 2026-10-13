@@ -349,3 +349,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 19670 | THE CREATOR'S REVIEW IS RECORDED ROUND BY ROUND (TICKET-0115) -- WHAT SHE CHANGED, AND WHAT A STEP'S CONDITION SAID (BRIEF-0115-a, schema v2.27) | BRIEF-0115-a | v2.27 |
 | 19699 | EVERY REVIEW PATH RECORDS ITS ROUND (TICKET-0115) -- `writes/mutation_reviews.py`, `review_diff.py`, `review_verdict.py` (BRIEF-0115-b, no schema change) | BRIEF-0115-b |  |
 | 19727 | WHO PROPOSED IT IS ONE CLOSED LIST (TICKET-0115) -- `proposal_producers.py`; JOURNÉE'S OBJECTIVE EVENT IS THE ENGINE'S (BRIEF-0115-c, no schema change) | BRIEF-0115-c |  |
+| 19750 | THE DASHBOARD IS A REGISTRY IN CODE (TICKET-0115) -- `dashboard_metrics.py`, `dashboard_deferrals.py`, `dashboard_export.py`, `GET /api/dashboard[/export]` (BRIEF-0115-d, no schema change) | BRIEF-0115-d |  |

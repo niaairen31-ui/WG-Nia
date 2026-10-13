@@ -144,6 +144,9 @@
 - `context.py` — NPC context assembly — the engine's structural control over what an NPC may say.
 - `context_describe.py` — Descriptive NPC/MJ context helpers (TICKET-0091 BRIEF-B move; BRIEF-G switched them to facts).
 - `context_window.py` — Sliding context window — shared seam for the played and observed lanes (TICKET-0050, BRIEF-0050-a/-b/-d; TICKET-0052, B1/I2).
+- `dashboard_deferrals.py` — The deferrals the creator watches: each rejected or deferred choice whose reactivation condition she approved, where it is declared, and the dashboard metric that watches it, if any (TICKET-0115, BRIEF-0115-D; decisions F2, K2 and L of the conditions series' dashboard).
+- `dashboard_export.py` — The dashboard's export: everything a deeper analysis needs, between two real-world dates, as one JSON document for a Claude Code session (TICKET-0115, BRIEF-0115-D; decisions E2, I1, J1 and M1 of the conditions series' dashboard).
+- `dashboard_metrics.py` — The creator's dashboard: a registry of metrics in code, each a question in French, its computation over relational columns, and the decision codes it watches (TICKET-0115, BRIEF-0115-D; decisions H1, D1, E2 and M1 of the conditions series' dashboard).
 - `day_choice.py` — Model choice among narrowed candidates (TICKET-0094, H2).
 - `day_concordance.py` — Concordance and germ emission (TICKET-0075, BRIEF-0075-c — decision C1: **the resolver never authors**; robustness and casting, TICKET-0081, BRIEF-0081-a — decisions G2, C2-partition, F1, E2c).
 - `day_events.py` — Journée proposes the event a completed step's objective names (TICKET-0119, BRIEF-0119-F; decisions Bt1, M-c and V1 of the conditions series).
@@ -285,6 +288,7 @@
 - `attributes.py` — The state of the world's routes (TICKET-0113, BRIEF-0113-C; decisions WA3, WB2, WD1, WI1, WJ2 and WK2 of the conditions series) -- creator CRUD, a sanctioned canon-write path:
 - `conditions.py` — The condition interpreter's routes (TICKET-0112, BRIEF-0112-D; decisions IB1, IG1, IH1, IJ1).
 - `creator.py` — Creator-mode generation + composite routes: entity/world/player/skill- catalogue/agenda/event draft generation, world CRUD, bootstrap, player-character composite create, NPC listing.
+- `dashboard.py` — The « Suivi » tab's routes -- the creator's dashboard and its export (TICKET-0115, BRIEF-0115-D; decisions H1, E2, I1, J1 and M1 of the conditions series' dashboard).
 - `day.py` — Day declaration, plan-emission and resolution routes (TICKET-0075, BRIEF-0075-a — the declaration socle: plumbing only; BRIEF-0075-b — plan emission and budget; BRIEF-0075-c — extraction and concordance; BRIEF-0075-d — resolution, the fact sheet and narration; BRIEF-0075-g — the feasibility veto, decision Y1).
 - `debts.py` — Debt routes (TICKET-0110, BRIEF-0110-B, contract C-07).
 - `event_types.py` — The event journal's vocabulary routes (TICKET-0114, BRIEF-0114-B; decisions B1, C1, D1, T3 and W1 of the conditions series) -- creator CRUD, a sanctioned canon-write path:
@@ -382,6 +386,7 @@
 - `creation_island.py` — G1 check: the Creation island-mount seam (TICKET-0058, BRIEF-0058-d, amended by BRIEF-0058-e; re-anchored by TICKET-0059, BRIEF-0059-l commit 1, D1).
 - `creation_return_nav.py` — G1 check for TICKET-0054 (BRIEF-0054-d): Creation surface cross-tab entity navigation with a single-slot return crumb.
 - `creation_tab_switch.py` — G1 check: the tab-switch sheet reset (TICKET-0083, BRIEF-0083-a).
+- `dashboard_registry.py` — G1 check for TICKET-0115 -- the dashboard is a registry in code: its metrics read relational columns only, its deferrals point at the passage that declares them, and its export carries what the tab does not show.
 - `day_choice.py` — G1 check for TICKET-0094 — Concordance H2, the model chooses and the code judges.
 - `day_concordance.py` — Structural gate for the extraction-and-concordance step (TICKET-0075, BRIEF-0075-c — decision C1: the resolver never authors).
 - `day_concordance_golden.py` — Golden-case fixture for `day_concordance.concord` (TICKET-0081, BRIEF-0081-a) and `day_concordance.emit_germs` (BRIEF-0081-c).

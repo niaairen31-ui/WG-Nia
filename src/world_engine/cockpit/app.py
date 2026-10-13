@@ -60,6 +60,7 @@ from .routes import creator as _routes_creator
 from .routes import day as _routes_day
 from .routes import debts as _routes_debts
 from .routes import event_types as _routes_event_types
+from .routes import dashboard as _routes_dashboard
 from .routes import link_agent as _routes_link_agent
 from .routes import lore as _routes_lore
 from .routes import lore_mentions as _routes_lore_mentions
@@ -148,6 +149,7 @@ app.include_router(_routes_conditions.router)
 app.include_router(_routes_debts.router)
 app.include_router(_routes_attributes.router)
 app.include_router(_routes_event_types.router)
+app.include_router(_routes_dashboard.router)
 
 app.mount("/static", _FreshnessAwareStaticFiles(directory=_STATIC_DIR), name="static")
 
