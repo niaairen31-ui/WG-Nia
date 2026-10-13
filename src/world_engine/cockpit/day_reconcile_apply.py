@@ -34,6 +34,7 @@ from ..day_resolve import blocked_details_fr
 from ..llm_parse import LlmParseError
 from ..models import Agenda, AgendaStep, Character, PassPlay
 from ..writes import next_day_rewrite_generation, write_agenda_status, write_day_rewrite
+from .day_plan_finalize import _finalize_plan
 
 
 def _reconciliation_dict(recon: Reconciliation, mutation_ids: list[str]) -> dict:
@@ -186,15 +187,12 @@ def _finalize_replace(
     refuses — it PARKS the standing plan and opens a fresh one in its place,
     one transaction: `day_plans.park_active_plan` -> `emit_plan` (fed
     `rendered`, BRIEF-0081-b — never re-rendered here, item 5) ->
-    `_finalize_plan` unchanged. `_finalize_plan` stays in `routes/day.py`
-    (not moved here by BRIEF-0077-a item 5) — reached via a lazy import to
-    avoid a module cycle (`play_stream`/`play.py` precedent,
-    `import_cycle.py`'s sanctioned idiom). A failed emission
+    `_finalize_plan` unchanged. `_finalize_plan` lives in
+    `cockpit/day_plan_finalize.py` (relocated from `routes/day.py` by
+    TICKET-0121, BRIEF-0121-D). A failed emission
     (`LlmParseError`) rolls back the park with the rest of the transaction,
     leaving the standing plan `active`, never orphaned mid-park. A
     successful emission appends its own `day_rewrite` generation (item 8)."""
-    from .routes import day as _day
-
     day_plans.park_active_plan(character, db)
     try:
         raw_steps = emit_plan(rendered, character, db)
@@ -202,7 +200,7 @@ def _finalize_replace(
         raise HTTPException(status_code=502, detail=f"plan emission failed: {exc}") from exc
 
     _append_rewrite_generation(world_id, pass_play, rendered, concordance_result, db)
-    result = _day._finalize_plan(world_id, character, pass_play, raw_steps, db)
+    result = _finalize_plan(world_id, character, pass_play, raw_steps, db)
     result["reconciliation"] = _reconciliation_dict(recon, [])
     return result
 

@@ -36,22 +36,14 @@ from ... import day_plan_select, day_plans, day_rewrite, quest_reads
 from ...day_choice import choose
 from ...day_concordance import AmbiguousMention, ConcordanceResult, concord, emit_germs
 from ...day_extract import extract_factions, extract_persons, extract_places
-from ...day_feasibility import VetoVerdict, veto as feasibility_veto
 from ...day_mutations import emit_mutations
 # `rewrite` here is day_narration's late-delta prose rewrite -- unrelated to
 # the day_rewrite MODULE imported above (declaration rewrite, BRIEF-0081-b);
 # aliased to keep the two "rewrite" concepts from colliding on one name.
-from ...conditions import Bindings, and_path_leaves, read_condition
+from ...conditions import and_path_leaves, read_condition
 from ...day_narration import detect_late_delta, narrate, rewrite as rewrite_narration
 from ...day_narration_guard import JudgeVerdict, judge_narration, lowercase_offending_words
-from ...day_plan import (
-    DAY_BUDGET_SLOTS,
-    EvaluatedStep,
-    anchor_requirements,
-    budget_cut,
-    emit_plan,
-    evaluate_requirements,
-)
+from ...day_plan import emit_plan
 from ...day_resolve import (
     FactSheet,
     StepOutcome,
@@ -81,14 +73,13 @@ from ...writes import (
     read_latest_resolution,
     resolution_count,
     write_batch,
-    write_day_feasibility,
     write_day_mention_choices,
-    write_day_plan,
     write_day_rewrite,
     write_pass_play,
     write_pass_play_resolution,
 )
 from .. import crud as _crud
+from ..day_plan_finalize import _feasibility_dict, _finalize_plan, _plan_step_dict
 from ..day_reconcile_apply import _reconcile_and_finalize
 
 router = APIRouter()
@@ -150,24 +141,6 @@ def _day_dict(batch: Batch, pass_play: PassPlay) -> dict:
         "status": pass_play.status,
         "declared_action": pass_play.declared_action,
         "created_at": batch.created_at.isoformat() if batch.created_at else None,
-    }
-
-
-def _feasibility_dict(
-    python_retained: int, veto_retained: int, reason: str, cited_objective: Optional[str], outcome: str,
-) -> dict:
-    """Player-facing shape (BRIEF-0075-g, Wiring): counts, the reason, the
-    cited step's OBJECTIVE (never its order/id -- ticket-wide Scope OUT),
-    and the honoured/clamped/unavailable flag. Shared by the `/plan`
-    response (built from the fresh `VetoVerdict`) and `GET /api/day/{id}`
-    (built from the persisted `pass_play.history` entry via `read_latest_
-    feasibility` -- never `.history` itself, `pipeline_wiring.py`'s R5)."""
-    return {
-        "python_retained": python_retained,
-        "veto_retained": veto_retained,
-        "reason": reason,
-        "cited_objective": cited_objective,
-        "outcome": outcome,
     }
 
 
@@ -379,19 +352,6 @@ def get_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     return result
 
 
-def _plan_step_dict(evaluated: EvaluatedStep, status: str) -> dict:
-    return {
-        "objective": evaluated.step.objective,
-        "cost": evaluated.step.cost,
-        "domain": evaluated.step.domain,
-        "status": status,
-        "requirements": [
-            {"met": v.met, "current": v.current, "required": v.required, "reason": v.reason}
-            for v in evaluated.verdicts
-        ],
-    }
-
-
 def _rewrite_dict(rewrite_row: DayRewrite, result: ConcordanceResult, db: Session) -> dict:
     """The `rewrite` block (BRIEF-0081-b, Scope IN item 9) — the V1 surface
     Nia asked for: the rendered text `select_plan`/`emit_plan` actually
@@ -544,77 +504,6 @@ def _load_plannable_day(batch_id: str, world_id: str, db: Session) -> PassPlay:
             detail=f"day {batch_id!r} is not awaiting a plan (status={pass_play.status!r})",
         )
     return pass_play
-
-
-def _finalize_plan(
-    world_id: str, character: Character, pass_play: PassPlay, raw_steps: list, db: Session,
-) -> dict:
-    # BRIEF-0078-a, Scope IN item 7: anchoring runs BEFORE evaluate_requirements
-    # so a dropped requirement never reaches evaluate_requirements or
-    # the step's stored condition (E2 — reporting, never refusing: /plan still
-    # returns 200 and writes the plan exactly as it does today).
-    anchored_steps, dropped_report = anchor_requirements(raw_steps, character, db)
-    bindings = Bindings(doer=character)
-    evaluated_steps = [
-        EvaluatedStep(step=step, verdict=evaluate_requirements(step, bindings, db))
-        for step in anchored_steps
-    ]
-    budget_result = budget_cut(evaluated_steps, DAY_BUDGET_SLOTS)
-    # BRIEF-0075-g, Y1: the veto runs AFTER budget_cut, on an already-legal
-    # plan (R4) — its own output can only narrow `budget_result.included`
-    # further, never widen it (day_feasibility.clamp_verdict, R1/R2).
-    verdict = feasibility_veto(budget_result, character, pass_play.declared_action, db)
-    active_step_index = 0 if verdict.veto_retained > 0 else None
-
-    # E2: reporting, never refusing — a budget-only cut is not a block.
-    blocked_index: Optional[int] = None
-    blocked_text: Optional[str] = None
-    if budget_result.first_excluded_index is not None:
-        excluded = evaluated_steps[budget_result.first_excluded_index]
-        if not excluded.met:
-            blocked_index = budget_result.first_excluded_index
-            blocked_text = "; ".join(v.reason for v in excluded.verdicts if not v.met)
-
-    title = pass_play.declared_action.strip().splitlines()[0][:200]
-    try:
-        agenda = write_day_plan(
-            db,
-            world_id=world_id,
-            owner_entity_id=character.id,
-            title=title,
-            steps=[evaluated.step for evaluated in evaluated_steps],
-            active_step_index=active_step_index,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    # Germs (already staged by `_extract_and_concord`) commit in the same
-    # transaction as the plan (Scope IN item 4, all-or-nothing) — never
-    # added inside day_concordance.py itself (R1). The feasibility verdict
-    # (item 4, observability) is recorded in the SAME transaction, exactly
-    # once per pass_play, BEFORE the status move to 'resolving'.
-    write_day_feasibility(db, pass_play=pass_play, verdict=verdict)
-    pass_play.status = "resolving"
-    pass_play.agenda_id = agenda.id  # BRIEF-0077-a: which plan this day advanced
-    db.add(pass_play)
-    db.commit()
-
-    return {
-        "steps": [
-            _plan_step_dict(evaluated, "active" if idx == active_step_index else "pending")
-            for idx, evaluated in enumerate(evaluated_steps)
-        ],
-        "slots_consumed": budget_result.slots_consumed,
-        "slots_budget": budget_result.slots_budget,
-        "first_excluded_index": budget_result.first_excluded_index,
-        "feasibility": _feasibility_dict(
-            verdict.python_retained, verdict.veto_retained, verdict.reason,
-            verdict.cited_objective, verdict.outcome,
-        ),
-        "anchoring": {"dropped": dropped_report},
-        "blocked_at_index": blocked_index,
-        "blocked_reason": blocked_text,
-    }
 
 
 def _record_refused_choices(world_id: str, pass_play_id: str, records: tuple[dict, ...], db: Session) -> None:

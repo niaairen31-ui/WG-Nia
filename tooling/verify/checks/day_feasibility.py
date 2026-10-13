@@ -8,7 +8,8 @@ R2: `clamp_verdict` bounds `veto_retained` with an explicit `min(...)` call
 — the clamp is real code, never a prompt instruction.
 R3: `day_feasibility.py` writes nothing: no `db.add(`, no `.commit(`, no
 `ProposedMutation(`.
-R4: `routes/day.py`'s `_finalize_plan` calls the veto strictly AFTER
+R4: `cockpit/day_plan_finalize.py`'s `_finalize_plan` (relocated from
+`routes/day.py` by TICKET-0121) calls the veto strictly AFTER
 `budget_cut` — call ORDER, not merely presence of both.
 R5: `day_feasibility.py` never references `REQUIREMENT_TYPES`,
 `_EVALUATORS` or `evaluate_requirements` — the veto never touches a
@@ -32,6 +33,7 @@ SRC = ROOT / "src" / "world_engine"
 
 DAY_FEASIBILITY_FILE = SRC / "day_feasibility.py"
 DAY_ROUTE_FILE = SRC / "cockpit" / "routes" / "day.py"
+DAY_FINALIZE_FILE = SRC / "cockpit" / "day_plan_finalize.py"
 PROMPT_REGISTRY_FILE = SRC / "prompt_registry.py"
 
 FAILURES: list[str] = []
@@ -159,12 +161,12 @@ def check_writes_nothing() -> None:
 
 def check_veto_after_budget_cut() -> None:
     """R4. Call ORDER inside `_finalize_plan`, not merely presence."""
-    tree = _parse(DAY_ROUTE_FILE)
+    tree = _parse(DAY_FINALIZE_FILE)
     if tree is None:
         return
     fn = _find_function(tree, "_finalize_plan")
     if fn is None:
-        fail(f"day_feasibility R4: {_rel(DAY_ROUTE_FILE)}: _finalize_plan not found")
+        fail(f"day_feasibility R4: {_rel(DAY_FINALIZE_FILE)}: _finalize_plan not found")
         return
     budget_cut_line = None
     veto_line = None
@@ -176,14 +178,14 @@ def check_veto_after_budget_cut() -> None:
         if node.func.id == "feasibility_veto" and veto_line is None:
             veto_line = node.lineno
     if budget_cut_line is None:
-        fail(f"day_feasibility R4: {_rel(DAY_ROUTE_FILE)}: _finalize_plan does not call budget_cut(")
+        fail(f"day_feasibility R4: {_rel(DAY_FINALIZE_FILE)}: _finalize_plan does not call budget_cut(")
         return
     if veto_line is None:
-        fail(f"day_feasibility R4: {_rel(DAY_ROUTE_FILE)}: _finalize_plan does not call feasibility_veto(")
+        fail(f"day_feasibility R4: {_rel(DAY_FINALIZE_FILE)}: _finalize_plan does not call feasibility_veto(")
         return
     if not (veto_line > budget_cut_line):
         fail(
-            f"day_feasibility R4: {_rel(DAY_ROUTE_FILE)}: feasibility_veto( at line {veto_line} does not "
+            f"day_feasibility R4: {_rel(DAY_FINALIZE_FILE)}: feasibility_veto( at line {veto_line} does not "
             f"come after budget_cut( at line {budget_cut_line}"
         )
 
