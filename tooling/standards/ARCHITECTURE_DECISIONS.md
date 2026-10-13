@@ -19977,6 +19977,24 @@ it only stops a search from repeating. A replay finds the step terminal and
 objective is the player's declaration, the narrator reads it and the band
 label, and no response field names a request, an agenda or a step.
 
+## ONE OFFER SAVE FOR CRÉATION AND THE REVIEW QUEUE (TICKET-0121) -- quest_offer_save.py (BRIEF-0121-e, no schema change)
+
+A pure move (C-09). `OfferStepBody`, `TermBody`, `OfferBody`, `_mark_drafts`
+and `_term` (now `term_spec`) leave `routes/quests.py` byte-identical for
+`cockpit/quest_offer_save.py`, joined by `save_offer_body(db, world_id, body,
+offer)`: the old `_save_offer` try block followed by `_mark_drafts`, without
+the rollback, the HTTP mapping or the commit. A refusal is a `ValueError`.
+`routes/quests.py::_save_offer` keeps its signature and maps `ValueError` to
+422, then commits; the old names stay importable from the route module.
+
+**Why.** The `quest_offer_creation` applier (a later commit of this brief)
+must write an approved proposal through the very save Création › Quêtes
+uses, so no second offer writer exists (INV-08) and the commit boundary
+stays with the caller (INV-18). The move lands first so the applier never
+touches `_apply_mutation`'s dispatch before the shared save exists (INV-11).
+`condition_interpreter.py`'s ND1 asserts the same order -- write, mark
+drafts, commit -- split over the route and the shared function.
+
 ---
 
 *Co-built with Claude, June 2026.*

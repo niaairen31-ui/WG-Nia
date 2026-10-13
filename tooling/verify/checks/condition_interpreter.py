@@ -949,17 +949,25 @@ def _nd1_route() -> None:
 
 
 def _nd1_save() -> None:
-    tree = _parse(SRC / "cockpit" / "routes" / "quests.py")
-    fns = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
-    save, mark = fns.get("_save_offer"), fns.get("_mark_drafts")
-    if save is None or mark is None:
-        fail("ND1: routes/quests.py lacks _save_offer or _mark_drafts")
+    # TICKET-0121 (BRIEF-0121-E, C-09): the save moved to cockpit/quest_offer_save.py;
+    # the route's _save_offer calls save_offer_body then commits.
+    route = {n.name: n for n in _parse(SRC / "cockpit" / "routes" / "quests.py").body
+             if isinstance(n, ast.FunctionDef)}
+    shared = {n.name: n for n in _parse(SRC / "cockpit" / "quest_offer_save.py").body
+              if isinstance(n, ast.FunctionDef)}
+    save, core, mark = route.get("_save_offer"), shared.get("save_offer_body"), shared.get("_mark_drafts")
+    if save is None or core is None or mark is None:
+        fail("ND1: _save_offer, save_offer_body or _mark_drafts is missing")
         return
-    order = [(n.lineno, _callee(n)) for n in ast.walk(save) if isinstance(n, ast.Call)
-             and _callee(n) in ("write_quest_offer", "_mark_drafts", "commit")]
-    names = [name for _, name in sorted(order)]
-    if names != ["write_quest_offer", "_mark_drafts", "commit"]:
-        fail(f"ND1: _save_offer calls {names}, not write_quest_offer -> _mark_drafts -> commit")
+    names = [name for _, name in sorted((n.lineno, _callee(n)) for n in ast.walk(save)
+                                        if isinstance(n, ast.Call) and _callee(n) in ("save_offer_body", "commit"))]
+    if names != ["save_offer_body", "commit"]:
+        fail(f"ND1: _save_offer calls {names}, not save_offer_body -> commit")
+    order = [name for _, name in sorted((n.lineno, _callee(n)) for n in ast.walk(core)
+                                        if isinstance(n, ast.Call)
+                                        and _callee(n) in ("write_quest_offer", "_mark_drafts", "commit"))]
+    if order != ["write_quest_offer", "_mark_drafts"]:
+        fail(f"ND1: save_offer_body calls {order}, not write_quest_offer -> _mark_drafts (no commit)")
     if "mark_draft_saved" not in {_callee(n) for n in ast.walk(mark) if isinstance(n, ast.Call)}:
         fail("ND1: _mark_drafts does not call mark_draft_saved")
 

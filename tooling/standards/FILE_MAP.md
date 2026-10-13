@@ -262,6 +262,7 @@
 - `play_initiative.py` — NPC-initiative branch of the `say` play path (TICKET-0035, extracted from play_stream.py at BRIEF-0027-b/-d's module boundary).
 - `play_physical.py` — Physical-mode branch of the `say` play path (BRIEF-0027-b/-d): arbiter classification, dice verdict, opposed NPC reaction, scene_state writes, establishment narration, discovery gating.
 - `play_stream.py` — Narration-streaming tail of the `say` play path (BRIEF-0027-b/-d): MJ narration streaming, per-turn finish.
+- `quest_offer_save.py` — One offer save, shared by Création › Quêtes and the review queue (TICKET-0121).
 - `skill_progress.py` — A roll earns a skill point (TICKET-0106, BRIEF-0106-B, decisions H1, K1, M2, N2, Q1, S1, Y1b).
 - `spatial_doors.py` — Door resolution for the spatial workstream (TICKET-0034, BRIEF-0034-b).
 - `spatial_presence.py` — NPC spatial presence assembler (TICKET-0031, BRIEF-0031-a).
