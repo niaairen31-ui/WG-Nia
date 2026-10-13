@@ -192,8 +192,10 @@ listed in `tooling/verify/baselines/invariant_ids.retired`. Each ends with
   paths, corrections are new compensating lines, and no UPDATE/DELETE
   endpoint or code path touches a `ledger` row. [no check]
 - **INV-14** `proposed_by='engine'` deterministic proposals
-  (`_propose_engine_injury`, `_propose_engine_discovery`) follow the same
-  review queue as AI proposals — never auto-applied. [no check]
+  (`_propose_engine_injury`, `_propose_engine_discovery`,
+  `emit_objective_events`) follow the same review queue as AI proposals —
+  never auto-applied. Every `proposed_by` written is named in
+  `proposal_producers.PRODUCERS`. -- enforced by `proposal_producers.py`
 - **INV-15** `skill_progress` is the one live auto-applied mutation: a roll's
   point (`proposed_by='engine_roll'`) applied through `_apply_mutation` at
   proposal time; `write_skill_progress` moves the rank. -- enforced by

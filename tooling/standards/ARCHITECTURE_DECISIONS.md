@@ -19724,6 +19724,29 @@ would vanish). A positional diff everywhere (a reordered list reads as a
 rewrite). The verdict after the apply (the apply moves the step: M2 would
 compare the condition with its own consequence).
 
+## WHO PROPOSED IT IS ONE CLOSED LIST (TICKET-0115) -- `proposal_producers.py`; JOURNÉE'S OBJECTIVE EVENT IS THE ENGINE'S (BRIEF-0115-c, no schema change)
+
+**B2.** `proposed_mutation.proposed_by` already is the producer column; it
+lied once: Journée's objective event (`day_events.py`, Bt1 of 0119, no
+model) was stamped `local_ai` like the day chain's model output, so an
+acceptance rate « of the model » would have counted code. It is `engine`
+now, beside `_propose_engine_injury` and `_propose_engine_discovery`
+(INV-14). `proposal_producers.PRODUCERS` names every value written -- its
+kind (model, engine, auto) and the dashboard's French label -- and
+`LEGACY_PRODUCERS` the values older rows still carry. The check
+`proposal_producers.py` reads every `ProposedMutation(` and every
+`.proposed_by =` of the package (a module constant counts: `observed_scene`,
+`engine_roll`) and fails on a value the list does not name, or a listed
+value nobody writes; it also holds INV-14 (a model's or the engine's
+proposal is never built applied, and only an `auto` producer's module
+applies one itself).
+
+**Rejected.** B1, a separate `producer` column (reactivation: two real
+producers sharing one `proposed_by` value that must be told apart). Rows
+stamped `local_ai` by Journée's objective event before this brief stay as
+they are (history): the export carries `mutation_type` and `rationale`,
+which tell them apart.
+
 ---
 
 *Co-built with Claude, June 2026.*

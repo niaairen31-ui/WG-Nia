@@ -212,6 +212,7 @@
 - `prompt_load.py` — Prompt resolution for creator-side authoring usages (TICKET-0098, BRIEF-0098-D, decision N1 -- extracted verbatim from `lore_prompt.py`, which now re-exports it for the consultation pipeline).
 - `prompt_registry.py` — Prompt registry — code facts about every seeded `prompt_template.usage` (BRIEF-0008-a, schema v1.67).
 - `prompt_store.py` — `prompt_version` read accessor (G1) — TICKET-0011.
+- `proposal_producers.py` — Who proposed a change: the closed list of `proposed_mutation.proposed_by` values, what each one is, and how the creator's dashboard names it (TICKET-0115, BRIEF-0115-C; decision B2 of the conditions series' dashboard).
 - `prose_render.py` — Prose render — the identity-token read chokepoint (TICKET-0091, BRIEF-0091-J, contract C-13, decision F1).
 - `prose_tokens.py` — Token posing on new canon prose (TICKET-0091, BRIEF-0091-J, contract C-14, decision F1).
 - `quest_reads.py` — Quest offers and quests: what the two surfaces read (TICKET-0108, BRIEF-0108-B, contract C-04).
@@ -481,6 +482,7 @@
 - `prompt_model_write.py` — G1 check for TICKET-0009 (BRIEF-0009-a) — prompt_template.model write path.
 - `prompt_registry.py` — G1 check for TICKET-0008 (BRIEF-0008-a) — prompt registry structural gate.
 - `prompt_version.py` — G1 checks for TICKET-0011 (BRIEF-0011-a) — prompt_version table, single read accessor, single write shape, versioned edit API.
+- `proposal_producers.py` — G1 check for TICKET-0115 -- every proposal names its producer from one closed list, and code-made proposals are reviewed like a model's (INV-14).
 - `purge_fk_ordering.py` — Runtime G1 check for TICKET-0037 (BRIEF-0037-e) — the shared retention purge helper `_purge_closed_batches` must delete row-children BEFORE their parent batch, under real SQLite FK enforcement (`PRAGMA foreign_keys=ON`, `db.py`'s connect listener).
 - `quest_rewards.py` — G1 check for TICKET-0109 -- objects held in quantity, quest terms, the indicative unit, and « déclarer accomplie ».
 - `quests.py` — G1 check for TICKET-0108 -- quest offers, accepted quests, and the requirement vocabulary they share with day plans.
