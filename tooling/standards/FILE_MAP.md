@@ -221,6 +221,8 @@
 - `region_author.py` — Region orchestrator — BRIEF-34, chantier 1; split into two phases by BRIEF-38.
 - `relation_orientation.py` — Relation orientation vocabulary (TICKET-0090, BRIEF-0090-a) — pure, no DB.
 - `resolution.py` — Physical-action dice resolution (BRIEF-11, schema v1.23).
+- `review_diff.py` — What the creator changed in a proposal before approving it: two payloads compared, value by value (TICKET-0115, BRIEF-0115-B; decision H1a of the conditions series' dashboard).
+- `review_verdict.py` — What a step's own condition said when the creator reviewed its change (TICKET-0115, BRIEF-0115-B; decision C1 of the conditions series' dashboard, for M2).
 - `room_batch_author.py` — Room batch orchestrator (TICKET-0042).
 - `scene_format.py` — Player-facing scene and inventory formatters (TICKET-0073, BRIEF-0073-a).
 - `schedule_reads.py` — Read helpers for `npc_schedule` and the C1 time-relative position resolution (TICKET-0074, BRIEF-0074-a).
@@ -339,6 +341,7 @@
 - `lore_entries.py` — The lore source record's writer (TICKET-0098, BRIEF-0098-B/-C, C-04).
 - `lore_usage.py` — The Lore shell's usage journal writer (TICKET-0103, BRIEF-0103-A, C-01).
 - `mentions.py` — `unresolved_mention` writer (TICKET-0091, BRIEF-0091-J, contract C-15).
+- `mutation_reviews.py` — The creator's review of a proposal, recorded round by round -- the one writer of `mutation_review`, `mutation_review_change` and `proposed_mutation.original_payload` (TICKET-0115, BRIEF-0115-B; decisions A3, C1 and H1a of the conditions series' dashboard).
 - `pipeline.py` — `batch`/`pass_play` write primitives (TICKET-0075, BRIEF-0075-a — the declaration socle: plumbing only, no resolution, no model call; `write_pass_play_resolution` added BRIEF-0075-d — the first writer of `pass_play.history`, S5; `write_day_feasibility` added BRIEF-0075-g — the SECOND entry kind `pass_play.history` carries).
 - `prompts.py` — `prompt_version`/`prompt_variable` canon-write chokepoints (TICKET-0028, BRIEF-0028-b — decomposed from `writes.py`; moved for module hygiene, not policy — neither table is in `canon_write_policy.txt`'s CANON_TABLES).
 - `quest_settlement.py` — « Déclarer accomplie »: settling a quest (TICKET-0109, BRIEF-0109-C, D1, contract C-05).
@@ -486,6 +489,7 @@
 - `relation_graph.py` — G1 check for TICKET-0023/BRIEF-0023-b, amended by TICKET-0033/BRIEF-0033-e — NPC relation ego + global graph.
 - `relation_orientation.py` — G1 check for TICKET-0090 (BRIEF-0090-a) — perceiver-oriented relations.
 - `review_component.py` — G1 check for TICKET-0041/BRIEF-0041-c — shared review-tree component.
+- `review_recording.py` — G1 check for TICKET-0115 -- every review of a proposal is recorded: its round, what the creator changed, and what a step's condition said.
 - `review_root_fallback.py` — G1 regression guard for TICKET-0043/BRIEF-0043-c's review-tree root-fallback fix.
 - `role_capacity_chokepoint.py` — G1 check: role capacity is read through one shared accessor, called by BOTH the AI `role_change` effect and the two creator paths (TICKET-0054, BRIEF-0054-b, decision E1).
 - `role_closed_vocab.py` — G1 gate: the `role_change` effect resolves against `faction_role` rows case-insensitively; an undeclared role without `declare: true` whole-rejects (K1); `declare: true` on an undeclared role goes through the L2 declare-and-occupy path, never a direct write (TICKET-0024, BRIEF-0024-d — corrective, resolution moved from `faction.role_capacities` to the relational `faction_role` table).

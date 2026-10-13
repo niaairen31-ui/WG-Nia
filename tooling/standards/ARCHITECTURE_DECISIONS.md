@@ -19696,6 +19696,34 @@ could never be measured. One review per proposal, rewritten on a second
 call: history is sacred. A JSON diff column: the dashboard reads what
 changed, and UI-visible data is relational (INV-20).
 
+## EVERY REVIEW PATH RECORDS ITS ROUND (TICKET-0115) -- `writes/mutation_reviews.py`, `review_diff.py`, `review_verdict.py` (BRIEF-0115-b, no schema change)
+
+**One writer, four paths.** Approve, reject, and both in batch build a
+`ReviewCall` before anything is applied -- the payload as stored (a copy,
+taken before an edited one replaces it) and, for an `agenda_step_change`,
+`review_verdict.step_verdict` -- and `record_review` writes the round with
+the status the call left, right before the path's own commit. Every status
+a path can leave (applied, « Needs attention », parked for realization,
+rejected) is recorded, so a round is never missing.
+
+**H1a -- the diff.** `review_diff.diff_payloads` compares the payload stored
+before the call and the one approved, value by value. An empty value equals
+an absent one (the card writes `description: null`); `type_name` and what an
+apply writes are never compared; a list pairs its elements by natural key
+(participants by role NAME -- the tick names a role, the card adds its id;
+state changes by entity and state; scopes by kind and target), a list of
+plain values as a set, `steps` by position. Only a unit approve carries an
+edit (`ck_mutation_review_edited`).
+
+**C1 -- the verdict before the apply.** `complete` reads the step's
+completion, `fail` its failure, with Journée's bindings. A faction's agenda
+has no `doer` to bind: `not_judged`, never a guess.
+
+**Rejected.** Recording only the final approve (a « Needs attention » round
+would vanish). A positional diff everywhere (a reordered list reads as a
+rewrite). The verdict after the apply (the apply moves the step: M2 would
+compare the condition with its own consequence).
+
 ---
 
 *Co-built with Claude, June 2026.*
