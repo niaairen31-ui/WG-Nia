@@ -32,10 +32,16 @@ EXISTENCE_ANSWERS: tuple[str, ...] = ("exists", "absent", "already")
 QUEST_OFFER_CREATION = "quest_offer_creation"
 DESIGNER_PRODUCER = "local_ai_quest_designer"
 
-# The fields `move_request` may set besides the status.
-_MOVABLE_FIELDS: tuple[str, ...] = (
-    "subject", "existence_answer", "creator_text", "existing_entity_id",
-    "lore_entry_id", "mutation_id", "offer_id", "note",
+# The fields `move_request` may set besides the status: the columns that are
+# neither the row's identity and anchors, its state, its clock nor its
+# history (C-02: subject, existence_answer, creator_text, existing_entity_id,
+# lore_entry_id, mutation_id, offer_id, note).
+_FIXED_COLUMNS = frozenset({
+    "id", "world_id", "character_id", "pass_play_id", "agenda_step_id", "trigger", "declaration",
+    "status", "created_at", "updated_at", "change_history",
+})
+_MOVABLE_FIELDS: tuple[str, ...] = tuple(
+    name for name in QuestRequest.__table__.c.keys() if name not in _FIXED_COLUMNS
 )
 
 
