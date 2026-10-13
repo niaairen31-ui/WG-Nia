@@ -92,6 +92,25 @@ def _format_coverage(row: dict) -> str:
     )
 
 
+def _format_mentions(row: dict) -> str:
+    """One fact found by its words (BRIEF-0121-C): « text » -- who it is
+    about ; su par <knower (level, secret)>, ... or su de personne."""
+    line = f"« {row.get('content')} »"
+    if row.get("participants"):
+        line += " -- " + ", ".join(row["participants"])
+    knowers = row.get("knowers") or []
+    if knowers:
+        line += " ; su par " + ", ".join(
+            f"{k.get('knower_name')} ({k.get('level')}{', secret' if k.get('is_secret') else ''})"
+            for k in knowers
+        )
+    else:
+        line += " ; su de personne"
+    if row.get("creator_only"):
+        line += " (réservé à la créatrice)"
+    return line
+
+
 _SECTION_FORMATTERS: dict[str, Callable[[dict], str]] = {
     "identity": _format_identity,
     "facets": _format_facets,
@@ -102,6 +121,7 @@ _SECTION_FORMATTERS: dict[str, Callable[[dict], str]] = {
     "factions": _format_factions,
     "knowers": _format_knowers,
     "coverage": _format_coverage,
+    "mentions": _format_mentions,
 }
 
 

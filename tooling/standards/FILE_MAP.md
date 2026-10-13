@@ -220,6 +220,7 @@
 - `proposal_producers.py` — Who proposed a change: the closed list of `proposed_mutation.proposed_by` values, what each one is, and how the creator's dashboard names it (TICKET-0115, BRIEF-0115-C; decision B2 of the conditions series' dashboard).
 - `prose_render.py` — Prose render — the identity-token read chokepoint (TICKET-0091, BRIEF-0091-J, contract C-13, decision F1).
 - `prose_tokens.py` — Token posing on new canon prose (TICKET-0091, BRIEF-0091-J, contract C-14, decision F1).
+- `quest_lore.py` — The lore a quest designer is shown before it designs: what canon already holds on the request's subject.
 - `quest_reads.py` — Quest offers and quests: what the two surfaces read (TICKET-0108, BRIEF-0108-B, contract C-04).
 - `quest_requests.py` — The quest request's reads (TICKET-0121, BRIEF-0121-B, L1): which steps of an agenda are inquiry steps, by the requests that opened them.
 - `quest_settlement_view.py` — What « déclarer accomplie » shows before Nia decides (TICKET-0109, BRIEF-0109-C, G1, contract C-06).
@@ -459,6 +460,7 @@
 - `location_tree.py` — G1 check: the location-tree convergence lock (TICKET-0059, BRIEF-0059-f, per SUPPLEMENT-0059-recon-amendments Amendment 1).
 - `location_type_classified.py` — G1 check for TICKET-0039 (BRIEF-0039-e) — location_type classified-vocab invariant, on the door_terminal.py / single_canon_write.py FAILURES idiom (zero parsed criteria is never a vacuous pass).
 - `lore_as_facts.py` — G1 check: lore as facts — the prose columns and `location_subculture` are gone (TICKET-0091, BRIEF-0091-I, gate (e)).
+- `lore_facts_mentioning.py` — G1 check for TICKET-0121 -- the lore is searched by its words, not only by the names it holds.
 - `lore_isolation.py` — G1 check: isolation guarantees for the lore consultation surface (TICKET-0085, BRIEF-0085-b and BRIEF-0085-c).
 - `lore_resolve.py` — G1 check: named-rung extraction for the lore consultation resolver (TICKET-0085, BRIEF-0085-a).
 - `lore_selectors.py` — G1 check: selector whitelist for the lore consultation surface (TICKET-0085, BRIEF-0085-b).

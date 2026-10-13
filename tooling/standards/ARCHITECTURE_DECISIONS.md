@@ -19872,6 +19872,36 @@ was created after the proposal. The numbers are shown and Nia judges (E2).
 request: see above; reactivation: a reader that cannot join
 `proposed_mutation`.
 
+## THE LORE IS SEARCHED BY ITS WORDS TOO (TICKET-0121) -- facts_mentioning AND THE text: ARGUMENT (BRIEF-0121-c, no schema change)
+
+S2: the consultation reached only what is attached to a named entity or to
+the world as a whole, so a secret phrased as a fact only a scholar holds --
+« le secret de l'acier noir » -- was unreachable, and the designer would
+have asked the creator whether something that already exists exists. A
+fourth selector, `facts_mentioning`, takes an argument of a new kind
+`text` (`text:<mots>`, validated by `validate_plan`): a fact matches when
+every token of three letters or more of the query appears among the tokens
+of its rendered text. The comparison is in Python over `normalize_surface`,
+never in SQL, and the floor applies to the query only. Creator-only facts
+are returned and flagged (INV-01's creator regime: the Lore consultation and
+the quest designer, no play path). `quest_lore.gather_lore` is the
+designer's direct gathering of the same search, the facts on the entities
+the request names, and the facts of the Lore entry it came from; it reads
+only.
+
+**Why tokens and not a model.** An empty search is `silent_canon`, rendered
+by code (INV-58): a model asked to explain an absence fills it. A search by
+words is also the one a creator can reproduce by hand.
+
+**A name is certain or skipped.** `gather_lore` resolves each name across
+every category (`other` claims no character, place, faction or item) and
+keeps it only when exactly one entity matches; an ambiguous name is left
+out, so the designer sees what is certain.
+
+**Deferred and watched.** S3, a search by meaning (embeddings, a new
+dependency), is not built; the « Demandes de quête » metric of BRIEF-0121-b
+shows how many requests the words do not reach.
+
 ---
 
 *Co-built with Claude, June 2026.*
