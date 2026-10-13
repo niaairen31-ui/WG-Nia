@@ -19995,6 +19995,26 @@ touches `_apply_mutation`'s dispatch before the shared save exists (INV-11).
 `condition_interpreter.py`'s ND1 asserts the same order -- write, mark
 drafts, commit -- split over the route and the shared function.
 
+## THE INTERPRETER READS A DESIGNER'S CONDITIONS TOO (TICKET-0121) -- settle_answer, extra_fact_ids, answer_dict, /api/conditions/view (BRIEF-0121-e, no schema change)
+
+Four reuse points (C-13), no behaviour change for the editor.
+`condition_interpreter.build_context(..., extra_fact_ids=())` codes the given
+facts first, then what it codes today, the `MAX_CODED_FACTS` cap unchanged:
+the designer's gathered lore is never the part the cap drops.
+`settle_answer` is the public name of `_answer` (which stays and delegates);
+`routes/conditions.py::answer_dict` is the public name of its `_answer`
+(same). `POST /api/conditions/view` returns the French reading of a tree
+(`clean_condition`, then `condition_view`), 422 on a tree it refuses, and
+writes nothing.
+
+**Why.** The quest designer asks the model for a whole offer, then reads each
+of its conditions through the interpreter's own reader, so a designer's
+condition passes every validation, name resolution and journaling a creator's
+sentence does (C1). A pending condition's answer travels in the proposal's
+payload, built with `answer_dict`; no route reads a `condition_draft` back
+(its payload stays « never rendered », `json_ui_boundary.py`). ND1 lists the
+new route.
+
 ---
 
 *Co-built with Claude, June 2026.*

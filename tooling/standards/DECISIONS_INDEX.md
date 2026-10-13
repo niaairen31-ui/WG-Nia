@@ -359,3 +359,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 19905 | JOURNÉE ROUTES A DECLARATION TO A QUEST (TICKET-0121) -- THE SELECTION'S THIRD ANSWER (BRIEF-0121-d, no schema change) | BRIEF-0121-d |  |
 | 19937 | A SEARCH IS A DAY WITHOUT DICE (TICKET-0121) -- THE INQUIRY BAND; BLOCKED AND UNANCHORED STEPS OPEN A REQUEST (BRIEF-0121-d, no schema change) | BRIEF-0121-d |  |
 | 19980 | ONE OFFER SAVE FOR CRÉATION AND THE REVIEW QUEUE (TICKET-0121) -- quest_offer_save.py (BRIEF-0121-e, no schema change) | BRIEF-0121-e |  |
+| 19998 | THE INTERPRETER READS A DESIGNER'S CONDITIONS TOO (TICKET-0121) -- settle_answer, extra_fact_ids, answer_dict, /api/conditions/view (BRIEF-0121-e, no schema change) | BRIEF-0121-e |  |

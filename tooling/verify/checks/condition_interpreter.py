@@ -925,7 +925,8 @@ def _nd1_route() -> None:
     tree = _parse(path)
     paths = set(_decorated_paths(tree))
     want = {"/api/conditions/interpret", "/api/conditions/drafts/{draft_id}/resolve",
-            "/api/conditions/drafts/{draft_id}/decision"}
+            "/api/conditions/drafts/{draft_id}/decision",
+            "/api/conditions/view"}  # TICKET-0121 (BRIEF-0121-E, C-13): the reading of a tree
     if paths != want:
         fail(f"ND1: the routes are {sorted(paths)}")
     calls = {_callee(n) for n in ast.walk(tree) if isinstance(n, ast.Call)} & {"chat", "select"}

@@ -170,14 +170,16 @@ def _skill_pairs(db: Session, world_id: str) -> list[tuple[str, str]]:
 
 
 def build_context(db: Session, world_id: str, instruction: str, current: Optional[ConditionTree],
-                  unsaved: tuple = ()) -> InterpreterContext:
+                  unsaved: tuple = (), extra_fact_ids: tuple[str, ...] = ()) -> InterpreterContext:
     """IE1: the facts of the current tree, then of the entities the
     instruction names, then the world-level facts, creator-only facts
     included, capped at `MAX_CODED_FACTS`; every offer and skill of the
-    world; the current tree's entities coded `e`."""
+    world; the current tree's entities coded `e`. `extra_fact_ids`
+    (TICKET-0121, BRIEF-0121-E, C-13): facts the quest designer gathered,
+    coded first so the cap never drops them."""
     ids = _current_ids(current)
     named = named_entity_ids(db, world_id, instruction)
-    fact_ids = list(ids["f"])
+    fact_ids = list(extra_fact_ids) + list(ids["f"])
     for entity_id in named:
         fact_ids += db.exec(select(FactParticipant.fact_id).where(
             FactParticipant.entity_id == entity_id).order_by(FactParticipant.fact_id)).all()
@@ -616,8 +618,16 @@ class Proposals:
 
 def _answer(db: Session, world_id: str, parsed: dict, ctx: InterpreterContext, unsaved: tuple,
             retried: bool) -> Interpretation:
+    """`settle_answer` under its first name, kept for `interpret`."""
+    return settle_answer(db, world_id, parsed, ctx, unsaved, retried)
+
+
+def settle_answer(db: Session, world_id: str, parsed: dict, ctx: InterpreterContext, unsaved: tuple,
+                  retried: bool) -> Interpretation:
     """One answer read and settled: its `define` block first (the new
-    attributes join the context), then its condition."""
+    attributes join the context), then its condition. Public since
+    TICKET-0121 (BRIEF-0121-E, C-13): the quest designer reads each
+    condition of its own answer through it."""
     taken = {item.ref for item in unsaved}
     new, defined, errors = read_definitions(db, world_id, parsed.get("define"), taken, list(unsaved))
     ctx.attributes.update(unsaved_views(new))
