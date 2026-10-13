@@ -574,6 +574,62 @@ class ConditionDraft(SQLModel, table=True):
     decided_at: Optional[datetime] = None
 
 
+# -----------------------------------------------------------------------------
+# quest_request  (a quest the creator is asked to design, schema v2.28,
+# TICKET-0121, BRIEF-0121-B, L1)
+#
+# One row per agenda step that needs a quest -- a day routed to one
+# (`route`), a step blocked (`blocked`), a knowledge nobody can anchor
+# (`dropped`) -- worked through by the creator: designed, asked about,
+# written into the lore, proposed, set aside. A status is one of
+# `QUEST_REQUEST_STATUSES`; a proposal's fate is its
+# `proposed_mutation.status`, never a second column. One request per step
+# (unique `agenda_step_id`). Written only by `writes/quest_requests.py`,
+# which never commits; `change_history` keeps every former state and is
+# never rendered in any UI surface. Non-canon; deleted with its world.
+# -----------------------------------------------------------------------------
+class QuestRequest(SQLModel, table=True):
+    __tablename__ = "quest_request"
+    __table_args__ = (
+        Index("idx_quest_request_world", "world_id", "created_at"),
+        Index("idx_quest_request_step", "agenda_step_id", unique=True),
+        CheckConstraint(
+            "trigger IN ('route','blocked','dropped')", name="ck_quest_request_trigger",
+        ),
+        CheckConstraint(
+            "status IN ('new','asking','writing_lore','proposed','covered','dropped')",
+            name="ck_quest_request_status",
+        ),
+        CheckConstraint(
+            "existence_answer IS NULL OR existence_answer IN ('exists','absent','already')",
+            name="ck_quest_request_answer",
+        ),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    character_id: str = Field(foreign_key="entity.id", nullable=False)
+    pass_play_id: str = Field(foreign_key="pass_play.id", nullable=False)
+    agenda_step_id: str = Field(foreign_key="agenda_step.id", nullable=False)
+    trigger: str
+    declaration: str
+    subject: Optional[str] = None
+    status: str = Field(default="new", sa_column_kwargs={"server_default": text("'new'")})
+    existence_answer: Optional[str] = None
+    creator_text: Optional[str] = None
+    existing_entity_id: Optional[str] = Field(default=None, foreign_key="entity.id")
+    lore_entry_id: Optional[str] = Field(default=None, foreign_key="lore_entry.id")
+    mutation_id: Optional[str] = Field(default=None, foreign_key="proposed_mutation.id")
+    offer_id: Optional[str] = Field(default=None, foreign_key="quest_offer.id")
+    note: Optional[str] = None
+    created_at: datetime = _created_ts()
+    updated_at: datetime = _created_ts()
+    change_history: Any = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False, server_default=text("'[]'")),
+    )
+
+
 # -------------------------------------------------------------------------
 # skill_resolution  (one row per arbiter classification — the action
 # lexicon's audit trail; schema v2.02, TICKET-0084)

@@ -123,6 +123,9 @@ JSON_COLUMN_ALLOWLIST = {
     # FIRST UI consumer of these two columns must relationalize.
     "ConditionDraft.payload",
     "ConditionDraft.model_calls",
+    # TICKET-0121 (BRIEF-0121-B, L1): a request's former states -- an audit
+    # snapshot, never rendered in any UI surface (the change_history posture).
+    "QuestRequest.change_history",
 }
 
 

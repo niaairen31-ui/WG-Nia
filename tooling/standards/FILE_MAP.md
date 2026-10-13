@@ -117,6 +117,7 @@
 - `migrate_v2_25_event_columns.py` — Migration v2.25 — the journal drops what it no longer reads (TICKET-0114, BRIEF-0114-D; decisions L1, N1, O1 and V1 of the conditions series).
 - `migrate_v2_26_event_effects.py` — Migration v2.26 — what an event does to the state of the world (TICKET-0119, BRIEF-0119-A; decisions M-c, C1, D3, E1 and U1 of the conditions series).
 - `migrate_v2_27_mutation_reviews.py` — Migration v2.27 — the creator's review of a proposal, round by round (TICKET-0115, BRIEF-0115-A; decisions A3, C1 and H1a of the conditions series' dashboard).
+- `migrate_v2_28_quest_requests.py` — Migration v2.28 — a quest request is a row (TICKET-0121, BRIEF-0121-B; decision L1 of the Journée quest designer).
 - `observation_metrics.py` — Observation run metrics (TICKET-0051, BRIEF-0051-g, decision J2/Q).
 - `preview_npc_schedule.py` — Preview `where_is` / `who_is_at` / `unresolved_npcs` — the concrete reader for `world.current_phase` (T-A1) and the live-gate instrument for TICKET-0074, BRIEF-0074-a.
 - `preview_tick_context.py` — Preview the full-interiority briefing a world tick would send to one NPC (TICKET-0014, BRIEF-0014-a; TICKET-0015, BRIEF-0015-a adds --interval) — the concrete reader for `assemble_tick_context` in this brief, and the live-gate instrument for the T1 review.
@@ -220,6 +221,7 @@
 - `prose_render.py` — Prose render — the identity-token read chokepoint (TICKET-0091, BRIEF-0091-J, contract C-13, decision F1).
 - `prose_tokens.py` — Token posing on new canon prose (TICKET-0091, BRIEF-0091-J, contract C-14, decision F1).
 - `quest_reads.py` — Quest offers and quests: what the two surfaces read (TICKET-0108, BRIEF-0108-B, contract C-04).
+- `quest_requests.py` — The quest request's reads (TICKET-0121, BRIEF-0121-B, L1): which steps of an agenda are inquiry steps, by the requests that opened them.
 - `quest_settlement_view.py` — What « déclarer accomplie » shows before Nia decides (TICKET-0109, BRIEF-0109-C, G1, contract C-06).
 - `quest_value.py` — The indicative unit of a quest (TICKET-0109, BRIEF-0109-B, C1/E1, contract C-03).
 - `quest_wording.py` — How a quest term reads, in French (TICKET-0109, BRIEF-0109-B, C-04).
@@ -350,6 +352,7 @@
 - `mutation_reviews.py` — The creator's review of a proposal, recorded round by round -- the one writer of `mutation_review`, `mutation_review_change` and `proposed_mutation.original_payload` (TICKET-0115, BRIEF-0115-B; decisions A3, C1 and H1a of the conditions series' dashboard).
 - `pipeline.py` — `batch`/`pass_play` write primitives (TICKET-0075, BRIEF-0075-a — the declaration socle: plumbing only, no resolution, no model call; `write_pass_play_resolution` added BRIEF-0075-d — the first writer of `pass_play.history`, S5; `write_day_feasibility` added BRIEF-0075-g — the SECOND entry kind `pass_play.history` carries).
 - `prompts.py` — `prompt_version`/`prompt_variable` canon-write chokepoints (TICKET-0028, BRIEF-0028-b — decomposed from `writes.py`; moved for module hygiene, not policy — neither table is in `canon_write_policy.txt`'s CANON_TABLES).
+- `quest_requests.py` — The quest request's writer (TICKET-0121, BRIEF-0121-B, L1).
 - `quest_settlement.py` — « Déclarer accomplie »: settling a quest (TICKET-0109, BRIEF-0109-C, D1, contract C-05).
 - `quest_terms.py` — Quest terms: validation and writing (TICKET-0109, BRIEF-0109-B, B1, contract C-02).
 - `quests.py` — Quest offers and quests: the writers (TICKET-0108, BRIEF-0108-B, contract C-03).
@@ -492,6 +495,7 @@
 - `prompt_version.py` — G1 checks for TICKET-0011 (BRIEF-0011-a) — prompt_version table, single read accessor, single write shape, versioned edit API.
 - `proposal_producers.py` — G1 check for TICKET-0115 -- every proposal names its producer from one closed list, and code-made proposals are reviewed like a model's (INV-14).
 - `purge_fk_ordering.py` — Runtime G1 check for TICKET-0037 (BRIEF-0037-e) — the shared retention purge helper `_purge_closed_batches` must delete row-children BEFORE their parent batch, under real SQLite FK enforcement (`PRAGMA foreign_keys=ON`, `db.py`'s connect listener).
+- `quest_requests.py` — G1 check for TICKET-0121 -- a quest request is a row the creator works through.
 - `quest_rewards.py` — G1 check for TICKET-0109 -- objects held in quantity, quest terms, the indicative unit, and « déclarer accomplie ».
 - `quests.py` — G1 check for TICKET-0108 -- quest offers, accepted quests, and the requirement vocabulary they share with day plans.
 - `region_npc_retirement.py` — G1 check: region NPC-machinery retirement (TICKET-0037, BRIEF-0037-d, A1).

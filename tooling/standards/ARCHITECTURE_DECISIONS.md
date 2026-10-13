@@ -19846,6 +19846,32 @@ are untouched: only the creator writes this leaf.
 eligibility lives, outside the tree every reader already judges and
 describes.
 
+## A QUEST REQUEST IS A ROW THE CREATOR WORKS THROUGH (TICKET-0121) -- quest_request (BRIEF-0121-b, schema v2.28)
+
+L1: each quest request -- a day routed to a quest, a step blocked, a
+knowledge nobody can anchor -- is a relational row (`quest_request`, a
+pipeline table, one per agenda step) the creator works through: designed,
+asked about, written into the lore, proposed, set aside. Its status is one
+of `QUEST_REQUEST_STATUSES` and moves only through
+`writes/quest_requests.move_request`, which appends the former state to
+`change_history`; no writer commits (INV-18's posture).
+
+**A proposal's fate is not a column.** `proposed` says a
+`quest_offer_creation` exists (`mutation_id`); whether it was approved or
+rejected is that `proposed_mutation`'s `status`. A second column would be a
+second place for one fact, and would drift the day the review queue moves a
+proposal without the request.
+
+**The deferrals watched.** D2 (the designer invents a giver, created at
+approval), S3 (a search of the lore by meaning) and P1 (the plan tool
+reworked) are each measured by the « Demandes de quête » metric: the
+requests by origin, by existence answer, and the approved offers whose giver
+was created after the proposal. The numbers are shown and Nia judges (E2).
+
+**Rejected.** A status per proposal outcome (`approved`, `rejected`) on the
+request: see above; reactivation: a reader that cannot join
+`proposed_mutation`.
+
 ---
 
 *Co-built with Claude, June 2026.*
