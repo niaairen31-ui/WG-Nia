@@ -356,3 +356,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 19831 | A QUEST FOR ONE CHARACTER IS A LEAF (TICKET-0121) -- THE FORM is_character (BRIEF-0121-a, no schema change) | BRIEF-0121-a |  |
 | 19849 | A QUEST REQUEST IS A ROW THE CREATOR WORKS THROUGH (TICKET-0121) -- quest_request (BRIEF-0121-b, schema v2.28) | BRIEF-0121-b | v2.28 |
 | 19875 | THE LORE IS SEARCHED BY ITS WORDS TOO (TICKET-0121) -- facts_mentioning AND THE text: ARGUMENT (BRIEF-0121-c, no schema change) | BRIEF-0121-c |  |
+| 19905 | JOURNÉE ROUTES A DECLARATION TO A QUEST (TICKET-0121) -- THE SELECTION'S THIRD ANSWER (BRIEF-0121-d, no schema change) | BRIEF-0121-d |  |

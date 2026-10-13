@@ -79,7 +79,7 @@ from ...writes import (
     write_pass_play_resolution,
 )
 from .. import crud as _crud
-from ..day_plan_finalize import _feasibility_dict, _finalize_plan, _plan_step_dict
+from ..day_plan_finalize import _feasibility_dict, _finalize_plan, _plan_step_dict, finalize_inquiry_day
 from ..day_reconcile_apply import _reconcile_and_finalize
 
 router = APIRouter()
@@ -535,7 +535,9 @@ def plan_day(batch_id: str, body: Optional[PlanDayBody] = None, db: Session = De
     targets — ONE OF among ALL open (active or paused) plans, never only
     the active one; `None` means the declaration opens something new, and
     the standing active plan (if any) is parked before a fresh one is
-    emitted. `agenda_id`/`step_id` never appear in the response — the
+    emitted. K1 (TICKET-0121): the same call also routes an unselected
+    declaration -- `quest` spends the day searching (`finalize_inquiry_day`,
+    no plan emission). `agenda_id`/`step_id` never appear in the response — the
     player never sees the agenda (ticket Scope OUT). O1 (TICKET-0108): a
     `quest_id` pins the day to that open quest's plan -- no selection call,
     the reconciliation runs against it as against any selected plan."""
@@ -568,6 +570,7 @@ def plan_day(batch_id: str, body: Optional[PlanDayBody] = None, db: Session = De
     rendered, rewrite_row = _write_declaration_rewrite(world_id, pass_play, concordance_result, db)
     write_day_mention_choices(db, world_id=world_id, pass_play_id=pass_play.id, records=list(choice_records))
 
+    route = "plan"  # K1: what an unselected declaration opens; the pinned path never routes
     if body is not None and body.quest_id:  # O1: the player pinned the quest; no selection call
         try:
             selected = quest_reads.pinned_plan(body.quest_id, character, db)
@@ -575,11 +578,17 @@ def plan_day(batch_id: str, body: Optional[PlanDayBody] = None, db: Session = De
             raise HTTPException(status_code=404 if isinstance(exc, LookupError) else 409, detail=str(exc)) from exc
     else:
         try:
-            selected = day_plan_select.select_plan(rendered, day_plans.open_plans(character, db), db)
+            selection = day_plan_select.select_plan(
+                rendered, day_plans.open_plans(character, db), db, world_id=world_id,
+            )
         except LlmParseError as exc:
             raise HTTPException(status_code=502, detail=f"plan selection failed: {exc}") from exc
+        selected, route = selection.agenda, selection.route
     if selected is not None:
         result = _reconcile_and_finalize(character, pass_play, selected, concordance_result, rendered, db)
+    elif route == "quest":  # K1: a search a day cannot satisfy is spent searching
+        day_plans.park_active_plan(character, db)
+        result = finalize_inquiry_day(world_id, character, pass_play, rendered, db)
     else:
         day_plans.park_active_plan(character, db)
         try:

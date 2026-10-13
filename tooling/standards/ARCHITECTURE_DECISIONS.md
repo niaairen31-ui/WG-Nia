@@ -19902,6 +19902,38 @@ out, so the designer sees what is certain.
 dependency), is not built; the « Demandes de quête » metric of BRIEF-0121-b
 shows how many requests the words do not reach.
 
+## JOURNÉE ROUTES A DECLARATION TO A QUEST (TICKET-0121) -- THE SELECTION'S THIRD ANSWER (BRIEF-0121-d, no schema change)
+
+**Decision (K1).** Plan selection answered two things: which open plan a
+declaration targets, or none. A declaration that seeks what a day cannot give
+-- a precise knowledge, a person to find, an object, an access the character
+does not have -- reached the planner like any other and produced a plan of
+dice it could never win. The selection now answers a third thing:
+`{"selected": <int|null>, "route": "plan"|"quest", "rationale": ...}`.
+`selected` non-null is `plan` whatever `route` says; null carries the route,
+and a missing or unknown `route` is an `LlmParseError`, never a silent
+default (the discipline of `selected` itself).
+
+**The call is made on every declaration**, an empty plan list included
+(`(aucun plan ouvert)`): the `if not plans: return None` shortcut was the
+very place a first declaration of a new character, the commonest search,
+could never be routed. `select_plan` returns `PlanSelection(agenda, route)`;
+`day_plan_select.PLAN_ROUTES` is the vocabulary. The prompt change is the
+fragments of `seed_pilot.DAY_PLAN_SELECT_FRAGMENTS_0121`, delivered to a live
+database by `scripts/apply_ticket_0121_select_prompt.py` (a new
+`prompt_version`, the creator's own edits kept).
+
+**What `quest` does.** `plan_day` parks the standing plan and
+`finalize_inquiry_day` writes a one-step plan titled like any day plan, its
+step `Se renseigner : <declaration>`, no dice, no prerequisite, and opens a
+`route` quest request on that step. The player is never told a quest is being
+prepared (J2-a1): the narrator reads the declaration only. The pinned-quest
+path (O1) and the reconciliation paths are unchanged.
+
+**Watched.** How a production world's open plans answer the new prompt is
+unmeasured until it is run live; a `quest` answer that should have been a
+`plan` costs the player one day of search, never canon.
+
 ---
 
 *Co-built with Claude, June 2026.*

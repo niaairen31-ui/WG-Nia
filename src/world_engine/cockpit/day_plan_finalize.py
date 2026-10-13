@@ -2,6 +2,8 @@
 module-budget headroom (TICKET-0121, BRIEF-0121-D) -- the
 `day_reconcile_apply.py` precedent. Byte-identical otherwise:
 `_feasibility_dict`, `_plan_step_dict`, `_finalize_plan`, in that order.
+`finalize_inquiry_day` (TICKET-0121, BRIEF-0121-D, K1) follows them: the day
+of a declaration that seeks what a day cannot give is a one-step search.
 """
 
 from __future__ import annotations
@@ -9,19 +11,21 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from ..conditions import Bindings
 from ..day_feasibility import veto as feasibility_veto
 from ..day_plan import (
     DAY_BUDGET_SLOTS,
     EvaluatedStep,
+    PlanStep,
     anchor_requirements,
     budget_cut,
     evaluate_requirements,
 )
-from ..models import Character, PassPlay
+from ..models import AgendaStep, Character, PassPlay
 from ..writes import write_day_feasibility, write_day_plan
+from ..writes.quest_requests import open_request
 
 
 def _feasibility_dict(
@@ -123,4 +127,57 @@ def _finalize_plan(
         "anchoring": {"dropped": dropped_report},
         "blocked_at_index": blocked_index,
         "blocked_reason": blocked_text,
+    }
+
+
+INQUIRY_OBJECTIVE_PREFIX = "Se renseigner : "
+
+
+def finalize_inquiry_day(
+    world_id: str, character: Character, pass_play: PassPlay, rendered: str, db: Session,
+) -> dict:
+    """K1 (TICKET-0121): a declaration that seeks what a day cannot give is
+    spent searching. One agenda of one step (`Se renseigner : <declaration>`,
+    cost 1, no domain -- no dice -- and no prerequisite), a `route` quest
+    request born on that step, no veto and no feasibility entry. Commits:
+    the plan, the request and the status move are one transaction. The
+    objective is the player's own declaration (J2-a1): nothing about the
+    request reaches the response or the narrator."""
+    first_line = (rendered.strip() or pass_play.declared_action.strip()).splitlines()[0]
+    step = PlanStep(
+        objective=INQUIRY_OBJECTIVE_PREFIX + first_line[:180], cost=1, domain=None, prerequisite=None,
+    )
+    title = pass_play.declared_action.strip().splitlines()[0][:200]
+    try:
+        agenda = write_day_plan(
+            db, world_id=world_id, owner_entity_id=character.id, title=title,
+            steps=[step], active_step_index=0,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    db.flush()
+    written = db.exec(
+        select(AgendaStep).where(AgendaStep.agenda_id == agenda.id).order_by(AgendaStep.step_order)
+    ).first()
+    open_request(
+        db, world_id=world_id, character_id=character.id, pass_play_id=pass_play.id,
+        trigger="route", declaration=rendered.strip() or pass_play.declared_action,
+        agenda_step_id=written.id,
+    )
+    pass_play.status = "resolving"
+    pass_play.agenda_id = agenda.id
+    db.add(pass_play)
+    db.commit()
+
+    evaluated = EvaluatedStep(step=step, verdict=evaluate_requirements(step, Bindings(doer=character), db))
+    return {
+        "steps": [_plan_step_dict(evaluated, "active")],
+        "slots_consumed": 1,
+        "slots_budget": DAY_BUDGET_SLOTS,
+        "first_excluded_index": None,
+        "feasibility": None,
+        "anchoring": {"dropped": []},
+        "blocked_at_index": None,
+        "blocked_reason": None,
+        "inquiry": True,
     }

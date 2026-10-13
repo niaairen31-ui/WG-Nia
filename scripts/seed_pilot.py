@@ -2615,7 +2615,7 @@ Déclaration du jour : {declaration}
 Classe cette déclaration par rapport au plan en cours.\
 """
 
-DAY_PLAN_SELECT_SYSTEM_PROMPT = """\
+DAY_PLAN_SELECT_SYSTEM_PROMPT_0077 = """\
 Tu identifies à quel plan en cours se rattache la déclaration du jour d'un \
 joueur. On te donne la liste numérotée de ses plans ouverts (certains sont \
 en pause) et sa déclaration.
@@ -2632,6 +2632,39 @@ Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne, rien \
 d'autre :
 {"selected":<entier ou null>,"rationale":"<...>"}\
 """
+
+# TICKET-0121 (BRIEF-0121-D, K1): the selection's third answer. The call is
+# made on every declaration, an empty plan list included, and says what a
+# declaration opens when it attaches to no plan: "plan" (an activity a day can
+# carry) or "quest" (a search a day cannot satisfy). Each change to the 0077
+# text is one (field, old fragment, new fragment); the seed's text below and
+# scripts/apply_ticket_0121_select_prompt.py read this one tuple.
+DAY_PLAN_SELECT_FRAGMENTS_0121: tuple[tuple[str, str, str], ...] = (
+    ("system_prompt",
+     '- "rationale" : une phrase courte justifiant ton choix.',
+     '- "route" : quand "selected" est null, ce que la déclaration ouvre : "quest" si le '
+     "joueur cherche à obtenir ce qu'une journée d'activité ne suffit pas à lui donner (un "
+     "savoir précis, une personne à trouver, un objet, un accès qu'il n'a pas), \"plan\" si "
+     "c'est une activité qu'il peut mener aujourd'hui. Quand \"selected\" est un numéro, "
+     '"route" vaut "plan".\n'
+     '- "rationale" : une phrase courte justifiant ton choix.'),
+    ("system_prompt",
+     '{"selected":<entier ou null>,"rationale":"<...>"}',
+     '{"selected":<entier ou null>,"route":"plan" ou "quest","rationale":"<...>"}'),
+)
+
+
+def with_day_plan_select_fragments(field: str, text: str) -> str:
+    """`text` with every fragment of `DAY_PLAN_SELECT_FRAGMENTS_0121` for
+    `field` applied, in order (an already-applied new text is skipped)."""
+    for target, old, new in DAY_PLAN_SELECT_FRAGMENTS_0121:
+        if target == field and new not in text:
+            text = text.replace(old, new)
+    return text
+
+
+DAY_PLAN_SELECT_SYSTEM_PROMPT = with_day_plan_select_fragments(
+    "system_prompt", DAY_PLAN_SELECT_SYSTEM_PROMPT_0077)
 
 DAY_PLAN_SELECT_USER_TEMPLATE = """\
 Plans ouverts du joueur :
