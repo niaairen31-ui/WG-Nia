@@ -258,6 +258,9 @@
   <div id="creation-vocabulaire" style:display={containerVisible('creation-vocabulaire') ? '' : 'none'}></div>
   <div id="creation-subjects" style:display={containerVisible('creation-subjects') ? '' : 'none'}></div>
 
+  <!-- ── Suivi sub-tab -- Svelte island (TICKET-0115): empty by construction ── -->
+  <div id="creation-suivi" style:display={containerVisible('creation-suivi') ? '' : 'none'}></div>
+
   <!-- ── Review Queue sub-tab -- Svelte island: empty by construction ── -->
   <div id="creation-queue" style:display={containerVisible('creation-queue') ? '' : 'none'}></div>
 

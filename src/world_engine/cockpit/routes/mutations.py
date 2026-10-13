@@ -10,6 +10,7 @@ to avoid a circular import, same pattern as before the split.
 
 from __future__ import annotations
 
+import copy
 import enum
 import json
 import logging
@@ -82,6 +83,7 @@ from ...models import (
     WorldLaw,
 )
 from ...resolution import resolve_physical
+from ...review_verdict import step_verdict
 from ...writes import (
     KNOWLEDGE_LEVELS,
     delete_world_cascade as _delete_world_cascade,
@@ -90,6 +92,7 @@ from ...writes import (
     write_relation,
     write_world_laws,
 )
+from ...writes.mutation_reviews import ReviewCall, record_review
 from .. import crud as _crud
 
 router = APIRouter()
@@ -519,11 +522,14 @@ def reject_mutation(
             detail="Cannot reject a mutation that has already been applied to canon.",
         )
 
+    call = ReviewCall("reject", "unit", copy.deepcopy(mut.payload),
+                      step_verdict(db, mut.mutation_type, mut.payload))
     mut.status = "rejected"
     mut.reviewed_at = datetime.now(UTC)
     if body.creator_notes:
         mut.creator_notes = body.creator_notes
     db.add(mut)
+    record_review(db, mut, call)
     db.commit()
     db.refresh(mut)
     return _mutation_dict(mut)
@@ -549,7 +555,7 @@ def _approve_apply_edited_payload(mut: ProposedMutation, body: "ApproveBody") ->
         mut.creator_notes = body.creator_notes
 
 
-def _approve_entity_creation_shortcircuit(mut: ProposedMutation, db: Session) -> Optional[dict]:
+def _approve_entity_creation_shortcircuit(mut: ProposedMutation, db: Session, call: ReviewCall) -> Optional[dict]:
     """entity_creation short-circuit (TICKET-0019, BRIEF-0019-a): approval
     PARKS the germ — it never reaches _apply_mutation, never a savepoint,
     never the "[apply error]" framing (RECON F3): I2 forbids any synchronous
@@ -574,6 +580,7 @@ def _approve_entity_creation_shortcircuit(mut: ProposedMutation, db: Session) ->
             mut.creator_notes, f"une entité active porte déjà ce nom : {name!r}"
         )
         db.add(mut)
+        record_review(db, mut, call)
         db.commit()
         db.refresh(mut)
         return {
@@ -585,6 +592,7 @@ def _approve_entity_creation_shortcircuit(mut: ProposedMutation, db: Session) ->
     mut.status = "approved"
     mut.creator_notes = _append_note(mut.creator_notes, "en attente de réalisation — onglet Création")
     db.add(mut)
+    record_review(db, mut, call)
     db.commit()
     db.refresh(mut)
     return {
@@ -594,9 +602,12 @@ def _approve_entity_creation_shortcircuit(mut: ProposedMutation, db: Session) ->
     }
 
 
-def _approve_apply_and_commit(mut: ProposedMutation, db: Session, now: datetime) -> dict:
+def _approve_apply_and_commit(mut: ProposedMutation, db: Session, now: datetime,
+                              call: Optional[ReviewCall] = None) -> dict:
     """SAVEPOINT: canon writes are rolled back on failure; the outer
-    transaction (mutation row update) stays live either way."""
+    transaction (mutation row update) stays live either way. `call` is the
+    creator's review (TICKET-0115), recorded with the status left; None for
+    an auto-applied `skill_progress` (INV-15), which nobody reviewed."""
     try:
         with db.begin_nested():
             error = _apply_mutation(mut, db)
@@ -607,6 +618,8 @@ def _approve_apply_and_commit(mut: ProposedMutation, db: Session, now: datetime)
         mut.status = "applied"
         mut.applied_at = now
         db.add(mut)
+        if call is not None:
+            record_review(db, mut, call)
         db.commit()
         db.refresh(mut)
         return {"status": "applied", "mutation": _mutation_dict(mut)}
@@ -618,6 +631,8 @@ def _approve_apply_and_commit(mut: ProposedMutation, db: Session, now: datetime)
         prior = mut.creator_notes or ""
         mut.creator_notes = f"{prior}\n[apply error] {error_msg}".strip()
         db.add(mut)
+        if call is not None:
+            record_review(db, mut, call)
         db.commit()
         db.refresh(mut)
         return {
@@ -650,16 +665,19 @@ def approve_mutation(
     if mut.status == "applied":
         return {"status": "already_applied", "mutation": _mutation_dict(mut)}
 
+    before = copy.deepcopy(mut.payload)
     _approve_apply_edited_payload(mut, body)
+    # TICKET-0115 (C1): the step's condition is judged before anything applies.
+    call = ReviewCall("approve", "unit", before, step_verdict(db, mut.mutation_type, mut.payload))
 
     now = datetime.now(UTC)
     mut.reviewed_at = now
 
-    shortcircuit = _approve_entity_creation_shortcircuit(mut, db)
+    shortcircuit = _approve_entity_creation_shortcircuit(mut, db, call)
     if shortcircuit is not None:
         return shortcircuit
 
-    return _approve_apply_and_commit(mut, db, now)
+    return _approve_apply_and_commit(mut, db, now, call)
 
 
 _BATCH_REVIEW_MARKER = "batch-review"
@@ -693,6 +711,8 @@ def _batch_approve(mutation_ids: list[str], now: datetime, db: Session) -> dict:
             continue
 
         mut.reviewed_at = now
+        call = ReviewCall("approve", "batch", copy.deepcopy(mut.payload),
+                          step_verdict(db, mut.mutation_type, mut.payload))
 
         try:
             with db.begin_nested():
@@ -704,6 +724,7 @@ def _batch_approve(mutation_ids: list[str], now: datetime, db: Session) -> dict:
             mut.applied_at = now
             mut.creator_notes = _append_note(mut.creator_notes, _BATCH_REVIEW_MARKER)
             db.add(mut)
+            record_review(db, mut, call)
             db.commit()
             applied += 1
 
@@ -715,6 +736,7 @@ def _batch_approve(mutation_ids: list[str], now: datetime, db: Session) -> dict:
                 _BATCH_REVIEW_MARKER,
             )
             db.add(mut)
+            record_review(db, mut, call)
             db.commit()
             needs_attention += 1
 
@@ -738,10 +760,13 @@ def _batch_reject(mutation_ids: list[str], now: datetime, db: Session) -> dict:
             skipped += 1
             continue
 
+        call = ReviewCall("reject", "batch", copy.deepcopy(mut.payload),
+                          step_verdict(db, mut.mutation_type, mut.payload))
         mut.status = "rejected"
         mut.reviewed_at = now
         mut.creator_notes = _append_note(mut.creator_notes, _BATCH_REVIEW_MARKER)
         db.add(mut)
+        record_review(db, mut, call)
         db.commit()
         rejected += 1
 

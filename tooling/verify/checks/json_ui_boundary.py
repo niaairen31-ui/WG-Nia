@@ -45,6 +45,11 @@ JSON_COLUMN_ALLOWLIST = {
     # review queue; shape is the mutation type's contract, not a UI
     # field. First structured UI consumer must relationalize.
     "ProposedMutation.payload",
+    # TICKET-0115 (BRIEF-0115-A, A3): the payload as its producer wrote it,
+    # kept beside `payload` once the creator approved an edited one -- an
+    # audit snapshot, never rendered in any UI surface (the change_history
+    # posture below); what changed is `mutation_review_change`'s rows.
+    "ProposedMutation.original_payload",
     # Append-only audit snapshots — never rendered in any UI surface.
     "Relation.change_history",
     "Knowledge.change_history",

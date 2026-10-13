@@ -116,6 +116,7 @@
 - `migrate_v2_24_event_journal.py` — Migration v2.24 — the event journal's vocabulary (TICKET-0114, BRIEF-0114-A; decisions F1, B1, C1, D1, H1, K-a, N1, O1 and V1 of the conditions series).
 - `migrate_v2_25_event_columns.py` — Migration v2.25 — the journal drops what it no longer reads (TICKET-0114, BRIEF-0114-D; decisions L1, N1, O1 and V1 of the conditions series).
 - `migrate_v2_26_event_effects.py` — Migration v2.26 — what an event does to the state of the world (TICKET-0119, BRIEF-0119-A; decisions M-c, C1, D3, E1 and U1 of the conditions series).
+- `migrate_v2_27_mutation_reviews.py` — Migration v2.27 — the creator's review of a proposal, round by round (TICKET-0115, BRIEF-0115-A; decisions A3, C1 and H1a of the conditions series' dashboard).
 - `observation_metrics.py` — Observation run metrics (TICKET-0051, BRIEF-0051-g, decision J2/Q).
 - `preview_npc_schedule.py` — Preview `where_is` / `who_is_at` / `unresolved_npcs` — the concrete reader for `world.current_phase` (T-A1) and the live-gate instrument for TICKET-0074, BRIEF-0074-a.
 - `preview_tick_context.py` — Preview the full-interiority briefing a world tick would send to one NPC (TICKET-0014, BRIEF-0014-a; TICKET-0015, BRIEF-0015-a adds --interval) — the concrete reader for `assemble_tick_context` in this brief, and the live-gate instrument for the T1 review.
@@ -143,6 +144,9 @@
 - `context.py` — NPC context assembly — the engine's structural control over what an NPC may say.
 - `context_describe.py` — Descriptive NPC/MJ context helpers (TICKET-0091 BRIEF-B move; BRIEF-G switched them to facts).
 - `context_window.py` — Sliding context window — shared seam for the played and observed lanes (TICKET-0050, BRIEF-0050-a/-b/-d; TICKET-0052, B1/I2).
+- `dashboard_deferrals.py` — The deferrals the creator watches: each rejected or deferred choice whose reactivation condition she approved, where it is declared, and the dashboard metric that watches it, if any (TICKET-0115, BRIEF-0115-D; decisions F2, K2 and L of the conditions series' dashboard).
+- `dashboard_export.py` — The dashboard's export: everything a deeper analysis needs, between two real-world dates, as one JSON document for a Claude Code session (TICKET-0115, BRIEF-0115-D; decisions E2, I1, J1 and M1 of the conditions series' dashboard).
+- `dashboard_metrics.py` — The creator's dashboard: a registry of metrics in code, each a question in French, its computation over relational columns, and the decision codes it watches (TICKET-0115, BRIEF-0115-D; decisions H1, D1, E2 and M1 of the conditions series' dashboard).
 - `day_choice.py` — Model choice among narrowed candidates (TICKET-0094, H2).
 - `day_concordance.py` — Concordance and germ emission (TICKET-0075, BRIEF-0075-c — decision C1: **the resolver never authors**; robustness and casting, TICKET-0081, BRIEF-0081-a — decisions G2, C2-partition, F1, E2c).
 - `day_events.py` — Journée proposes the event a completed step's objective names (TICKET-0119, BRIEF-0119-F; decisions Bt1, M-c and V1 of the conditions series).
@@ -211,6 +215,7 @@
 - `prompt_load.py` — Prompt resolution for creator-side authoring usages (TICKET-0098, BRIEF-0098-D, decision N1 -- extracted verbatim from `lore_prompt.py`, which now re-exports it for the consultation pipeline).
 - `prompt_registry.py` — Prompt registry — code facts about every seeded `prompt_template.usage` (BRIEF-0008-a, schema v1.67).
 - `prompt_store.py` — `prompt_version` read accessor (G1) — TICKET-0011.
+- `proposal_producers.py` — Who proposed a change: the closed list of `proposed_mutation.proposed_by` values, what each one is, and how the creator's dashboard names it (TICKET-0115, BRIEF-0115-C; decision B2 of the conditions series' dashboard).
 - `prose_render.py` — Prose render — the identity-token read chokepoint (TICKET-0091, BRIEF-0091-J, contract C-13, decision F1).
 - `prose_tokens.py` — Token posing on new canon prose (TICKET-0091, BRIEF-0091-J, contract C-14, decision F1).
 - `quest_reads.py` — Quest offers and quests: what the two surfaces read (TICKET-0108, BRIEF-0108-B, contract C-04).
@@ -220,6 +225,8 @@
 - `region_author.py` — Region orchestrator — BRIEF-34, chantier 1; split into two phases by BRIEF-38.
 - `relation_orientation.py` — Relation orientation vocabulary (TICKET-0090, BRIEF-0090-a) — pure, no DB.
 - `resolution.py` — Physical-action dice resolution (BRIEF-11, schema v1.23).
+- `review_diff.py` — What the creator changed in a proposal before approving it: two payloads compared, value by value (TICKET-0115, BRIEF-0115-B; decision H1a of the conditions series' dashboard).
+- `review_verdict.py` — What a step's own condition said when the creator reviewed its change (TICKET-0115, BRIEF-0115-B; decision C1 of the conditions series' dashboard, for M2).
 - `room_batch_author.py` — Room batch orchestrator (TICKET-0042).
 - `scene_format.py` — Player-facing scene and inventory formatters (TICKET-0073, BRIEF-0073-a).
 - `schedule_reads.py` — Read helpers for `npc_schedule` and the C1 time-relative position resolution (TICKET-0074, BRIEF-0074-a).
@@ -281,6 +288,7 @@
 - `attributes.py` — The state of the world's routes (TICKET-0113, BRIEF-0113-C; decisions WA3, WB2, WD1, WI1, WJ2 and WK2 of the conditions series) -- creator CRUD, a sanctioned canon-write path:
 - `conditions.py` — The condition interpreter's routes (TICKET-0112, BRIEF-0112-D; decisions IB1, IG1, IH1, IJ1).
 - `creator.py` — Creator-mode generation + composite routes: entity/world/player/skill- catalogue/agenda/event draft generation, world CRUD, bootstrap, player-character composite create, NPC listing.
+- `dashboard.py` — The « Suivi » tab's routes -- the creator's dashboard and its export (TICKET-0115, BRIEF-0115-D; decisions H1, E2, I1, J1 and M1 of the conditions series' dashboard).
 - `day.py` — Day declaration, plan-emission and resolution routes (TICKET-0075, BRIEF-0075-a — the declaration socle: plumbing only; BRIEF-0075-b — plan emission and budget; BRIEF-0075-c — extraction and concordance; BRIEF-0075-d — resolution, the fact sheet and narration; BRIEF-0075-g — the feasibility veto, decision Y1).
 - `debts.py` — Debt routes (TICKET-0110, BRIEF-0110-B, contract C-07).
 - `event_types.py` — The event journal's vocabulary routes (TICKET-0114, BRIEF-0114-B; decisions B1, C1, D1, T3 and W1 of the conditions series) -- creator CRUD, a sanctioned canon-write path:
@@ -338,6 +346,7 @@
 - `lore_entries.py` — The lore source record's writer (TICKET-0098, BRIEF-0098-B/-C, C-04).
 - `lore_usage.py` — The Lore shell's usage journal writer (TICKET-0103, BRIEF-0103-A, C-01).
 - `mentions.py` — `unresolved_mention` writer (TICKET-0091, BRIEF-0091-J, contract C-15).
+- `mutation_reviews.py` — The creator's review of a proposal, recorded round by round -- the one writer of `mutation_review`, `mutation_review_change` and `proposed_mutation.original_payload` (TICKET-0115, BRIEF-0115-B; decisions A3, C1 and H1a of the conditions series' dashboard).
 - `pipeline.py` — `batch`/`pass_play` write primitives (TICKET-0075, BRIEF-0075-a — the declaration socle: plumbing only, no resolution, no model call; `write_pass_play_resolution` added BRIEF-0075-d — the first writer of `pass_play.history`, S5; `write_day_feasibility` added BRIEF-0075-g — the SECOND entry kind `pass_play.history` carries).
 - `prompts.py` — `prompt_version`/`prompt_variable` canon-write chokepoints (TICKET-0028, BRIEF-0028-b — decomposed from `writes.py`; moved for module hygiene, not policy — neither table is in `canon_write_policy.txt`'s CANON_TABLES).
 - `quest_settlement.py` — « Déclarer accomplie »: settling a quest (TICKET-0109, BRIEF-0109-C, D1, contract C-05).
@@ -377,6 +386,8 @@
 - `creation_island.py` — G1 check: the Creation island-mount seam (TICKET-0058, BRIEF-0058-d, amended by BRIEF-0058-e; re-anchored by TICKET-0059, BRIEF-0059-l commit 1, D1).
 - `creation_return_nav.py` — G1 check for TICKET-0054 (BRIEF-0054-d): Creation surface cross-tab entity navigation with a single-slot return crumb.
 - `creation_tab_switch.py` — G1 check: the tab-switch sheet reset (TICKET-0083, BRIEF-0083-a).
+- `dashboard_registry.py` — G1 check for TICKET-0115 -- the dashboard is a registry in code: its metrics read relational columns only, its deferrals point at the passage that declares them, and its export carries what the tab does not show.
+- `dashboard_tab.py` — G1 check for TICKET-0115 -- the « Suivi » tab shows the dashboard's metrics and deferrals, exports the same scope, and warns that the export holds secrets.
 - `day_choice.py` — G1 check for TICKET-0094 — Concordance H2, the model chooses and the code judges.
 - `day_concordance.py` — Structural gate for the extraction-and-concordance step (TICKET-0075, BRIEF-0075-c — decision C1: the resolver never authors).
 - `day_concordance_golden.py` — Golden-case fixture for `day_concordance.concord` (TICKET-0081, BRIEF-0081-a) and `day_concordance.emit_germs` (BRIEF-0081-c).
@@ -450,6 +461,7 @@
 - `lore_write.py` — G1 check for TICKET-0098 -- the lore writing path.
 - `modal_primitive.py` — G1 check: the modal-dialog convergence lock (TICKET-0059, BRIEF-0059-l item 10).
 - `module_budget.py` — G1 check: module budget (TICKET-0027 R5, BRIEF-0027-a; frontend rule added TICKET-0059, BRIEF-0059-b, Amendment 6).
+- `mutation_reviews.py` — G1 check for TICKET-0115 -- the creator's review of a proposal is recorded, round by round.
 - `name_index.py` — G1 check for TICKET-0092 (BRIEF-0092-A) — the name index (N1c, N2b, N17a).
 - `name_resolution.py` — G1 check for TICKET-0092 — name resolution over the name index.
 - `no_print_in_src.py` — G1 check: no print() in src/ (TICKET-0027 R3, BRIEF-0027-a).
@@ -476,6 +488,7 @@
 - `prompt_model_write.py` — G1 check for TICKET-0009 (BRIEF-0009-a) — prompt_template.model write path.
 - `prompt_registry.py` — G1 check for TICKET-0008 (BRIEF-0008-a) — prompt registry structural gate.
 - `prompt_version.py` — G1 checks for TICKET-0011 (BRIEF-0011-a) — prompt_version table, single read accessor, single write shape, versioned edit API.
+- `proposal_producers.py` — G1 check for TICKET-0115 -- every proposal names its producer from one closed list, and code-made proposals are reviewed like a model's (INV-14).
 - `purge_fk_ordering.py` — Runtime G1 check for TICKET-0037 (BRIEF-0037-e) — the shared retention purge helper `_purge_closed_batches` must delete row-children BEFORE their parent batch, under real SQLite FK enforcement (`PRAGMA foreign_keys=ON`, `db.py`'s connect listener).
 - `quest_rewards.py` — G1 check for TICKET-0109 -- objects held in quantity, quest terms, the indicative unit, and « déclarer accomplie ».
 - `quests.py` — G1 check for TICKET-0108 -- quest offers, accepted quests, and the requirement vocabulary they share with day plans.
@@ -484,6 +497,7 @@
 - `relation_graph.py` — G1 check for TICKET-0023/BRIEF-0023-b, amended by TICKET-0033/BRIEF-0033-e — NPC relation ego + global graph.
 - `relation_orientation.py` — G1 check for TICKET-0090 (BRIEF-0090-a) — perceiver-oriented relations.
 - `review_component.py` — G1 check for TICKET-0041/BRIEF-0041-c — shared review-tree component.
+- `review_recording.py` — G1 check for TICKET-0115 -- every review of a proposal is recorded: its round, what the creator changed, and what a step's condition said.
 - `review_root_fallback.py` — G1 regression guard for TICKET-0043/BRIEF-0043-c's review-tree root-fallback fix.
 - `role_capacity_chokepoint.py` — G1 check: role capacity is read through one shared accessor, called by BOTH the AI `role_change` effect and the two creator paths (TICKET-0054, BRIEF-0054-b, decision E1).
 - `role_closed_vocab.py` — G1 gate: the `role_change` effect resolves against `faction_role` rows case-insensitively; an undeclared role without `declare: true` whole-rejects (K1); `declare: true` on an undeclared role goes through the L2 declare-and-occupy path, never a direct write (TICKET-0024, BRIEF-0024-d — corrective, resolution moved from `faction.role_capacities` to the relational `faction_role` table).

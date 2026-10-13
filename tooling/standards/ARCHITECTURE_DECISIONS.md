@@ -19666,6 +19666,142 @@ the world's entities and writes it straight to the journal (`POST
 `apply_ticket_0119_lore_prompt.py` fragment by fragment: the creator's
 edits are kept.
 
+
+## THE CREATOR'S REVIEW IS RECORDED ROUND BY ROUND (TICKET-0115) -- WHAT SHE CHANGED, AND WHAT A STEP'S CONDITION SAID (BRIEF-0115-a, schema v2.27)
+
+**A3, C1 of the dashboard.** Approving a proposal overwrote its payload with
+what the card sent (`_approve_apply_edited_payload`): what the model had
+proposed was lost, so « accepted as proposed » and « accepted after a
+correction » could not be told apart -- the measure D2 (auto-applying
+events) and A1 of 0119 (the tick retyped) wait on. v2.27 keeps the review
+itself: `proposed_mutation.original_payload` (the producer's payload, kept
+the first time an edited one is approved), `mutation_review` (one row per
+review call -- its round, approve or reject, unit or batch, the status it
+left, edited or not, and an `agenda_step_change`'s verdict before the
+apply, for M2) and `mutation_review_change` (one row per value changed:
+path, field, kind, a scalar's before and after).
+
+**Rounds, not one review.** A « Needs attention » proposal can be approved
+again, or rejected: each call is a round, append-only, so nothing a later
+call does rewrites an earlier one.
+
+**World tables.** A review dies with its world, like its proposal: the
+export (BRIEF-0115-D) is how an analysis keeps them. `original_payload` is
+an audit snapshot, never rendered (the `change_history` posture of
+`json_ui_boundary.py`); a change's values are a scalar's JSON text, in
+relational rows.
+
+**Rejected.** A2 (accepted = applied, edited or not): D2 and A1 of 0119
+could never be measured. One review per proposal, rewritten on a second
+call: history is sacred. A JSON diff column: the dashboard reads what
+changed, and UI-visible data is relational (INV-20).
+
+## EVERY REVIEW PATH RECORDS ITS ROUND (TICKET-0115) -- `writes/mutation_reviews.py`, `review_diff.py`, `review_verdict.py` (BRIEF-0115-b, no schema change)
+
+**One writer, four paths.** Approve, reject, and both in batch build a
+`ReviewCall` before anything is applied -- the payload as stored (a copy,
+taken before an edited one replaces it) and, for an `agenda_step_change`,
+`review_verdict.step_verdict` -- and `record_review` writes the round with
+the status the call left, right before the path's own commit. Every status
+a path can leave (applied, « Needs attention », parked for realization,
+rejected) is recorded, so a round is never missing.
+
+**H1a -- the diff.** `review_diff.diff_payloads` compares the payload stored
+before the call and the one approved, value by value. An empty value equals
+an absent one (the card writes `description: null`); `type_name` and what an
+apply writes are never compared; a list pairs its elements by natural key
+(participants by role NAME -- the tick names a role, the card adds its id;
+state changes by entity and state; scopes by kind and target), a list of
+plain values as a set, `steps` by position. Only a unit approve carries an
+edit (`ck_mutation_review_edited`).
+
+**C1 -- the verdict before the apply.** `complete` reads the step's
+completion, `fail` its failure, with Journée's bindings. A faction's agenda
+has no `doer` to bind: `not_judged`, never a guess.
+
+**Rejected.** Recording only the final approve (a « Needs attention » round
+would vanish). A positional diff everywhere (a reordered list reads as a
+rewrite). The verdict after the apply (the apply moves the step: M2 would
+compare the condition with its own consequence).
+
+## WHO PROPOSED IT IS ONE CLOSED LIST (TICKET-0115) -- `proposal_producers.py`; JOURNÉE'S OBJECTIVE EVENT IS THE ENGINE'S (BRIEF-0115-c, no schema change)
+
+**B2.** `proposed_mutation.proposed_by` already is the producer column; it
+lied once: Journée's objective event (`day_events.py`, Bt1 of 0119, no
+model) was stamped `local_ai` like the day chain's model output, so an
+acceptance rate « of the model » would have counted code. It is `engine`
+now, beside `_propose_engine_injury` and `_propose_engine_discovery`
+(INV-14). `proposal_producers.PRODUCERS` names every value written -- its
+kind (model, engine, auto) and the dashboard's French label -- and
+`LEGACY_PRODUCERS` the values older rows still carry. The check
+`proposal_producers.py` reads every `ProposedMutation(` and every
+`.proposed_by =` of the package (a module constant counts: `observed_scene`,
+`engine_roll`) and fails on a value the list does not name, or a listed
+value nobody writes; it also holds INV-14 (a model's or the engine's
+proposal is never built applied, and only an `auto` producer's module
+applies one itself).
+
+**Rejected.** B1, a separate `producer` column (reactivation: two real
+producers sharing one `proposed_by` value that must be told apart). Rows
+stamped `local_ai` by Journée's objective event before this brief stay as
+they are (history): the export carries `mutation_type` and `rationale`,
+which tell them apart.
+
+## THE DASHBOARD IS A REGISTRY IN CODE (TICKET-0115) -- `dashboard_metrics.py`, `dashboard_deferrals.py`, `dashboard_export.py`, `GET /api/dashboard[/export]` (BRIEF-0115-d, no schema change)
+
+**H1, E2.** Each metric is a question in French, a computation in code and
+the decision codes it watches -- never SQL typed in the interface. No
+threshold: the numbers are shown, Nia judges (E2). The scope is every world
+or one (J1) and two real-world days on the cockpit's own clock, both
+included; a metric of the world as it stands (conditions, encounters, the
+queue) ignores the dates and says so (`dated`).
+
+**M1 -- the tab reads no JSON.** `ProposedMutation.payload` and
+`ConditionDraft.payload` stay audit material (INV-20): the metrics read
+`mutation_review`, `mutation_review_change`, `condition_draft.outcome` and
+`saved_as_proposed`, `condition_node`, `rencontre`, `skill_resolution`.
+What only the JSON holds -- costs typed into the interpreter (IA2), « cette
+forme n'existe pas » (A2), a missing label -- is measured from the export,
+whose entries say `metric: export`. Reactivation of M2 (the rejected
+alternative: signals made relational now): an analysis of the export shows
+one of those measures deserves a screen.
+
+**F2, K2, L -- the deferral registry.** `DEFERRALS` lists the deferrals Nia
+named, each with its condition in French, the file that declares it and a
+verbatim anchor (`dashboard_registry.py` finds it there once: a reworded
+declaration is red), the metric that watches it, and its status. Two are
+`reached` on entry: WH3 (0114's journal knows the witnesses; TICKET-0122 is
+reserved for it) and the payload's relationalization (the review card has
+edited it field by field since 0119; no ticket yet). A future deferral
+enters by the lot of the ticket that locks it, never by a scan.
+
+**I1 -- the export.** One JSON document for the scope: proposals with their
+payloads, original payloads and review rounds; the interpreter's drafts
+whole; the metrics; the registry -- for a Claude Code session. It holds the
+world's secrets: the tab says so beside the button.
+
+**Rejected.** H2 (metrics typed in the interface), E1 (thresholds with a
+minimum sample: Nia's prod held 3 typed events), I2 (a CSV per table).
+
+## « SUIVI », A CRÉATION TAB THAT READS ONLY (TICKET-0115) -- `Dashboard.svelte`, `dashboard.svelte.js` (BRIEF-0115-e, no schema change)
+
+**H1 of the series -- « Suivi » in Création.** One bespoke tab, one island
+created as one (origin `new`): a world selector (every world, or one --
+J1), two day inputs, a card per metric (its question, the codes it
+watches, its rows as « 3 / 5 (60 %) », « état actuel » when it ignores the
+dates) and the deferral registry (what waits, « Revient si : », the metric
+that watches it, « atteinte » in red). No primary action: nothing is
+created here.
+
+**I1 -- the export button.** It saves `GET /api/dashboard/export` for the
+scope on screen, named after it; the warning beside it says the file holds
+the secrets and the creator's notes and leaves the machine only if she
+sends it.
+
+**Rejected.** A chart per metric: E2 shows numbers, and a chart of three
+events is noise; reactivation: a metric whose rows Nia reads as a trend
+over several weeks.
+
 ---
 
 *Co-built with Claude, June 2026.*

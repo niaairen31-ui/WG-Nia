@@ -1,0 +1,37 @@
+{
+  "ticket": "TICKET-0115-creator-dashboard",
+  "when": "2026-10-13T16:19:15.990904+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "mutation_reviews.py",
+      "status": "PASS",
+      "msg": "PASS: mutation_reviews -- v2.27 stores a review round by round and its changes; the migration refuses below v2.26 and runs once"
+    },
+    {
+      "check": "review_recording.py",
+      "status": "PASS",
+      "msg": "PASS: review_recording -- every review is a round with its changes and its step's verdict; the diff pairs by natural key"
+    },
+    {
+      "check": "proposal_producers.py",
+      "status": "PASS",
+      "msg": "PASS: proposal_producers -- 14 producer site(s), each naming a listed producer; code-made proposals are reviewed"
+    },
+    {
+      "check": "dashboard_registry.py",
+      "status": "PASS",
+      "msg": "PASS: dashboard_registry -- the metrics read relational columns, each deferral points at its declaration, the numbers and the export hold on a fixture"
+    },
+    {
+      "check": "dashboard_tab.py",
+      "status": "PASS",
+      "msg": "PASS: dashboard_tab -- \u00c2\u00ab Suivi \u00c2\u00bb shows the metrics and the deferrals, exports the same scope, and warns about secrets"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u00e2\u20ac\u201d 167 check(s) discovered, 167 executed, 167 passed"
+    }
+  ]
+}

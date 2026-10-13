@@ -346,3 +346,8 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 19585 | THE WORLD TICK PROPOSES TYPED EVENTS -- THE WORLD'S TYPES BY CODE, PARTICIPANTS BY ROLE AND NAME; NEVER A NEW TYPE (TICKET-0119) -- `tick_events.py` (BRIEF-0119-e, no schema change) | BRIEF-0119-e |  |
 | 19609 | JOURNÉE PROPOSES THE EVENT A COMPLETED STEP'S OBJECTIVE NAMES (TICKET-0119) -- `day_events.py`, NOTHING INVENTED (BRIEF-0119-f, no schema change) | BRIEF-0119-f |  |
 | 19634 | LORE DECLARES EVENTS -- IN THE WRITING PANEL'S PROPOSAL, AND BY A BUTTON STRAIGHT TO THE JOURNAL (TICKET-0119) -- U1, G3 (BRIEF-0119-g, no schema change) | BRIEF-0119-g |  |
+| 19670 | THE CREATOR'S REVIEW IS RECORDED ROUND BY ROUND (TICKET-0115) -- WHAT SHE CHANGED, AND WHAT A STEP'S CONDITION SAID (BRIEF-0115-a, schema v2.27) | BRIEF-0115-a | v2.27 |
+| 19699 | EVERY REVIEW PATH RECORDS ITS ROUND (TICKET-0115) -- `writes/mutation_reviews.py`, `review_diff.py`, `review_verdict.py` (BRIEF-0115-b, no schema change) | BRIEF-0115-b |  |
+| 19727 | WHO PROPOSED IT IS ONE CLOSED LIST (TICKET-0115) -- `proposal_producers.py`; JOURNÉE'S OBJECTIVE EVENT IS THE ENGINE'S (BRIEF-0115-c, no schema change) | BRIEF-0115-c |  |
+| 19750 | THE DASHBOARD IS A REGISTRY IN CODE (TICKET-0115) -- `dashboard_metrics.py`, `dashboard_deferrals.py`, `dashboard_export.py`, `GET /api/dashboard[/export]` (BRIEF-0115-d, no schema change) | BRIEF-0115-d |  |
+| 19786 | « SUIVI », A CRÉATION TAB THAT READS ONLY (TICKET-0115) -- `Dashboard.svelte`, `dashboard.svelte.js` (BRIEF-0115-e, no schema change) | BRIEF-0115-e |  |

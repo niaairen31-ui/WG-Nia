@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.26
+Current schema version: v2.27
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -1513,6 +1513,9 @@ CREATE TABLE proposed_mutation (
   target_table    TEXT,                    -- table the change applies to
   target_id       TEXT,                    -- row affected (NULL if creation)
   payload         JSON NOT NULL,           -- the proposed change, structured
+  original_payload JSON,                   -- v2.27: the payload as its producer wrote it,
+                                           -- kept the first time the creator approves an
+                                           -- edited one; NULL while nobody edited it
 
   -- control
   status          TEXT DEFAULT 'proposed',
@@ -1597,6 +1600,71 @@ entity. Produced by the scope-level `world_tick` call (both location and
 faction scopes, `ENTITY_CREATION_QUOTA = 1`, own budget) and, dormantly, by
 conversation analysis (a shapeless payload tolerated at the pending-list
 read side rather than normalized).
+
+`original_payload` (v2.27, TICKET-0115) is written once, by
+`writes/mutation_reviews.py`, the first time the creator approves a payload
+she edited: the proposal as its producer wrote it, beside `payload`, the
+proposal as she approved it. Never rendered in any UI surface (an audit
+snapshot, `change_history`'s posture in `json_ui_boundary.py`).
+
+-----
+
+### `mutation_review` / `mutation_review_change`
+
+The creator's review of a proposal, round by round (v2.27, TICKET-0115,
+BRIEF-0115-A). Written only by `writes/mutation_reviews.py`, from the four
+review paths of `cockpit/routes/mutations.py` (approve, reject, and both in
+batch); append-only. World tables: the cascade deletes them with their
+world, like the proposal they review. Non-canon.
+
+```sql
+CREATE TABLE mutation_review (
+  id            TEXT PRIMARY KEY,
+  world_id      TEXT NOT NULL REFERENCES world(id),
+  mutation_id   TEXT NOT NULL REFERENCES proposed_mutation(id),
+  round         INTEGER NOT NULL,   -- 1, 2, ... per proposal (CHECK >= 1): a
+                                    -- « Needs attention » proposal approved again
+                                    -- is its second round
+  action        TEXT NOT NULL,      -- approve | reject
+  via           TEXT NOT NULL,      -- unit | batch
+  status_after  TEXT NOT NULL,      -- applied | approved | rejected
+                                    -- (CHECK: rejected exactly when action = reject)
+  edited        BOOLEAN NOT NULL DEFAULT 0,  -- the creator changed the payload
+                                    -- (CHECK: only an approve, only unit)
+  step_verdict  TEXT,               -- an agenda_step_change only: met | unmet |
+                                    -- unknown (the step's completion for complete,
+                                    -- its failure for fail, judged before the
+                                    -- apply) | none (no such condition) |
+                                    -- not_judged (no step, no character owner,
+                                    -- no action); NULL for every other type
+  reviewed_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX idx_mutation_review_round ON mutation_review(mutation_id, round);
+CREATE INDEX idx_mutation_review_world ON mutation_review(world_id, reviewed_at);
+
+CREATE TABLE mutation_review_change (
+  id            TEXT PRIMARY KEY,
+  world_id      TEXT NOT NULL REFERENCES world(id),
+  review_id     TEXT NOT NULL REFERENCES mutation_review(id),
+  path          TEXT NOT NULL,      -- participants[Cible].entity_id, title, steps[2]
+  field         TEXT NOT NULL,      -- the path without its keys: participants[].entity_id
+  kind          TEXT NOT NULL,      -- added | removed | changed
+  before_value  TEXT,               -- a scalar as JSON text; NULL when added, or
+  after_value   TEXT                -- when the value is a whole element
+);
+CREATE UNIQUE INDEX idx_mutation_review_change_path ON mutation_review_change(review_id, path);
+CREATE INDEX idx_mutation_review_change_field ON mutation_review_change(world_id, field);
+```
+
+What changed is computed by `review_diff.py` between the payload stored
+before the call and the one approved: an empty value (absent, null, empty
+text, list or object) equals an absent one; `type_name` (the name the card
+shows for `type_id`) and the keys an apply writes (`applied_changes`,
+`created_entity_id`) are never compared; a list's elements pair by their
+natural key (`participants` by role, `state_changes` by entity and state,
+`scopes` by kind and target, `roles` by name, `effects` by type), a list of
+plain values as a set, `steps` by position. A proposal reviewed before
+v2.27 has no `mutation_review` row.
 
 -----
 

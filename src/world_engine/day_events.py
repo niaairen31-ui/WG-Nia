@@ -7,7 +7,8 @@ loups ». When the day resolves such a step as completed (the dice band
 completion condition already says what has to have happened -- so Journée
 proposes that very event, beside the step's `agenda_step_change`, both
 reviewed by the creator (V1: proposing, never applying). Nothing is
-invented and no model is asked: every key comes from the leaf.
+invented and no model is asked: every key comes from the leaf, and the row
+says so -- `proposed_by='engine'` (INV-14, TICKET-0115).
 
 For each `event` leaf of the step's completion reached through `all` only
 (Q1: a leaf under `any`, `not` or `at_least` is not guaranteed) whose
@@ -121,7 +122,8 @@ def emit_objective_events(
             target_table="event",
             payload=payload,
             status="proposed",
-            proposed_by="local_ai",
+            # TICKET-0115 (B2): code proposed it, no model -- INV-14.
+            proposed_by="engine",
             rationale=(f"step {outcome.step_order} ({outcome.objective}) completed -- its objective is the event "
                        f"« {view.name} »"),
         ))

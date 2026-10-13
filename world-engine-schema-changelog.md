@@ -13,6 +13,15 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.27** — TICKET-0115, BRIEF-0115-A: the creator's review of a
+  proposal, round by round. `proposed_mutation` gains `original_payload`
+  (JSON, nullable: the payload as its producer wrote it, kept the first time
+  the creator approves an edited one). `mutation_review` (one row per review
+  call: round, approve or reject, unit or batch, the status it left, edited
+  or not, an `agenda_step_change`'s verdict) and `mutation_review_change`
+  (one row per value changed in a round: path, field, kind, a scalar's
+  before and after). `migrate_v2_27_mutation_reviews.py` writes no data; a
+  proposal reviewed before v2.27 has no review row.
 - **v2.26** — TICKET-0119, BRIEF-0119-A: what an event does to the state of
   the world. `event_type_effect` (an event type's effects: the role whose
   entity changes, the state -- a world's definition, or `État vital` /
