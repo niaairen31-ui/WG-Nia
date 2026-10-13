@@ -19666,6 +19666,36 @@ the world's entities and writes it straight to the journal (`POST
 `apply_ticket_0119_lore_prompt.py` fragment by fragment: the creator's
 edits are kept.
 
+
+## THE CREATOR'S REVIEW IS RECORDED ROUND BY ROUND (TICKET-0115) -- WHAT SHE CHANGED, AND WHAT A STEP'S CONDITION SAID (BRIEF-0115-a, schema v2.27)
+
+**A3, C1 of the dashboard.** Approving a proposal overwrote its payload with
+what the card sent (`_approve_apply_edited_payload`): what the model had
+proposed was lost, so « accepted as proposed » and « accepted after a
+correction » could not be told apart -- the measure D2 (auto-applying
+events) and A1 of 0119 (the tick retyped) wait on. v2.27 keeps the review
+itself: `proposed_mutation.original_payload` (the producer's payload, kept
+the first time an edited one is approved), `mutation_review` (one row per
+review call -- its round, approve or reject, unit or batch, the status it
+left, edited or not, and an `agenda_step_change`'s verdict before the
+apply, for M2) and `mutation_review_change` (one row per value changed:
+path, field, kind, a scalar's before and after).
+
+**Rounds, not one review.** A « Needs attention » proposal can be approved
+again, or rejected: each call is a round, append-only, so nothing a later
+call does rewrites an earlier one.
+
+**World tables.** A review dies with its world, like its proposal: the
+export (BRIEF-0115-D) is how an analysis keeps them. `original_payload` is
+an audit snapshot, never rendered (the `change_history` posture of
+`json_ui_boundary.py`); a change's values are a scalar's JSON text, in
+relational rows.
+
+**Rejected.** A2 (accepted = applied, edited or not): D2 and A1 of 0119
+could never be measured. One review per proposal, rewritten on a second
+call: history is sacred. A JSON diff column: the dashboard reads what
+changed, and UI-visible data is relational (INV-20).
+
 ---
 
 *Co-built with Claude, June 2026.*

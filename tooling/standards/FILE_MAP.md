@@ -116,6 +116,7 @@
 - `migrate_v2_24_event_journal.py` — Migration v2.24 — the event journal's vocabulary (TICKET-0114, BRIEF-0114-A; decisions F1, B1, C1, D1, H1, K-a, N1, O1 and V1 of the conditions series).
 - `migrate_v2_25_event_columns.py` — Migration v2.25 — the journal drops what it no longer reads (TICKET-0114, BRIEF-0114-D; decisions L1, N1, O1 and V1 of the conditions series).
 - `migrate_v2_26_event_effects.py` — Migration v2.26 — what an event does to the state of the world (TICKET-0119, BRIEF-0119-A; decisions M-c, C1, D3, E1 and U1 of the conditions series).
+- `migrate_v2_27_mutation_reviews.py` — Migration v2.27 — the creator's review of a proposal, round by round (TICKET-0115, BRIEF-0115-A; decisions A3, C1 and H1a of the conditions series' dashboard).
 - `observation_metrics.py` — Observation run metrics (TICKET-0051, BRIEF-0051-g, decision J2/Q).
 - `preview_npc_schedule.py` — Preview `where_is` / `who_is_at` / `unresolved_npcs` — the concrete reader for `world.current_phase` (T-A1) and the live-gate instrument for TICKET-0074, BRIEF-0074-a.
 - `preview_tick_context.py` — Preview the full-interiority briefing a world tick would send to one NPC (TICKET-0014, BRIEF-0014-a; TICKET-0015, BRIEF-0015-a adds --interval) — the concrete reader for `assemble_tick_context` in this brief, and the live-gate instrument for the T1 review.
@@ -450,6 +451,7 @@
 - `lore_write.py` — G1 check for TICKET-0098 -- the lore writing path.
 - `modal_primitive.py` — G1 check: the modal-dialog convergence lock (TICKET-0059, BRIEF-0059-l item 10).
 - `module_budget.py` — G1 check: module budget (TICKET-0027 R5, BRIEF-0027-a; frontend rule added TICKET-0059, BRIEF-0059-b, Amendment 6).
+- `mutation_reviews.py` — G1 check for TICKET-0115 -- the creator's review of a proposal is recorded, round by round.
 - `name_index.py` — G1 check for TICKET-0092 (BRIEF-0092-A) — the name index (N1c, N2b, N17a).
 - `name_resolution.py` — G1 check for TICKET-0092 — name resolution over the name index.
 - `no_print_in_src.py` — G1 check: no print() in src/ (TICKET-0027 R3, BRIEF-0027-a).

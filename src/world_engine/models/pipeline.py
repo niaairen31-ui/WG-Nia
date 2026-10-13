@@ -127,6 +127,12 @@ class ProposedMutation(SQLModel, table=True):
     target_table: Optional[str] = None
     target_id: Optional[str] = None
     payload: Any = Field(sa_column=Column(JSON, nullable=False))
+    # TICKET-0115 (BRIEF-0115-A, A3): the payload as its producer wrote it,
+    # kept the first time the creator approves an edited one -- NULL while
+    # nobody edited it. Written once by `writes/mutation_reviews.py`, never
+    # rendered in any UI surface (an audit snapshot, `change_history`'s
+    # posture); what changed is `mutation_review_change`'s rows.
+    original_payload: Any = Field(default=None, sa_column=Column(JSON, nullable=True))
 
     # control
     status: str = Field(
@@ -142,6 +148,82 @@ class ProposedMutation(SQLModel, table=True):
     proposed_at: datetime = _created_ts()
     reviewed_at: Optional[datetime] = None
     applied_at: Optional[datetime] = None
+
+
+# -----------------------------------------------------------------------------
+# mutation_review / mutation_review_change  (the creator's review of a
+# proposal, round by round -- schema v2.27, TICKET-0115, BRIEF-0115-A;
+# decisions A3, C1 and H1a of the conditions series' dashboard)
+#
+# `mutation_review` -- one row per review call that moved a proposal: its
+# round (1, 2, ... per proposal: a « Needs attention » proposal approved
+# again is a second round), approve or reject, unit or batch, the status it
+# left, whether the creator edited the payload, and -- for an
+# `agenda_step_change` -- the verdict the step's own condition gave at that
+# moment (`completion` for `complete`, `failure` for `fail`; `none` when the
+# step has no such condition, `not_judged` when it cannot be judged).
+# `mutation_review_change` -- one row per value the creator changed in that
+# round: its path (`participants[Cible].entity_id`), its field (the path
+# without keys, `participants[].entity_id`), added / removed / changed, and
+# a scalar's before and after as JSON text (NULL for a whole element).
+# Both append-only, written only by `writes/mutation_reviews.py`. World
+# tables: deleted with their world by the cascade, like their proposal.
+# Non-canon.
+# -----------------------------------------------------------------------------
+REVIEW_ACTIONS: tuple[str, ...] = ("approve", "reject")
+REVIEW_VIAS: tuple[str, ...] = ("unit", "batch")
+REVIEW_STATUSES: tuple[str, ...] = ("applied", "approved", "rejected")
+STEP_VERDICTS: tuple[str, ...] = ("met", "unmet", "unknown", "none", "not_judged")
+REVIEW_CHANGE_KINDS: tuple[str, ...] = ("added", "removed", "changed")
+
+
+class MutationReview(SQLModel, table=True):
+    __tablename__ = "mutation_review"
+    __table_args__ = (
+        Index("idx_mutation_review_round", "mutation_id", "round", unique=True),
+        Index("idx_mutation_review_world", "world_id", "reviewed_at"),
+        CheckConstraint("round >= 1", name="ck_mutation_review_round"),
+        CheckConstraint("action IN ('approve','reject')", name="ck_mutation_review_action"),
+        CheckConstraint("via IN ('unit','batch')", name="ck_mutation_review_via"),
+        CheckConstraint("status_after IN ('applied','approved','rejected')", name="ck_mutation_review_status"),
+        CheckConstraint("(action = 'reject') = (status_after = 'rejected')", name="ck_mutation_review_outcome"),
+        CheckConstraint("edited = 0 OR (action = 'approve' AND via = 'unit')", name="ck_mutation_review_edited"),
+        CheckConstraint(
+            "step_verdict IS NULL OR step_verdict IN ('met','unmet','unknown','none','not_judged')",
+            name="ck_mutation_review_verdict",
+        ),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    mutation_id: str = Field(foreign_key="proposed_mutation.id", nullable=False)
+    round: int
+    action: str
+    via: str
+    status_after: str
+    edited: bool = Field(default=False, sa_column_kwargs={"server_default": text("0")})
+    step_verdict: Optional[str] = None
+    reviewed_at: datetime = _created_ts()
+
+
+class MutationReviewChange(SQLModel, table=True):
+    __tablename__ = "mutation_review_change"
+    __table_args__ = (
+        Index("idx_mutation_review_change_path", "review_id", "path", unique=True),
+        Index("idx_mutation_review_change_field", "world_id", "field"),
+        CheckConstraint("kind IN ('added','removed','changed')", name="ck_mutation_review_change_kind"),
+        CheckConstraint("kind <> 'added' OR before_value IS NULL", name="ck_mutation_review_change_added"),
+        CheckConstraint("kind <> 'removed' OR after_value IS NULL", name="ck_mutation_review_change_removed"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    review_id: str = Field(foreign_key="mutation_review.id", nullable=False)
+    path: str
+    field: str
+    kind: str
+    before_value: Optional[str] = None
+    after_value: Optional[str] = None
 
 
 # -----------------------------------------------------------------------------
