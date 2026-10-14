@@ -186,6 +186,7 @@
 - `link_context.py` — NPC link agent — coherence-pass serialization (TICKET-0036, BRIEF-0036-c).
 - `link_sheet.py` — Link-agent NPC sheet rendering (TICKET-0091 BRIEF-B, pure move).
 - `llm_parse.py` — Single chokepoint for parsing local-model JSON output (TICKET-0027 R2, BRIEF-0027-e).
+- `local_day.py` — A real-world day on the cockpit's own clock (Nia's machine), turned into the naive UTC instant every timestamp is stored in (TICKET-0123, BRIEF-0123-A; decision A1).
 - `lore_candidates.py` — Candidate enrichment for the lore consultation surface's disambiguation round-trip (TICKET-0085, BRIEF-0085-c).
 - `lore_choices_read.py` — Reads for the model-choice review (TICKET-0095, K1, C-05/C-06): the choices of the active world that wait for Nia's verdict (E2, J1), what the model cited and where it came from, and the scope K1 proposes for an appellation (C2).
 - `lore_mentions_read.py` — Reads for the name-resolution panel (TICKET-0091, BRIEF-0091-K, contract C-16, decision Q17d).

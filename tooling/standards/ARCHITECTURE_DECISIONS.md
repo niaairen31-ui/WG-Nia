@@ -19802,6 +19802,32 @@ sends it.
 events is noise; reactivation: a metric whose rows Nia reads as a trend
 over several weeks.
 
+## A DAY IS THE COCKPIT'S DAY (TICKET-0123) -- `local_day.py`, the Lore usage export's `--since` (BRIEF-0123-a, no schema change)
+
+A real-world date typed by the creator means that day at her place, never
+that day in UTC. `world_engine/local_day.py`'s `local_midnight_utc(day)`
+is the one conversion into the naive UTC the timestamps are stored in; the
+dashboard's « du / au » (TICKET-0115, E2) and
+`scripts/export_lore_usage.py --since` both use it. `--since` accepts a
+date only (C1). The conversion takes an optional fixed clock so
+`lore_usage.py` U12f proves it at any hour on any machine, with fixed
+offsets: the `TZ` variable proves nothing on Windows (B3; rejected B2,
+reactivation: `tzdata` becomes a dependency for another reason). A third
+reader of a typed date imports this function; it never writes a third
+conversion (A1; rejected A2).
+
+## PER-CHECK TIMEOUTS ARE NAMED (TICKET-0123, AMENDMENT-0123-01) -- `corpus_gate.py`'s `SLOW_CHECK_TIMEOUTS` (BRIEF-0123-a, no schema change)
+
+`corpus_gate.py` runs every check under `TIMEOUT_SECONDS` (15 s) unless the
+check has its own line in `SLOW_CHECK_TIMEOUTS`, keyed by file name, valued
+at roughly twice its slowest measured run, with the measurement in a
+comment. A key that names no check the gate runs fails the gate before any
+check runs: a stale entry is a defect. A timeout stays a failure. The first
+entries are `lore_usage.py` (13.9-18.2 s once U12f joined it) and
+`event_analyzer.py` (timed out once under `/verify`). Rejected: A, one
+higher default for every check -- it would hide a fast check that grows
+slow (reactivation: more than a handful of checks need their own entry).
+
 ---
 
 *Co-built with Claude, June 2026.*
