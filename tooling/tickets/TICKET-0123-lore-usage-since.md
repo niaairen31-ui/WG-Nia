@@ -2,7 +2,7 @@
 id: TICKET-0123
 title: The Lore usage export reads `--since` on the cockpit's clock -- one meaning of « a day » for the export and the dashboard
 type: bug
-status: exec
+status: live-gate
 created: 2026-10-13
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: []
@@ -11,7 +11,7 @@ lot_id: LOT-0123-lore-usage-since.md
 brief_ids: [A]
 current_brief: A
 schema_version_touched:
-retry_count: 1
+retry_count: 0
 slug: lore-usage-since
 ---
 
