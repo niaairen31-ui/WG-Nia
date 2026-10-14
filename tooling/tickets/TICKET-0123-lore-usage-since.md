@@ -2,7 +2,7 @@
 id: TICKET-0123
 title: The Lore usage export reads `--since` on the cockpit's clock -- one meaning of « a day » for the export and the dashboard
 type: bug
-status: escalated
+status: exec
 created: 2026-10-13
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: []
@@ -88,6 +88,9 @@ After the RECON and the decision blocks:
   export script only. Any other place that turns a typed date into a UTC
   instant was not enumerated; this ticket claims nothing about it. If one
   surfaces, it goes in a ticket numbered above 0123.
+- Speed up lore_usage.py's U12 exports so it fits the default timeout
+  again; then remove its SLOW_CHECK_TIMEOUTS entry. Own ticket, numbered
+  above 0123.
 
 ## Acceptance criteria
 
@@ -109,7 +112,7 @@ After the RECON and the decision blocks:
 
 | id | brief in flight | what deviated | downstream briefs regenerated |
 |----|-----------------|---------------|-------------------------------|
-|    |                 |               |                               |
+| AMENDMENT-0123-01 | A | lore_usage.py at ~15–18 s exceeds corpus_gate's single 15 s timeout | none (one brief) |
 
 ## Escalations
 
@@ -125,3 +128,5 @@ How should lore_usage.py, now 15.5-17.7 s with U12f (13.9 s without, already nea
 A. Raise corpus_gate.py's TIMEOUT_SECONDS (e.g. 15 -> 30), re-measuring and rewriting its stale comment (it cites 3.22 s as the slowest check); one commit on ticket/0123. B. Give lore_usage.py (or a named list of slow checks) its own baselined timeout in corpus_gate.py, keeping 15 s for all others. C. Make U12f's exit-2 probe in-process (call the script's main([...]) / _since_day instead of a subprocess) to save ~1.5 s -- leaves lore_usage.py at ~14-16 s, still at the edge. D. Defer: accept the red corpus_gate on this ticket and open a ticket above 0123 to speed up lore_usage.py's U12 subprocess exports. Recommendation: A (or B), because lore_usage.py was already at 13.9 s and event_analyzer.py timed out once with no change of this ticket.
 
 **Response:**
+Voila l'amendement. fini le pipeline.
+-- AMENDMENT-0123-01: decision B, named per-check timeouts (SLOW_CHECK_TIMEOUTS); A rejected.

@@ -18,7 +18,9 @@ observation_surface.py. Three properties, each vacuous-proof:
      (excluded by resolved path, never by name string; the exclusion must
      remove exactly one entry).
   2. Execution: each discovered check runs as a subprocess with the current
-     interpreter, inheriting the environment, under a per-check timeout. A
+     interpreter, inheriting the environment, under a per-check timeout
+     (`TIMEOUT_SECONDS`, or the check's own line in `SLOW_CHECK_TIMEOUTS`,
+     whose every key must name a discovered check -- TICKET-0123). A
      non-zero exit is classified ENVIRONMENT (unimportable) / TIMEOUT /
      FAIL -- all three are failures, never a skip.
   3. Coverage: the set of executed paths equals the discovered set. A
@@ -47,10 +49,22 @@ ROOT = Path(__file__).resolve().parents[3]
 CHECKS = ROOT / "tooling" / "verify" / "checks"
 SELF = Path(__file__).resolve()
 
-# Measured on this tree during BRIEF-0060-d's mini-RECON: the slowest of the
-# 82 sibling checks was prompt_version.py at 3.22s. Four times that is
-# 12.88s; rounded up with headroom for a slower machine or a cold disk cache.
+# Default per-check timeout. Most checks finish in a few seconds; a check
+# that needs longer gets its own line in SLOW_CHECK_TIMEOUTS, with its
+# measured duration, never a higher default (TICKET-0123, AMENDMENT-0123-01).
 TIMEOUT_SECONDS = 15
+
+# Checks known to run near or above the default, keyed by file name.
+# Each value is roughly twice the slowest measured run. A name here that no
+# longer matches a check fails the gate: a stale entry is a defect.
+SLOW_CHECK_TIMEOUTS = {
+    # TICKET-0123: U12 exports run as subprocesses; U12f adds three
+    # time zones. Measured 13.9-18.2 s on Nia's machine.
+    "lore_usage.py": 30,
+    # Timed out once under /verify during TICKET-0123. Measured
+    # 9.2-9.4 s alone.
+    "event_analyzer.py": 30,
+}
 
 MODULE_RE = re.compile(r"No module named '([^']+)'")
 
@@ -138,9 +152,13 @@ def _check_required_tools() -> None:
         fail(f"ENVIRONMENT: required tool {tool!r} is not installed -- the corpus cannot be evaluated")
 
 
+def _timeout_for(name: str) -> int:
+    return SLOW_CHECK_TIMEOUTS.get(name, TIMEOUT_SECONDS)
+
+
 def _classify(name: str, stdout: str, stderr: str, timed_out: bool, returncode: int = 1) -> str:
     if timed_out:
-        return f"TIMEOUT: {name} exceeded {TIMEOUT_SECONDS}s"
+        return f"TIMEOUT: {name} exceeded {_timeout_for(name)}s"
     combined = f"{stderr}\n{stdout}"
     if returncode == CRASH_EXIT:
         recovered = ""
@@ -189,6 +207,13 @@ def main() -> None:
     if discovered is None:
         _report_and_exit()
         return
+    names = {p.name for p in discovered}
+    for key in sorted(SLOW_CHECK_TIMEOUTS):
+        if key not in names:
+            fail(f"FAIL: SLOW_CHECK_TIMEOUTS names {key!r}, which is not a check this gate runs -- a stale entry")
+    if FAILURES:
+        _report_and_exit()
+        return
 
     executed: list[Path] = []
     passed = 0
@@ -196,7 +221,7 @@ def main() -> None:
         try:
             proc = subprocess.run(
                 [sys.executable, "-c", _HARNESS, str(path)],
-                capture_output=True, text=True, timeout=TIMEOUT_SECONDS,
+                capture_output=True, text=True, timeout=_timeout_for(path.name),
             )
             executed.append(path)
             if proc.returncode == 0:
