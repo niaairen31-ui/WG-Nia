@@ -15,7 +15,7 @@
    and never acting. */
 import { api } from './sheetRequest.svelte.js';
 import { blankCondition, conditionBody, conditionDraft } from './questRequirements.js';
-import { blankTerm, termBody } from './questTerms.js';
+import { termBody } from './questTerms.js';
 
 export const questOffersState = $state({
   offers: [],
@@ -64,11 +64,6 @@ export function editOffer(offer) {
     unsavedAttributes: [],
   };
   questOffersState.value = offer.value || null;
-}
-
-export function addTerm(direction) {
-  questOffersState.draft.terms.push(blankTerm(direction));
-  refreshValue();
 }
 
 /** The draft's indicative value, recomputed by the server (C1). */

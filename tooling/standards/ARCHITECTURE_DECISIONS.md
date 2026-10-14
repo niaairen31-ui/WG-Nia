@@ -20092,6 +20092,26 @@ from the table, and `_MOVABLE_FIELDS` computed from its columns) are gone.
 empty, so the save would refuse a tree naming a `new:` attribute. The
 creator confirms the definition in the card before it enters the offer.
 
+## ONE OFFER EDITOR FOR CRÉATION AND THE REVIEW CARD (TICKET-0121) -- OfferEditor.svelte (BRIEF-0121-f, no schema change)
+
+**A pure move.** The markup of « Quêtes »'s offer editor -- from « Titre »
+to the indicative value line -- and its helpers (`moveStep`, `giverMembers`,
+the term adder) are `frontend/src/creation/OfferEditor.svelte`, props
+`{draft, choices, value, seeds = {}, onchange}`; its CSS moved with it.
+`QuestOffers.svelte` renders `<OfferEditor {draft} {choices} {value}
+onchange={refreshValue} />` where the markup stood and keeps the save
+error and « 💾 Enregistrer ». A term change, or a term added, calls
+`onchange` where it called `refreshValue`. Nothing « Quêtes » renders or
+saves changed.
+
+**Why a component, not an island.** The queue's review card of a
+`quest_offer_creation` proposal edits the very form the creator writes an
+offer in (B1). The editor never mounts on its own: it is a child of
+`QuestOffers.svelte` and of `QueueCard.svelte`, so it is no
+`CREATION_ISLANDS` entry (INV-50). The editor owns no state: `draft` is
+the caller's, so the term adder pushes on that draft instead of on
+`questOffersState.draft` -- `addTerm` left `questOffers.svelte.js`.
+
 ---
 
 *Co-built with Claude, June 2026.*
