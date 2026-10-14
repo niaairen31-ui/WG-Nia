@@ -121,7 +121,7 @@ ND3 -- saving the offer (fixture). An offer saved with its eligibility as
 NE1 -- the editor (BRIEF-0112-E; static). `ConditionEditor.svelte` renders
    `<ConditionInterpreter {cond} {role}` (with the draft's unsaved
    attributes since TICKET-0113, `attribute_interpreter.py` AE1);
-   `QuestOffers.svelte` passes
+   `OfferEditor.svelte` (TICKET-0121) passes
    `role="eligibility"`, `"prerequisite"` and `"completion"`, one each.
    `conditionInterpreter.svelte.js` POSTs `/api/conditions/interpret` with
    `current: conditionBody(cond)` and `attempt_id: state.attemptId`,
@@ -1157,10 +1157,10 @@ def check_ne1() -> None:
     editor = _front("ConditionEditor.svelte")
     if "<ConditionInterpreter {cond} {role} " not in editor:
         fail("NE1: ConditionEditor.svelte does not render the interpreter with its role")
-    offers = _front("QuestOffers.svelte")
+    offers = _front("OfferEditor.svelte")
     for role in ("eligibility", "prerequisite", "completion"):
         if len(re.findall(r'<ConditionEditor[^>]*role="' + role + '"', offers)) != 1:
-            fail(f"NE1: QuestOffers.svelte does not pass role={role!r} to one ConditionEditor")
+            fail(f"NE1: OfferEditor.svelte does not pass role={role!r} to one ConditionEditor")
     state = _front("conditionInterpreter.svelte.js")
     for needle in ("'/api/conditions/interpret'", "current: conditionBody(cond)", "attempt_id: state.attemptId",
                    "'/resolve'", "{ ...state.picks }", "'/decision'", "decide(state, 'discarded')"):

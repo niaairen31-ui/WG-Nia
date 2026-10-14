@@ -102,7 +102,7 @@ DC2 -- the « Dettes » tab (static). `tabs.js`'s `dettes` entry mounts the
    `/forgive`; it never sends a `PUT` or a `DELETE` (a debt is never edited
    nor deleted).
 DC3 -- the offer's contact (static). `questOffers.svelte.js` loads and sends
-   `contact_entity_id`; `QuestOffers.svelte` offers the giver's
+   `contact_entity_id`; `OfferEditor.svelte` (TICKET-0121) offers the giver's
    `choices.members` and clears the contact when the giver changes.
 
 DD1 -- Journée's three sub-tabs (BRIEF-0110-D, static, W-a).
@@ -1002,10 +1002,10 @@ def check_dc3() -> None:
     state = _read("creation/questOffers.svelte.js")
     if state.count("contact_entity_id") < 3 or "contact_entity_id: draft.contact_entity_id || null" not in state:
         fail("DC3: questOffers.svelte.js does not load and send the offer's contact")
-    editor = _read("creation/QuestOffers.svelte")
+    editor = _read("creation/OfferEditor.svelte")
     for needle in ("choices?.members?.[draft.giver_entity_id]", "draft.contact_entity_id = ''"):
         if needle not in editor:
-            fail(f"DC3: QuestOffers.svelte lacks {needle}")
+            fail(f"DC3: OfferEditor.svelte lacks {needle}")
 
 
 # --- DD --------------------------------------------------------------------------

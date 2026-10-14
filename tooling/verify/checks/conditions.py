@@ -86,8 +86,9 @@ CD1 -- the editor (BRIEF-0111-D, static). `questRequirements.js`'s
    `subject_entity_id` and `value`; `conditionBody` sends the locked tree,
    else `op: 'all'` of the rows, else null. `ConditionEditor.svelte` renders
    `<QuestRequirementRow` for a list and `cond.lines` for a locked tree;
-   `QuestOffers.svelte` renders `<ConditionEditor` for the eligibility, the
-   prerequisite and the completion; `questOffers.svelte.js` sends
+   `OfferEditor.svelte` (TICKET-0121) renders `<ConditionEditor` for the
+   eligibility, the prerequisite and the completion, and `QuestOffers.svelte`
+   mounts exactly one `<OfferEditor`; `questOffers.svelte.js` sends
    `eligibility`, `prerequisite` and `completion` through `conditionBody`.
 CD2 -- the offer API and what Journée reads (fixture and route functions).
    `create_offer` takes a nested eligibility and a step's completion;
@@ -945,11 +946,14 @@ def check_cd1() -> None:
     for needle in ("<QuestRequirementRow", "{#each cond.lines as line", "{#if cond.locked}"):
         if needle not in editor:
             fail(f"CD1: ConditionEditor.svelte lacks {needle!r}")
-    offers = _front("creation/QuestOffers.svelte")
+    offers = _front("creation/OfferEditor.svelte")
     for needle in ("<ConditionEditor cond={draft.eligibility}", "<ConditionEditor cond={step.prerequisite}",
                    "<ConditionEditor cond={step.completion}"):
         if needle not in offers:
-            fail(f"CD1: QuestOffers.svelte lacks {needle!r}")
+            fail(f"CD1: OfferEditor.svelte lacks {needle!r}")
+    mounts = len(re.findall(r"<OfferEditor\b", _front("creation/QuestOffers.svelte")))
+    if mounts != 1:
+        fail(f"CD1: QuestOffers.svelte mounts <OfferEditor {mounts} time(s), expected exactly one")
     state = _front("creation/questOffers.svelte.js")
     for needle in ("eligibility: conditionBody(draft.eligibility),",
                    "prerequisite: conditionBody(s.prerequisite), completion: conditionBody(s.completion),"):
