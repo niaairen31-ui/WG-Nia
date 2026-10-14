@@ -102,6 +102,14 @@ U12 -- the reader (BRIEF-0103-E, E1), `scripts/export_lore_usage.py` run as
       `.execute(` and no `write_` call;
    e. an `--out` inside the repository is refused (non-zero exit) and no
       file is written there.
+   f. a day is the cockpit's day (TICKET-0123, B3, C1):
+      `local_midnight_utc` of 2026-10-14 is, at UTC-4, UTC-12, UTC+14
+      and UTC+0, the naive UTC instant of that local midnight, with
+      23:30 the evening before strictly earlier and 00:30 not earlier;
+      the export script calls `local_midnight_utc` and never
+      `datetime.fromisoformat`; `--since 2026-10-14T05:00` exits 2 and
+      writes no file. Fixed offsets only: no IANA name, no `TZ`
+      (Windows).
 
 Fresh temp-file SQLite database for any fixture rule
 (`WORLD_ENGINE_DATABASE_URL` set before any world_engine import) -- never
@@ -904,6 +912,47 @@ def check_u12(db_path: str) -> None:
             fail(f"U12d: the export script calls {name}() at line {func.lineno}")
 
 
+_U12F_CLOCKS = (
+    (-4, "2026-10-14T04:00:00"),
+    (-12, "2026-10-14T12:00:00"),
+    (14, "2026-10-13T10:00:00"),
+    (0, "2026-10-14T00:00:00"),
+)
+
+
+def check_u12f(db_path: str) -> None:
+    import ast
+    from datetime import date, datetime, timedelta, timezone
+
+    from world_engine.local_day import local_midnight_utc
+
+    day = date(2026, 10, 14)
+    for hours, want in _U12F_CLOCKS:
+        tz = timezone(timedelta(hours=hours))
+        got = local_midnight_utc(day, tz)
+        if got.tzinfo is not None or got.isoformat() != want:
+            fail(f"U12f: local midnight of {day} at UTC{hours:+d} is {got.isoformat()}, want {want}")
+            continue
+        evening = datetime(2026, 10, 13, 23, 30, tzinfo=tz).astimezone(timezone.utc).replace(tzinfo=None)
+        morning = datetime(2026, 10, 14, 0, 30, tzinfo=tz).astimezone(timezone.utc).replace(tzinfo=None)
+        if not evening < got <= morning:
+            fail(f"U12f: at UTC{hours:+d}, 23:30 the evening before or 00:30 of {day} is on the wrong side")
+    tree = ast.parse(EXPORT.read_text(encoding="utf-8"))
+    names = [(n.func.attr if isinstance(n.func, ast.Attribute) else getattr(n.func, "id", ""),
+              getattr(getattr(n.func, "value", None), "id", None))
+             for n in ast.walk(tree) if isinstance(n, ast.Call)]
+    if not names:
+        fail("U12f: no call collected from the export script")
+    if ("local_midnight_utc", None) not in names:
+        fail("U12f: the export script never calls local_midnight_utc()")
+    if ("fromisoformat", "datetime") in names:
+        fail("U12f: the export script calls datetime.fromisoformat() -- --since is a date on the cockpit's clock")
+    tmp = tempfile.mkdtemp(prefix="lore_usage_since_")
+    result, _ = _export(db_path, f"{tmp}/bad.jsonl", "--since", "2026-10-14T05:00")
+    if result.returncode != 2 or pathlib.Path(f"{tmp}/bad.jsonl").exists():
+        fail(f"U12f: --since 2026-10-14T05:00 exit {result.returncode}, want 2 and no file")
+
+
 def main() -> int:
     tmp = tempfile.mkdtemp(prefix="lore_usage_")
     db_path = f"{tmp}/u.db"
@@ -923,6 +972,7 @@ def main() -> int:
     check_u10()
     check_u11()
     check_u12(db_path)
+    check_u12f(db_path)
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -932,7 +982,8 @@ def main() -> int:
           "writer refuses every malformed record; a journal row outlives its world; every "
           "Lore model call can be captured with its prompt version and raw reply; every "
           "writing and consultation step is journaled under its attempt, failures included; "
-          "both panels send their attempt id; the export reads every attempt and writes nothing")
+          "both panels send their attempt id; the export reads every attempt and writes nothing, "
+          "and reads --since as a day on the cockpit's clock")
     return 0
 
 

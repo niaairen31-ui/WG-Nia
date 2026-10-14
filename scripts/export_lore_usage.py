@@ -20,6 +20,11 @@ The export carries everything the journal holds -- secrets and creator notes
 of every world included -- so it refuses an `--out` inside this repository:
 it can never be staged by accident.
 
+`--since` is a date, read on the cockpit's own clock like the dashboard's
+« du » (`world_engine.local_day`, TICKET-0123): `--since 2026-10-14`
+keeps the attempts started from midnight of the 14th at Nia's place.
+Anything but a date `YYYY-MM-DD` is refused.
+
 Run from the project root:
 
     python scripts/export_lore_usage.py --out lore_usage.jsonl [--since 2026-10-01] [--world-ref <id>]
@@ -31,7 +36,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -51,6 +56,7 @@ if not _env and not os.environ.get("WORLD_ENGINE_DATABASE_URL"):
 from sqlmodel import Session, select  # noqa: E402
 
 from world_engine.db import engine  # noqa: E402
+from world_engine.local_day import local_midnight_utc  # noqa: E402
 from world_engine.models import LoreUsageEvent  # noqa: E402
 
 
@@ -89,26 +95,35 @@ def attempts(rows: list[LoreUsageEvent]) -> list[dict]:
     return list(grouped.values())
 
 
-def _read(since: str | None, world_ref: str | None) -> list[LoreUsageEvent]:
+def _since_day(raw: str) -> date:
+    """`--since`: a date `YYYY-MM-DD`, nothing else (decision C1)."""
+    try:
+        return date.fromisoformat(raw)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"not a date YYYY-MM-DD: {raw!r}") from exc
+
+
+def _read(since: date | None, world_ref: str | None) -> list[LoreUsageEvent]:
     query = select(LoreUsageEvent).order_by(LoreUsageEvent.created_at, LoreUsageEvent.id)
     if world_ref:
         query = query.where(LoreUsageEvent.world_ref == world_ref)
     with Session(engine) as session:
         rows = list(session.exec(query).all())
     if since:
-        start = datetime.fromisoformat(since)
+        start = local_midnight_utc(since)
         first: dict[tuple[str, str, str], datetime] = {}
         for row in rows:
             first.setdefault((row.attempt_id, row.world_ref, row.kind), row.created_at)
         rows = [r for r in rows if first[(r.attempt_id, r.world_ref, r.kind)].replace(tzinfo=None)
-                >= start.replace(tzinfo=None)]
+                >= start]
     return rows
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Export the Lore usage journal as JSON Lines.")
     parser.add_argument("--out", required=True, help="the .jsonl file to write (overwritten)")
-    parser.add_argument("--since", help="keep attempts started on or after this ISO date")
+    parser.add_argument("--since", type=_since_day,
+                        help="keep attempts started on or after this date (YYYY-MM-DD), on the cockpit's clock")
     parser.add_argument("--world-ref", help="keep one world's attempts (a world id, even deleted)")
     args = parser.parse_args(argv)
     out = Path(args.out).resolve()

@@ -351,3 +351,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 19727 | WHO PROPOSED IT IS ONE CLOSED LIST (TICKET-0115) -- `proposal_producers.py`; JOURNÉE'S OBJECTIVE EVENT IS THE ENGINE'S (BRIEF-0115-c, no schema change) | BRIEF-0115-c |  |
 | 19750 | THE DASHBOARD IS A REGISTRY IN CODE (TICKET-0115) -- `dashboard_metrics.py`, `dashboard_deferrals.py`, `dashboard_export.py`, `GET /api/dashboard[/export]` (BRIEF-0115-d, no schema change) | BRIEF-0115-d |  |
 | 19786 | « SUIVI », A CRÉATION TAB THAT READS ONLY (TICKET-0115) -- `Dashboard.svelte`, `dashboard.svelte.js` (BRIEF-0115-e, no schema change) | BRIEF-0115-e |  |
+| 19805 | A DAY IS THE COCKPIT'S DAY (TICKET-0123) -- `local_day.py`, the Lore usage export's `--since` (BRIEF-0123-a, no schema change) | BRIEF-0123-a |  |
