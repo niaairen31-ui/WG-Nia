@@ -1,7 +1,9 @@
 """Plan finalizers, relocated from `cockpit/routes/day.py` for
 module-budget headroom (TICKET-0121, BRIEF-0121-D) -- the
 `day_reconcile_apply.py` precedent. Byte-identical otherwise:
-`_feasibility_dict`, `_plan_step_dict`, `_finalize_plan`, in that order.
+`_feasibility_dict`, `_plan_step_dict`, `_finalize_plan`, in that order;
+`_inquiry_cut` and `_open_step_requests` (AMENDMENT-0121-02) are the two
+blocks of `_finalize_plan` the inquiry band added, extracted unchanged.
 `finalize_inquiry_day` (TICKET-0121, BRIEF-0121-D, K1) follows them: the day
 of a declaration that seeks what a day cannot give is a one-step search;
 `close_inquiry_steps` (T1) closes its step when the day resolves.
@@ -61,6 +63,41 @@ def _plan_step_dict(evaluated: EvaluatedStep, status: str) -> dict:
     }
 
 
+def _inquiry_cut(anchored_steps: list, dropped_report: list) -> tuple[list, Optional[int], int]:
+    """R1 (TICKET-0121): the first step with a knowledge the planner cannot
+    anchor becomes the day's inquiry step and the plan stops there -- the
+    steps after it are never written (`inquiry_cut`). Its own requirements
+    stand as anchored; the dropped leaf is what the request will settle.
+    Returns the steps kept, the inquiry step's index and the count cut."""
+    inquiry_index: Optional[int] = None
+    inquiry_cut = 0
+    if dropped_report:
+        inquiry_index = min(d["step_index"] for d in dropped_report)
+        inquiry_cut = len(anchored_steps) - (inquiry_index + 1)
+        anchored_steps = anchored_steps[: inquiry_index + 1]
+    return anchored_steps, inquiry_index, inquiry_cut
+
+
+def _open_step_requests(
+    db: Session, world_id: str, character: Character, pass_play: PassPlay, agenda: Agenda,
+    inquiry_index: Optional[int], blocked_index: Optional[int],
+) -> None:
+    """K1b / R1 (TICKET-0121): the requests are born on the written rows. The
+    inquiry step first -- one request per step, and it is the one that
+    decides the inquiry band; a blocked step that is also the inquiry step
+    keeps its `dropped` request (`open_request` is idempotent per step)."""
+    if inquiry_index is not None or blocked_index is not None:
+        written = db.exec(
+            select(AgendaStep).where(AgendaStep.agenda_id == agenda.id).order_by(AgendaStep.step_order)
+        ).all()
+        for index, trigger in ((inquiry_index, "dropped"), (blocked_index, "blocked")):
+            if index is not None:
+                open_request(
+                    db, world_id=world_id, character_id=character.id, pass_play_id=pass_play.id,
+                    trigger=trigger, declaration=written[index].objective, agenda_step_id=written[index].id,
+                )
+
+
 def _finalize_plan(
     world_id: str, character: Character, pass_play: PassPlay, raw_steps: list, db: Session,
 ) -> dict:
@@ -69,16 +106,8 @@ def _finalize_plan(
     # the step's stored condition (E2 — reporting, never refusing: /plan still
     # returns 200 and writes the plan exactly as it does today).
     anchored_steps, dropped_report = anchor_requirements(raw_steps, character, db)
-    # R1 (TICKET-0121): the first step with a knowledge the planner cannot
-    # anchor becomes the day's inquiry step and the plan stops there -- the
-    # steps after it are never written (`inquiry_cut`). Its own requirements
-    # stand as anchored; the dropped leaf is what the request will settle.
-    inquiry_index: Optional[int] = None
-    inquiry_cut = 0
-    if dropped_report:
-        inquiry_index = min(d["step_index"] for d in dropped_report)
-        inquiry_cut = len(anchored_steps) - (inquiry_index + 1)
-        anchored_steps = anchored_steps[: inquiry_index + 1]
+    # R1 (TICKET-0121): the inquiry step ends the plan (`_inquiry_cut`).
+    anchored_steps, inquiry_index, inquiry_cut = _inquiry_cut(anchored_steps, dropped_report)
     bindings = Bindings(doer=character)
     evaluated_steps = [
         EvaluatedStep(step=step, verdict=evaluate_requirements(step, bindings, db))
@@ -113,20 +142,8 @@ def _finalize_plan(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    # K1b / R1 (TICKET-0121): the requests are born on the written rows. The
-    # inquiry step first -- one request per step, and it is the one that
-    # decides the inquiry band; a blocked step that is also the inquiry step
-    # keeps its `dropped` request (`open_request` is idempotent per step).
-    if inquiry_index is not None or blocked_index is not None:
-        written = db.exec(
-            select(AgendaStep).where(AgendaStep.agenda_id == agenda.id).order_by(AgendaStep.step_order)
-        ).all()
-        for index, trigger in ((inquiry_index, "dropped"), (blocked_index, "blocked")):
-            if index is not None:
-                open_request(
-                    db, world_id=world_id, character_id=character.id, pass_play_id=pass_play.id,
-                    trigger=trigger, declaration=written[index].objective, agenda_step_id=written[index].id,
-                )
+    # K1b / R1 (TICKET-0121): the requests are born on the written rows.
+    _open_step_requests(db, world_id, character, pass_play, agenda, inquiry_index, blocked_index)
 
     # Germs (already staged by `_extract_and_concord`) commit in the same
     # transaction as the plan (Scope IN item 4, all-or-nothing) — never
