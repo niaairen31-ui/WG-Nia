@@ -2,14 +2,14 @@
 id: TICKET-0121
 title: Journée proposes a quest -- the request, the lore searched whole, the existence question, the designer, its review in the offer editor
 type: feature
-status: escalated
+status: exec
 created: 2026-10-13
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: [migration, db_write]
 blast_radius: large
 lot_id: LOT-0121-journee-quest-designer.md
 brief_ids: [A, B, C, D, E, F, G]
-current_brief: G
+current_brief: AMENDMENT-0121-02
 schema_version_touched: v2.28
 retry_count: 0
 slug: journee-quest-designer
@@ -217,6 +217,7 @@ In this planning conversation (2026-10-13):
 | id | brief in flight | what deviated | downstream briefs regenerated |
 |----|-----------------|---------------|-------------------------------|
 | AMENDMENT-0121-01 | none (after E, before F) | E: drafts marked beyond the approved payload; `SUBJECT_FIELD` evading K3; `knowers_note` unused; pending conditions also cover proposed definitions; commit 2 unreviewed | none (F and G unchanged) |
+| AMENDMENT-0121-02 | G (done) | gate (e) missed 8 existing corpus checks (6 pinned to a moved file, 2 function lengths, 1 allow-list) | none (fix-up commits only) |
 
 ## Escalations
 
@@ -245,3 +246,6 @@ How should the 9 corpus failures, none of them inside BRIEF-0121-G's scope, be r
 (d) Something else.
 
 **Response:**
+Le ticket 0123 est fermé et voila l'ammendement pour fermer le ticket 0121. Termine le pipeline.
+
+Answered by AMENDMENT-0121-02.

@@ -465,3 +465,4 @@ The status family (C-02), the trigger family (C-02/C-07), the band family (C-08)
 ## Amendments
 
 - AMENDMENT-0121-01 (after BRIEF-0121-E): D-02 the drafts marked are those the approved payload names; D-03 `subject` written plainly and counted in `_SUBJECT_CENSUS`; C-10 `pending_drafts` also holds a proposed condition with definitions or vocabulary; C-11 without `knowers_note`.
+- AMENDMENT-0121-02 (after BRIEF-0121-G, answers E-01): FX-1 the six checks pinned to `QuestOffers.svelte` read `OfferEditor.svelte`, CD1 also asserts `QuestOffers.svelte` mounts it; FX-2/FX-3 `_finalize_plan` and `execute_plan` split to <= 80 lines; FX-4 `quest_designer.py` and `quest_lore.py` join `name_index.py`'s `CREATOR_ALLOWED`.
