@@ -20112,6 +20112,52 @@ offer in (B1). The editor never mounts on its own: it is a child of
 the caller's, so the term adder pushes on that draft instead of on
 `questOffersState.draft` -- `addTerm` left `questOffers.svelte.js`.
 
+## A PROPOSED QUEST IS REVIEWED IN THE OFFER EDITOR (TICKET-0121) -- THE GIVER, « QUÊTE UNIQUE », THE FLAGS, THE DESIGNER'S WAITING CONDITIONS (BRIEF-0121-f, no schema change)
+
+**B1, one editor.** A `quest_offer_creation` still `proposed` renders, in
+its queue card, `OfferEditor` on a draft of its own
+(`draftFromProposal`), seeded once on mount: the giver lists reloaded,
+each non-null tree read back through `POST /api/conditions/view`, and
+each `pending_drafts` entry kept as `seeds[where]` -- its condition's
+interpreter opens on the designer's answer (`seededState`), as after
+« Proposer », and « Choisir », « Insérer », « Écarter » go through the
+existing draft routes by its `draft_id`. Inserting or discarding calls
+`onsettle`, which drops the seed: `proposalBody` sends as
+`pending_drafts` only the entries still seeded, so the applier refuses
+while a condition waits. « Approve » sends `proposalBody(draft, payload,
+seeds, flagsConfirmed)` -- `draftBody` plus the designer's review keys --
+through the ordinary approve route; an applier refusal shows as for any
+proposal. A tree the view route refuses leaves the card on its JSON, with
+the error. The JSON view stays, collapsed and read-only while the editor
+holds the draft.
+
+**E1, the giver.** « Donneur » lists the designer's `giver_suggestions`
+first (« suggéré »), then every giver; the editor's own « Donnée par »
+and « Contact de la faction » stay. Whichever sets the giver, one
+`$effect` (its writes under `untrack`, INV-55) adds ONCE to the
+eligibility list the row `has_met`, subject `doer`, target the giver --
+the contact once chosen, for a faction. The card remembers that row:
+a later giver moves its target; a row the creator removed is not added
+again. A nested (locked) eligibility gets no row.
+
+**E3a, « Quête unique ».** A checkbox reading the list: ticked adds the
+row `is_character`, subject `doer`, target the payload's `character_id`;
+unticked removes it. Disabled on a nested eligibility.
+
+**V1, the flags.** « Passages qui répètent un secret » lists each
+`flags` entry (path, words) with « Je confirme », unticked by default;
+only that tick sets `flags_confirmed` (INV-63). The section also shows,
+« Aucun relevé à la conception. », when the designer read a secret fact
+but flagged nothing -- the applier recomputes the flags on the edited
+prose, so a passage the creator writes can still need her confirmation.
+The notes are read-only.
+
+**The payload, field by field.** The card is the second structured
+consumer of `payload` under the reached « payload » deferral
+(`dashboard_deferrals.py`), as the typed event card is. `offerValue(terms)`
+is the value request both « Quêtes » and the card make. Gate:
+`quest_review_card.py` RC1-RC4.
+
 ---
 
 *Co-built with Claude, June 2026.*

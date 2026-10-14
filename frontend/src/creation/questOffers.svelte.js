@@ -99,13 +99,19 @@ export function draftFromProposal(payload, views) {
 export async function refreshValue() {
   const draft = questOffersState.draft;
   if (!draft) return;
+  questOffersState.value = await offerValue(draft.terms);
+}
+
+/** The indicative value of these terms, or null -- « Quêtes » and the
+    review card (TICKET-0121) alike. */
+export async function offerValue(terms) {
   try {
-    questOffersState.value = await api('/api/quest-offers/value', {
+    return await api('/api/quest-offers/value', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ terms: draft.terms.map(termBody) }),
+      body: JSON.stringify({ terms: terms.map(termBody) }),
     });
   } catch (_e) {
-    questOffersState.value = null;
+    return null;
   }
 }
 
