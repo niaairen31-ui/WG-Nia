@@ -8,7 +8,9 @@
      form. A child component, never a Création island. `draft` is owned by
      the caller (questOffersState.draft in « Quêtes », the card's own draft
      in the queue); `onchange` runs when a term changes, so the caller
-     recomputes `value`. */
+     recomputes `value`. `seeds[where]` (`eligibility`,
+     `steps.<i>.<role>`) is a designer's answer still waiting for one
+     condition, opened in its interpreter and dropped once settled. */
   import ConditionEditor from './ConditionEditor.svelte';
   import QuestTermRow from './QuestTermRow.svelte';
   import { blankStep } from './questOffers.svelte.js';
@@ -19,6 +21,10 @@
 
   // TICKET-0110 (X1): a faction giver may name its contact, one of its members.
   let giverMembers = $derived(choices?.members?.[draft.giver_entity_id]);
+
+  function settle(where) {
+    return () => { delete seeds[where]; };
+  }
 
   function moveStep(index, delta) {
     const steps = draft.steps;
@@ -61,7 +67,8 @@
 </div>
 
 <h4>Proposée à qui remplit</h4>
-<ConditionEditor cond={draft.eligibility} {choices} unsaved={draft.unsavedAttributes} role="eligibility" emptyLabel="Tout le monde." addLabel="+ condition" />
+<ConditionEditor cond={draft.eligibility} {choices} unsaved={draft.unsavedAttributes} role="eligibility"
+                 seed={seeds.eligibility} onsettle={settle('eligibility')} emptyLabel="Tout le monde." addLabel="+ condition" />
 
 <h4>Étapes</h4>
 {#each draft.steps as step, i (i)}
@@ -84,12 +91,16 @@
               onclick={() => draft.steps.splice(i, 1)}>✕</button>
     </div>
     <div class="muted">Prérequis</div>
-    <ConditionEditor cond={step.prerequisite} {choices} unsaved={draft.unsavedAttributes} role="prerequisite" addLabel="+ prérequis de l'étape" />
+    <ConditionEditor cond={step.prerequisite} {choices} unsaved={draft.unsavedAttributes} role="prerequisite"
+                     seed={seeds['steps.' + i + '.prerequisite']} onsettle={settle('steps.' + i + '.prerequisite')}
+                     addLabel="+ prérequis de l'étape" />
     <div class="muted">Objectif atteint quand</div>
     <ConditionEditor cond={step.completion} {choices} unsaved={draft.unsavedAttributes} role="completion"
+                     seed={seeds['steps.' + i + '.completion']} onsettle={settle('steps.' + i + '.completion')}
                      emptyLabel="Rien de vérifiable : c'est vous qui le déclarez." addLabel="+ condition d'objectif" />
     <div class="muted">Échouée quand (affiché, n'agit jamais)</div>
     <ConditionEditor cond={step.failure} {choices} unsaved={draft.unsavedAttributes} role="failure"
+                     seed={seeds['steps.' + i + '.failure']} onsettle={settle('steps.' + i + '.failure')}
                      emptyLabel="Aucune condition d'échec." addLabel="+ condition d'échec" />
   </div>
 {/each}
