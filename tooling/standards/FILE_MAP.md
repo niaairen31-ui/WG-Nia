@@ -36,6 +36,7 @@
 - `apply_ticket_0114_condition_prompt.py` — One-shot, idempotent delivery of the TICKET-0114 condition interpreter's prompt update onto the live DB (BRIEF-0114-F): the model reads the world's event types -- the `t` list, a new variable `event_types` -- and its sortes (`sortes`), and writes an `event` leaf.
 - `apply_ticket_0119_lore_prompt.py` — One-shot, idempotent delivery of the TICKET-0119 Lore proposal prompt update onto the live DB (BRIEF-0119-G, U1): the lore writing call reads the world's event types -- the `t` list, a new variable `event_types` -- and its sortes (`sortes`), and may return events, or a type the world lacks.
 - `apply_ticket_0119_tick_prompt.py` — One-shot, idempotent delivery of the TICKET-0119 world tick events prompt update onto the live DB (BRIEF-0119-E): the scope-level tick reads the world's event types -- the `t` list, a new variable `event_types` -- and its sortes (`sortes`), and names an event's type by code and its participants by role and name; it proposes no new type (A1).
+- `apply_ticket_0121_designer_prompts.py` — One-shot, idempotent delivery of the TICKET-0121 quest designer's prompt heads (quest_subject, quest_design) onto the live DB (BRIEF-0121-E).
 - `apply_ticket_0121_select_prompt.py` — One-shot, idempotent delivery of the TICKET-0121 plan-selection prompt update onto the live DB (BRIEF-0121-D, K1): the selection answers a third thing -- `route`, "plan" or "quest" -- when the declaration attaches to no open plan, and is called on every declaration (an empty plan list included).
 - `backup.py` — Timestamped, rotated backup of the live world-engine database.
 - `cockpit.py` — Launch the World Engine Cockpit on 127.0.0.1:8000.
@@ -219,11 +220,13 @@
 - `prompt_registry.py` — Prompt registry — code facts about every seeded `prompt_template.usage` (BRIEF-0008-a, schema v1.67).
 - `prompt_store.py` — `prompt_version` read accessor (G1) — TICKET-0011.
 - `proposal_producers.py` — Who proposed a change: the closed list of `proposed_mutation.proposed_by` values, what each one is, and how the creator's dashboard names it (TICKET-0115, BRIEF-0115-C; decision B2 of the conditions series' dashboard).
+- `prose_guard.py` — The prose guard of a quest offer proposal (TICKET-0121, BRIEF-0121-E, V1, INV-63).
 - `prose_render.py` — Prose render — the identity-token read chokepoint (TICKET-0091, BRIEF-0091-J, contract C-13, decision F1).
 - `prose_tokens.py` — Token posing on new canon prose (TICKET-0091, BRIEF-0091-J, contract C-14, decision F1).
+- `quest_designer.py` — The quest designer (TICKET-0121, BRIEF-0121-E; decisions C1, D1, F1, G1, H2, V1).
 - `quest_lore.py` — The lore a quest designer is shown before it designs: what canon already holds on the request's subject.
 - `quest_reads.py` — Quest offers and quests: what the two surfaces read (TICKET-0108, BRIEF-0108-B, contract C-04).
-- `quest_requests.py` — The quest request's reads (TICKET-0121, BRIEF-0121-B, L1): which steps of an agenda are inquiry steps, by the requests that opened them.
+- `quest_requests.py` — The quest request's reads (TICKET-0121, BRIEF-0121-B, L1): which steps of an agenda are inquiry steps, by the requests that opened them, and the request as the creator's panel lists it (BRIEF-0121-E).
 - `quest_settlement_view.py` — What « déclarer accomplie » shows before Nia decides (TICKET-0109, BRIEF-0109-C, G1, contract C-06).
 - `quest_value.py` — The indicative unit of a quest (TICKET-0109, BRIEF-0109-B, C1/E1, contract C-03).
 - `quest_wording.py` — How a quest term reads, in French (TICKET-0109, BRIEF-0109-B, C-04).
@@ -309,6 +312,7 @@
 - `observation.py` — Observation-run routes (TICKET-0051, BRIEF-0051-e/f).
 - `play.py` — Play-path routes: conversations, travel, world-tick.
 - `prompts.py` — Prompt dry-run preview routes (BRIEF-0008-b, C3): zero model calls, zero writes, reuse the real context assemblers and the real system-prompt construction so the preview never drifts from the live path.
+- `quest_requests.py` — The quest requests' routes (TICKET-0121, BRIEF-0121-E, C-12).
 - `quests.py` — Quest routes (TICKET-0108, BRIEF-0108-B, contracts C-03 to C-05).
 - `regions.py` — Region generation + commit routes (BRIEF-34/36/37/38).
 - `room_batch.py` — Room batch generation + commit routes (TICKET-0042).
@@ -501,6 +505,7 @@
 - `prompt_version.py` — G1 checks for TICKET-0011 (BRIEF-0011-a) — prompt_version table, single read accessor, single write shape, versioned edit API.
 - `proposal_producers.py` — G1 check for TICKET-0115 -- every proposal names its producer from one closed list, and code-made proposals are reviewed like a model's (INV-14).
 - `purge_fk_ordering.py` — Runtime G1 check for TICKET-0037 (BRIEF-0037-e) — the shared retention purge helper `_purge_closed_batches` must delete row-children BEFORE their parent batch, under real SQLite FK enforcement (`PRAGMA foreign_keys=ON`, `db.py`'s connect listener).
+- `quest_designer.py` — G1 check for TICKET-0121 -- the quest designer, its proposal, its applier (INV-63).
 - `quest_requests.py` — G1 check for TICKET-0121 -- a quest request is a row the creator works through.
 - `quest_rewards.py` — G1 check for TICKET-0109 -- objects held in quantity, quest terms, the indicative unit, and « déclarer accomplie ».
 - `quests.py` — G1 check for TICKET-0108 -- quest offers, accepted quests, and the requirement vocabulary they share with day plans.

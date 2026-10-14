@@ -2316,6 +2316,176 @@ CONDITION_INTERPRET_PROMPT_HEADS = (
 )
 
 
+# ----- prompt templates: the quest designer (TICKET-0121, BRIEF-0121-E) -----
+# usage "quest_subject": the declaration -> the subject, its keywords and the
+# names it cites (the lore is then searched by those words). usage
+# "quest_design": the offer itself. The design prompt carries the condition
+# interpreter's own language -- the slice of CONDITION_INTERPRET_SYSTEM_PROMPT
+# from "FEUILLES." up to "CONDITION ACTUELLE." -- so a change of that text
+# reaches a fresh seed of the designer (one source for the language). Called
+# by quest_designer._subject and quest_designer._design_call.
+QUEST_SUBJECT_SYSTEM_PROMPT = """\
+Tu prépares une quête pour un jeu de rôle. On te donne la déclaration d'un \
+joueur : ce que son personnage cherche à obtenir. Ton travail : dire de quoi \
+il s'agit, pour qu'on cherche dans le lore du monde.
+
+RÈGLES :
+- "subject" : le sujet de la recherche en quelques mots, tel qu'on le \
+nommerait dans le monde (« le secret de l'acier noir », « les \
+dragons-zombies »).
+- "keywords" : de 1 à 4 mots qui distinguent ce sujet, sans article (["acier", \
+"noir"]).
+- "names" : les noms propres de personnes, de lieux, de factions ou \
+d'objets que la déclaration cite, tels qu'écrits ; [] s'il n'y en a pas.
+
+Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne :
+{"subject":"...","keywords":["..."],"names":["..."]}\
+"""
+
+QUEST_SUBJECT_USER_TEMPLATE = """\
+Personnage : {character_name}
+Déclaration : {declaration}
+{existing}\
+"""
+
+QUEST_DESIGN_PREAMBLE = """\
+Tu conçois une offre de quête pour un jeu de rôle. Un personnage joueur \
+cherche quelque chose ; la créatrice du monde veut qu'une quête lui permette, \
+en jouant, de l'obtenir. On te donne sa déclaration, le sujet, et tout ce que \
+le lore du monde en dit -- y compris des secrets que le joueur ignore et que \
+seules quelques personnes connaissent.
+
+TON TRAVAIL. Choisis d'abord "outcome" :
+- "offer" : tu proposes une quête ;
+- "covered" : une quête de la liste des quêtes mène déjà à ce sujet ; donne \
+son code dans "covered_by" ;
+- "unknown" : le lore ne dit rien du sujet lui-même ; écris dans "unknown" \
+ce qui manque.
+
+LA QUÊTE. Ses étapes mènent le personnage, pas à pas, vers ceux qui savent \
+ou vers ce qu'il faut obtenir : se rendre quelque part, rencontrer quelqu'un, \
+gagner sa confiance, apprendre un fait, détenir un objet, vivre un \
+événement. Chaque étape a :
+- "objective" : ce que le personnage fait, en une phrase, vu du joueur. \
+Un objectif, le titre et le résumé nomment l'action (« Trouver l'érudit de \
+Valmor », « Apprendre ce qu'il sait de la trempe ») ; le contenu d'un fait \
+secret ou réservé à la créatrice reste dans les conditions, par son code ;
+- "cost" : de 1 à 4, les moments de journée qu'elle demande ;
+- "domain" : null, ou "physical", "agility", "perception", "composure" quand \
+elle demande un jet ;
+- "prerequisite" (ce qu'il faut pour la tenter), "completion" (quand son \
+objectif est atteint), "failure" (quand elle a échoué) : chacune null ou une \
+condition (voir CONDITIONS).
+"eligibility" : à qui l'offre est proposée ; null le plus souvent (la \
+créatrice ajoute la rencontre du donneur).
+"title" et "summary" : ce que le joueur lira de l'offre.
+"givers" : jusqu'à trois noms de personnages ou de factions du monde qui \
+pourraient la donner, les plus plausibles d'abord.
+"terms" : ce que la quête coûte et rapporte, chacun {"direction": "cost" | \
+"reward", "currency": "money" | "item" | "relation" | "fact" | "skill", \
+"target": un nom d'objet ou de personnage, un code de fait "f3" ou de \
+compétence "s1", ou null pour la monnaie, "amount": un entier pour la \
+monnaie, l'objet ou la relation, sinon null, "level": null}.
+"notes" : ce que tu veux signaler à la créatrice -- notamment un fait du \
+lore que personne ne sait encore.
+
+CONDITIONS. Chaque condition est un objet {"phrase": la condition en une \
+phrase française, "condition": l'arbre, "define": [], "define_events": [], \
+"define_sortes": [], "unsupported": []} ; l'arbre et les trois listes \
+"define" suivent le langage ci-dessous. Une feuille sur le personnage a \
+"subject": "doer".
+
+
+"""
+
+QUEST_DESIGN_POSTAMBLE = """\
+ERREURS. Si des erreurs sont données, ta réponse précédente a été refusée \
+pour ces raisons : corrige-la.
+
+Réponds UNIQUEMENT avec ce JSON :
+{"outcome": "offer", "covered_by": null, "unknown": null, "title": "...", \
+"summary": "...", "givers": ["..."], "eligibility": null, "steps": \
+[{"objective": "...", "cost": 1, "domain": null, "prerequisite": null, \
+"completion": {"phrase": "...", "condition": {"op": "all", "children": \
+[...]}, "define": [], "define_events": [], "define_sortes": [], \
+"unsupported": []}, "failure": null}], "terms": [], "notes": []}\
+"""
+
+
+def _quest_design_system_prompt() -> str:
+    language = CONDITION_INTERPRET_SYSTEM_PROMPT
+    start = language.index("FEUILLES.")
+    end = language.index("CONDITION ACTUELLE.")
+    return QUEST_DESIGN_PREAMBLE + language[start:end] + QUEST_DESIGN_POSTAMBLE
+
+
+QUEST_DESIGN_SYSTEM_PROMPT = _quest_design_system_prompt()
+
+QUEST_DESIGN_USER_TEMPLATE = """\
+Personnage : {character_name}
+Déclaration : {declaration}
+Sujet : {subject}
+{existence}
+
+Ce que le lore en dit (code — fait — qui le sait) :
+{lore}
+
+Formes :
+{forms}
+
+Types d'entité (clé — nom) :
+{entity_types}
+
+Entités nommées :
+{entities}
+
+Faits (code — texte) :
+{facts}
+
+Quêtes (code — titre) :
+{offers}
+
+Compétences (code — nom) :
+{skills}
+
+États (code — nom, sorte, pour qui) :
+{attributes}
+
+Types d'événements (code — nom, rôles) :
+{event_types}
+
+Sortes :
+{sortes}
+
+Erreurs de ta réponse précédente :
+{errors}\
+"""
+
+QUEST_DESIGNER_PROMPT_HEADS = (
+    dict(
+        id="pt-quest-subject",
+        name="Concepteur de quêtes — le sujet de la demande",
+        usage="quest_subject",
+        world_id=None,
+        system_prompt=QUEST_SUBJECT_SYSTEM_PROMPT,
+        user_template=QUEST_SUBJECT_USER_TEMPLATE,
+        variables=["character_name", "declaration", "existing"],
+        destination="local",
+    ),
+    dict(
+        id="pt-quest-design",
+        name="Concepteur de quêtes — l'offre",
+        usage="quest_design",
+        world_id=None,
+        system_prompt=QUEST_DESIGN_SYSTEM_PROMPT,
+        user_template=QUEST_DESIGN_USER_TEMPLATE,
+        variables=["character_name", "declaration", "subject", "existence", "lore", "forms", "entity_types",
+                   "entities", "facts", "offers", "skills", "attributes", "event_types", "sortes", "errors"],
+        destination="local",
+    ),
+)
+
+
 # ----- day chain prompt text (TICKET-0075; hoisted to module level, TICKET-0076) -----
 # ----- prompt template: day plan emission (TICKET-0075, BRIEF-0075-b) ---
 # usage = "day_plan". world_id = NULL. ONE call (F1): the model proposes
@@ -3341,6 +3511,8 @@ def seed(session: Session) -> None:
     for entry in LORE_WRITE_PROMPT_HEADS:
         upsert_prompt_template(session, **entry)
     for entry in CONDITION_INTERPRET_PROMPT_HEADS:
+        upsert_prompt_template(session, **entry)
+    for entry in QUEST_DESIGNER_PROMPT_HEADS:  # TICKET-0121 (BRIEF-0121-E)
         upsert_prompt_template(session, **entry)
 
     # ----- prompt template: world tick — off-screen NPC advancement ----------

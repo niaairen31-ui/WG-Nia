@@ -18,6 +18,7 @@ PRODUCERS: dict[str, tuple[str, str]] = {
     "local_ai_overhearing": ("model", "Play — ce qui est entendu"),
     "local_ai_tick": ("model", "Tick du monde"),
     "local_ai": ("model", "Journée — modèle"),
+    "local_ai_quest_designer": ("model", "Journée — concepteur de quêtes"),
     "observed_scene": ("model", "Scène observée"),
     "engine": ("engine", "Moteur — sans modèle"),
     "engine_roll": ("auto", "Jet de Play — appliqué d'office"),

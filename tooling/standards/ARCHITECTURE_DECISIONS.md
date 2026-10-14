@@ -20015,6 +20015,53 @@ payload, built with `answer_dict`; no route reads a `condition_draft` back
 (its payload stays « never rendered », `json_ui_boundary.py`). ND1 lists the
 new route.
 
+## JOURNÉE'S QUEST DESIGNER (TICKET-0121) -- THE LORE SEARCHED WHOLE, THE EXISTENCE QUESTION, A QUEST OFFER PROPOSED AND GUARDED (BRIEF-0121-e, no schema change)
+
+From a `quest_request` the designer (`quest_designer.design`, C-11) frames the
+subject (`quest_subject`), reads what the whole lore says of it
+(`quest_lore.gather_lore`, creator regime), and answers one of four things:
+`asking` (nothing in the lore and no answer yet: the creator is asked whether
+the subject exists, N1), `covered` (an open offer already leads there),
+`refused` (no usable step), or `proposed` -- a `quest_offer_creation` row,
+`proposed_by = local_ai_quest_designer`, sourced from the request's
+`pass_play`, never auto-applied (INV-14). Two prompts, `quest_subject` and
+`quest_design`, on the authoring model (INV-19); the design prompt is built in
+the seed from the interpreter's own language text, one source.
+
+**H2 and INV-01.** The designer reads creator-only and secret facts: it is a
+creator surface, so INV-01 names it beside the interpreter. Its output goes
+only into a creator-reviewed proposal; no assembler or player route calls
+`quest_designer` or `gather_lore`.
+
+**C1.** Each condition of the answer is read by the interpreter's own reader
+(`settle_answer`) and journaled as a `condition_draft` (attempt id = the
+request's). A clean tree goes into the payload with its draft id; one that
+needs a name, a proposed attribute or a vocabulary entry, or was refused, has
+tree `null` and a `pending_drafts` entry built with `answer_dict` -- no route
+reads a draft back. The creator's approval inserts the proposed drafts
+(`proposed` -> `inserted`, only those this request journaled) so the offer's
+save marks them `saved`: the dashboard's acceptance rate sees a designer's
+condition like a creator's. One retry carries the retryable errors (II1).
+
+**D1, F1, G1.** Up to three givers resolved by name (matched only, never
+picked for the creator); terms resolved by code (`f`, `s`) or name, an
+unresolved one dropped with a note; a gathered fact no entity knows is a note,
+nothing is invented. A vocabulary the designer lacks is left pending for the
+creator (G1).
+
+**V1 and INV-63.** `prose_guard.flags` finds a run of four tokens shared by
+the title, summary or an objective and a secret fact the designer read
+(creator-only, or held on no non-secret row). The applier recomputes them and
+writes nothing without `flags_confirmed`, a giver and no pending condition
+(`apply_offer_proposal` through `save_offer_body`, the creator CRUD's own
+save, INV-08). A paraphrase passes: the creator's review stays the last
+barrier for prose.
+
+**The payload consumer.** The review card edits `payload` field by field, a
+second structured consumer of the reached « payload » deferral
+(`dashboard_deferrals.py`), flagged for Nia; the exemption's comment names
+both cards, its anchor sentence untouched.
+
 ---
 
 *Co-built with Claude, June 2026.*

@@ -929,3 +929,12 @@ def _mutation_apply_agenda_delegation(mut: ProposedMutation, payload: dict, db: 
     except ValueError as exc:
         return f"agenda_delegation: {exc}"
     return None
+
+
+def _mutation_apply_quest_offer_creation(mut: ProposedMutation, payload: dict, db: Session) -> Optional[str]:
+    """TICKET-0121 (BRIEF-0121-E, C-10, INV-63): a designer's offer, written through Création's own
+    save (`quest_offer_save`) once approved; refused -- nothing written -- without a giver, with a
+    secret repeated and unconfirmed, or with a condition still waiting."""
+    from .quest_offer_save import apply_offer_proposal
+
+    return apply_offer_proposal(mut, payload, db)

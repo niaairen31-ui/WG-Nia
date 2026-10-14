@@ -135,7 +135,7 @@ listed in `tooling/verify/baselines/invariant_ids.retired`. Each ends with
   from one). The creator's note on an entity (a `histoire` fact whose entity
   holds an `unaware` `is_secret` row on it) is excluded from `facet_reads`;
   only the Lore dossier opts in, plus the `creator` regime of `name_index`
-  (Lore question, names panel, writing panel, condition interpreter). Token
+  (Lore question, names panel, writing panel, condition interpreter, quest designer). Token
   posing never indexes a creator-only or unscoped appellation. [no check]
 - **INV-02** The MJ context assembler is scoped to the player's perception
   boundary: only what the player may perceive or already knows. Never
