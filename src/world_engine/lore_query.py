@@ -154,6 +154,17 @@ def _near_blocks(surface_forms: tuple[str, ...], world_id: str, db: Session) -> 
     )
 
 
+def _call_args(call_args: list, arg_kinds: tuple, world_id: str, resolutions: dict) -> list:
+    """A call's arguments as its selector takes them: a `text:<mots>`
+    argument's words (BRIEF-0121-C), the world id for `$world`, else the
+    mention's resolved entity id."""
+    return [
+        a[len(TEXT_PREFIX):].strip() if kind == "text"
+        else world_id if a == "$world" else resolutions[a].entity_id
+        for a, kind in zip(call_args, arg_kinds)
+    ]
+
+
 def execute_plan(
     plan: LorePlan, world_id: str, db: Session, bindings: Optional[dict[str, str]] = None
 ) -> LoreResult:
@@ -204,11 +215,7 @@ def execute_plan(
     content_row_count = 0
     for call in plan.calls:
         spec = _SELECTOR_LOOKUPS[call.selector]
-        args = [
-            a[len(TEXT_PREFIX):].strip() if kind == "text"
-            else world_id if a == "$world" else resolutions[a].entity_id
-            for a, kind in zip(call.args, spec.arg_kinds)
-        ]
+        args = _call_args(call.args, spec.arg_kinds, world_id, resolutions)
         result_rows = spec.fn(*args, db)
         for row in result_rows:
             if "section" not in row:
