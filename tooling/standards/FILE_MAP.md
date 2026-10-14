@@ -506,6 +506,7 @@
 - `proposal_producers.py` — G1 check for TICKET-0115 -- every proposal names its producer from one closed list, and code-made proposals are reviewed like a model's (INV-14).
 - `purge_fk_ordering.py` — Runtime G1 check for TICKET-0037 (BRIEF-0037-e) — the shared retention purge helper `_purge_closed_batches` must delete row-children BEFORE their parent batch, under real SQLite FK enforcement (`PRAGMA foreign_keys=ON`, `db.py`'s connect listener).
 - `quest_designer.py` — G1 check for TICKET-0121 -- the quest designer, its proposal, its applier (INV-63).
+- `quest_request_panel.py` — G1 check: a quest request is worked from the review queue, its lore from the Lore panel (TICKET-0121, BRIEF-0121-G, C-14).
 - `quest_requests.py` — G1 check for TICKET-0121 -- a quest request is a row the creator works through.
 - `quest_review_card.py` — G1 check: a proposed quest is reviewed in the offer editor (TICKET-0121, BRIEF-0121-F, C-14).
 - `quest_rewards.py` — G1 check for TICKET-0109 -- objects held in quantity, quest terms, the indicative unit, and « déclarer accomplie ».

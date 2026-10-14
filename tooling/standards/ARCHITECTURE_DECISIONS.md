@@ -20158,6 +20158,45 @@ consumer of `payload` under the reached « payload » deferral
 is the value request both « Quêtes » and the card make. Gate:
 `quest_review_card.py` RC1-RC4.
 
+## A QUEST REQUEST IS WORKED FROM THE REVIEW QUEUE, ITS LORE FROM THE LORE PANEL (TICKET-0121) -- QuestRequests.svelte (BRIEF-0121-g, no schema change)
+
+**L1, N1.** Every request a day opened waits in « Demandes de quête »,
+above the review queue's cards: the day, the declaration's first line,
+the trigger and the status in French, the subject once known, the note.
+Each row offers what its status allows -- « Concevoir » (`new`,
+`covered`, a rejected proposal), the existence question (`asking`),
+« Écrire dans Lore » (`writing_lore`), « Mettre de côté », and « Voir la
+proposition », which sets the queue's filter to the proposal's status so
+its card shows below. The client mirrors C-02's case table only to hide
+buttons; the server decides every move. `questRequests.svelte.js` holds
+the state and the four route calls.
+
+**Why above the queue, not a tab.** A request becomes a proposal, and the
+proposal is reviewed in the queue's card (BRIEF-0121-f): the two belong
+on one surface. `QuestRequests.svelte` is a child of `Queue.svelte`,
+reloading on the world and the queue's `reloadToken` like the queue --
+no Création island and no registry entry (INV-49, INV-50).
+
+**The Lore hand-off and its return.** « Oui, il existe » and « Non, il
+n'existe pas » post the answer; the route's statement pre-fills the
+writing panel (`openForQuestRequest`: a fresh use of the panel, with
+`questRequestId`, its subject and its world) and the Lore surface opens.
+« Écrire dans Lore » on a `writing_lore` row rebuilds the same statement
+client-side from `creator_text`. `Lore.svelte` opens « Écrire » from one
+`$effect` that reads `writeState.questRequestId` and writes only `loreTab`
+(INV-55), and shows « Pour la demande de quête : <subject> » while it is
+set. The panel's own mount reset (`reloadForWorld`) keeps a pending
+hand-off of the same world; a world change or « Recommencer » clears it.
+The commit sends `quest_request_id`; on success it posts `.../design` --
+its error in the panel's error line, the commit already done -- then
+clears the id and bumps the queue's `reloadToken`. « Le lore le dit
+déjà » picks the entity from the offer editor's choices and designs at
+once.
+
+Nothing here reaches a model or a player surface (INV-01): the panel
+shows the creator what she asked about. Gate: `quest_request_panel.py`
+RP1-RP4.
+
 ---
 
 *Co-built with Claude, June 2026.*
