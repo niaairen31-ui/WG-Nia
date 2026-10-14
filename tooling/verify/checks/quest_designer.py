@@ -8,15 +8,20 @@ QD2 -- a world with an NPC knowing a secret fact and a scripted offer (two steps
    givers [the NPC, an unknown name]): one `quest_offer_creation` proposal by `local_ai_quest_designer`,
    sourced from the request's pass_play, every key of C-10, one giver suggestion and a note for the
    other, the fact in `secret_fact_ids`, one `condition_draft` per non-null condition (attempt id =
-   the request's), the request `proposed` with its `mutation_id`.
+   the request's), the request `proposed` with its `mutation_id`; a condition that defines a new
+   state is in `pending_drafts` with `answer.outcome == "proposed"`, its tree null
+   (AMENDMENT-0121-01, D-05).
 QD3 -- an objective repeating four words of the secret fact: one flag on `steps.1.objective`;
    approving with a giver and `flags_confirmed` false leaves the proposal `approved` with the error and
    writes no offer; with `flags_confirmed` true -> `applied`, one offer with that giver, `target_id`
-   its id, the request's `offer_id`, every proposed draft of the payload `saved` (INV-63).
+   its id, the request's `offer_id` (INV-63). D-02 (AMENDMENT-0121-01): a draft the approved payload
+   names that was already `inserted` ends `saved`; a draft of the request it no longer names keeps
+   its outcome.
 QD4 -- a condition naming an ambiguous name: its tree null, one `pending_drafts` entry whose answer
    is `needs_choice`; approving -> « Des conditions attendent encore un choix. », nothing written.
 QD5 -- a first answer with a refused condition (an unknown form), the second fixed: two design
-   calls, the second carrying the error; the proposal comes from the second.
+   calls, the second carrying the error; the proposal comes from the second. Approving it leaves
+   every draft of the first answer neither `inserted` nor `saved` (D-02).
 QD6 -- `covered` naming an open offer's code -> the request `covered`, its `offer_id` that offer;
    `unknown` -> `asking` with the note.
 QD7 -- the routes: `/design` on `writing_lore` -> 409; `/answer` `absent` on `asking` ->
@@ -227,14 +232,24 @@ def check_qd1(db, ids) -> object:
 
 # --- QD2 / QD3 -----------------------------------------------------------------------
 
-def _offer_answers(repeat: bool = False):
+def _defined_state() -> dict:
+    """A condition proposing a new state (AMENDMENT-0121-01, D-05): proposed, yet pending."""
+    return {**_cond("Être reconnu par la guilde", _leaf("attribute", {"define": "d1"}, value="oui")),
+            "define": [{"ref": "d1", "name": "Reconnu par la guilde", "kind": "choice", "for": ["character"],
+                        "choices": ["non", "oui"], "default": "non", "hidden": False}]}
+
+
+def _offer_answers(repeat: bool = False, define: bool = False):
     def second(user: str) -> dict:
         code = _code(user, "Le secret", "f")
         objective = ("Apprendre que le secret de l'acier noir tient dans la trempe" if repeat
                      else "Apprendre la trempe auprès de lui")
+        first = _step("Rencontrer Orvane", _cond("Avoir rencontré Orvane", _leaf(
+            "has_met", {"name": "Orvane", "kind": "person"})))
+        if define:
+            first["failure"] = _defined_state()
         return _design(
-            _step("Rencontrer Orvane", _cond("Avoir rencontré Orvane", _leaf(
-                "has_met", {"name": "Orvane", "kind": "person"}))),
+            first,
             _step(objective, _cond("Connaître le secret", _leaf("knowledge", {"code": code})), 2, "perception"),
             givers=("Orvane", "Zorglub"),
             terms=({"direction": "cost", "currency": "money", "target": None, "amount": 10, "level": None},))
@@ -245,7 +260,7 @@ def check_qd2(db, ids) -> object:
     from world_engine.models import ProposedMutation
 
     request = _request(db, ids)
-    result = _run(db, request, _subject(), _offer_answers())
+    result = _run(db, request, _subject(), _offer_answers(define=True))
     mut = result.mutation
     if result.outcome != "proposed" or mut is None:
         fail(f"QD2: outcome {result.outcome!r}, notes {result.notes}")
@@ -268,8 +283,8 @@ def check_qd2(db, ids) -> object:
     if ids["fact"] not in payload["secret_fact_ids"]:
         fail("QD2: the secret fact is not in secret_fact_ids")
     drafts = _drafts(db, request)
-    if len(drafts) != 2 or any(d.outcome != "proposed" for d in drafts):
-        fail(f"QD2: {len(drafts)} drafts ({[d.outcome for d in drafts]}), expected 2 proposed")
+    if len(drafts) != 3 or any(d.outcome != "proposed" for d in drafts):
+        fail(f"QD2: {len(drafts)} drafts ({[d.outcome for d in drafts]}), expected 3 proposed")
     steps = payload["steps"]
     if len(steps) != 2 or any(s["completion"] is None or not s["completion_draft_id"] for s in steps):
         fail("QD2: a step lost its completion tree or draft id")
@@ -277,8 +292,11 @@ def check_qd2(db, ids) -> object:
         fail(f"QD2: terms {payload['terms']}")
     if request.status != "proposed" or request.mutation_id != mut.id or request.subject != "le secret de l'acier noir":
         fail(f"QD2: request {request.status!r}, mutation_id {request.mutation_id!r}")
-    if payload["flags"] or payload["pending_drafts"]:
-        fail(f"QD2: flags {payload['flags']} / pending {len(payload['pending_drafts'])} on a clean offer")
+    if payload["flags"]:
+        fail(f"QD2: flags {payload['flags']} on a clean offer")
+    pending = payload["pending_drafts"]
+    if [p["where"] for p in pending] != ["steps.0.failure"] or pending[0]["answer"].get("outcome") != "proposed"             or steps[0]["failure"] is not None or steps[0]["failure_draft_id"] is not None:
+        fail(f"QD2: a defined state is not pending as proposed: {[(p['where'], p['answer'].get('outcome')) for p in pending]}")
     return request
 
 
@@ -309,7 +327,16 @@ def check_qd3(db, ids) -> None:
     no_giver = _approve(db, mut, {**payload, "flags_confirmed": True})
     if no_giver.get("status") != "approved" or "donneur" not in str(no_giver.get("error")) or _offers(db, ids, title):
         fail(f"QD3: no giver -> {no_giver.get('status')!r} / {no_giver.get('error')!r}")
-    done = _approve(db, mut, {**payload, "giver_entity_id": ids["npc"], "flags_confirmed": True})
+    # D-02: a draft the payload names that the creator already inserted (the card) ends saved; a draft
+    # of this request the approved payload no longer names keeps its outcome.
+    from world_engine.writes.condition_drafts import move_condition_draft
+
+    inserted_id = payload["steps"][0]["completion_draft_id"]
+    unnamed_id = payload["steps"][1]["completion_draft_id"]
+    move_condition_draft(db, db.get(ConditionDraft, inserted_id), "inserted")
+    db.commit()
+    steps = [dict(payload["steps"][0]), {**payload["steps"][1], "completion_draft_id": None}]
+    done = _approve(db, mut, {**payload, "steps": steps, "giver_entity_id": ids["npc"], "flags_confirmed": True})
     offers = _offers(db, ids, title)
     if done.get("status") != "applied" or len(offers) != 1 or offers[0].giver_entity_id != ids["npc"]:
         fail(f"QD3: confirmed -> {done.get('status')!r} / {done.get('error')!r}, {len(offers)} offer(s)")
@@ -318,10 +345,11 @@ def check_qd3(db, ids) -> None:
     db.refresh(request)
     if mut.target_id != offers[0].id or request.offer_id != offers[0].id or request.status != "proposed":
         fail("QD3: target_id or the request's offer_id is not the written offer")
-    wanted = {payload["steps"][0]["completion_draft_id"], payload["steps"][1]["completion_draft_id"]}
-    states = {d.id: d.outcome for d in db.exec(select(ConditionDraft)).all() if d.id in wanted}
-    if set(states) != wanted or set(states.values()) != {"saved"}:
-        fail(f"QD3: the payload's drafts are {states}, expected saved")
+    states = {d.id: d.outcome for d in _drafts(db, request)}
+    if states.get(inserted_id) != "saved":
+        fail(f"QD3: the named draft inserted before approval is {states.get(inserted_id)!r}, expected saved")
+    if states.get(unnamed_id) != "proposed":
+        fail(f"QD3: a draft the payload does not name became {states.get(unnamed_id)!r}")
     if db.get(QuestRequest, request.id).offer_id != offers[0].id:
         fail("QD3: the request does not hold its offer")
 
@@ -355,7 +383,8 @@ def check_qd4(db, ids) -> None:
 def check_qd5(db, ids) -> None:
     request = _request(db, ids)
     bad = _design(_step("Aller à la forge", _cond("Téléporté", _leaf("teleport", {"name": "Orvane", "kind": "person"}))),
-                  title="Première réponse")
+                  _step("Voir Orvane", _cond("Avoir rencontré Orvane", _leaf(
+                      "has_met", {"name": "Orvane", "kind": "person"}))), title="Première réponse")
     good = _design(_step("Aller à la forge", _cond("Avoir rencontré Orvane", _leaf(
         "has_met", {"name": "Orvane", "kind": "person"}))), title="Seconde réponse")
     result = _run(db, request, _subject(), bad, good)
@@ -365,6 +394,18 @@ def check_qd5(db, ids) -> None:
              f"{'steps.0.completion' in (designs[1][1] if len(designs) > 1 else '')}")
     if result.mutation is None or result.mutation.payload["title"] != "Seconde réponse":
         fail(f"QD5: proposal {result.outcome!r}, not from the second answer")
+        return
+    # D-02: approving the second answer's offer leaves every draft of the first answer as written.
+    first = [d for d in _drafts(db, request) if not d.retried]
+    if not any(d.outcome == "proposed" for d in first):
+        fail(f"QD5: the first answer journaled no proposed draft ({[d.outcome for d in first]})")
+    out = _approve(db, result.mutation, {**result.mutation.payload, "giver_entity_id": ids["npc"]})
+    if out.get("status") != "applied":
+        fail(f"QD5: approving the second answer -> {out.get('status')!r} / {out.get('error')!r}")
+    for d in first:
+        db.refresh(d)
+    if any(d.outcome in ("inserted", "saved") for d in first):
+        fail(f"QD5: a first-answer draft moved: {[d.outcome for d in first]}")
 
 
 # --- QD6 -----------------------------------------------------------------------------

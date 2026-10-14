@@ -30,7 +30,6 @@ from .prose_guard import flags as prose_flags
 from .prose_guard import secret_ids
 from .prose_render import fact_texts
 from .quest_lore import gather_lore
-from .quest_requests import SUBJECT_FIELD
 from .writes.condition_drafts import write_condition_draft
 from .writes.quest_requests import DESIGNER_PRODUCER, QUEST_OFFER_CREATION, move_request
 
@@ -76,7 +75,7 @@ def _subject(db: Session, request: QuestRequest, exchanges: Optional[list]) -> d
         "existing": EXISTENCE_FR["already"].format(name=existing) if existing else "",
     }
     parsed = prompt_call.call_json(db, SUBJECT_USAGE, values, exchanges, chat)
-    if not str(parsed.get(SUBJECT_FIELD) or "").strip():
+    if not str(parsed.get("subject") or "").strip():
         raise LlmParseError("quest_subject: the answer names no subject")
     return parsed
 
@@ -104,13 +103,13 @@ def _lore_lines(ctx: _interpreter.InterpreterContext, gathering) -> str:
     return "\n".join(lines) or "(rien)"
 
 
-def _design_values(db: Session, request: QuestRequest, topic: str, ctx, gathering,
+def _design_values(db: Session, request: QuestRequest, subject: str, ctx, gathering,
                    errors: list[str]) -> dict[str, str]:
     base = _interpreter.prompt_values(ctx, "eligibility", request.declaration, errors)
     values = {key: base[key] for key in ("forms", "entities", "facts", "offers", "skills", "attributes",
                                          "entity_types", "event_types", "sortes", "errors")}
     values.update(character_name=_entity_name(db, request.character_id), declaration=request.declaration,
-                  lore=_lore_lines(ctx, gathering), existence=_existence(request, db), **{SUBJECT_FIELD: topic})
+                  lore=_lore_lines(ctx, gathering), existence=_existence(request, db), subject=subject)
     return values
 
 
@@ -247,7 +246,7 @@ def _unknown_facts(db: Session, world_id: str, fact_ids: tuple[str, ...]) -> lis
     return [f"Personne ne sait encore : {text}" for text in fact_texts(db, facts)]
 
 
-def _payload(db: Session, request: QuestRequest, topic: str, answer: dict, steps: list[dict],
+def _payload(db: Session, request: QuestRequest, subject: str, answer: dict, steps: list[dict],
              settled: list[dict], ctx, notes: list[str]) -> dict:
     """C-10, whole."""
     by_where = {e["where"]: e for e in settled}
@@ -274,7 +273,7 @@ def _payload(db: Session, request: QuestRequest, topic: str, answer: dict, steps
     texts = {"title": title, "summary": summary,
              **{f"steps.{i}.objective": s["objective"] for i, s in enumerate(steps)}}
     return {
-        "request_id": request.id, "character_id": request.character_id, SUBJECT_FIELD: topic,
+        "request_id": request.id, "character_id": request.character_id, "subject": subject,
         "giver_entity_id": "", "contact_entity_id": None,
         "giver_suggestions": _givers(db, request.world_id, answer, notes),
         "title": title, "summary": summary, "repeatable": False, "status": "open",
@@ -308,31 +307,31 @@ def design(db: Session, request: QuestRequest, exchanges: Optional[list] = None)
 def _design(db: Session, request: QuestRequest, subject_calls: list, design_calls: list) -> DesignResult:
     world_id = request.world_id
     parsed = _subject(db, request, subject_calls)
-    topic = str(parsed[SUBJECT_FIELD]).strip()
+    subject = str(parsed["subject"]).strip()
     gathering = gather_lore(
         db, world_id, keywords=_strings(parsed.get("keywords")), names=_strings(parsed.get("names")),
         entity_ids=(request.existing_entity_id,) if request.existing_entity_id else (),
         lore_entry_id=request.lore_entry_id)
     if gathering.empty and request.existence_answer is None:
-        move_request(db, request, "asking", **{SUBJECT_FIELD: topic})
+        move_request(db, request, "asking", subject=subject)
         return DesignResult("asking")
-    instruction = f"{request.declaration} {topic}"
+    instruction = f"{request.declaration} {subject}"
 
     def context():
         return _interpreter.build_context(db, world_id, instruction, None, (), extra_fact_ids=gathering.fact_ids)
 
     ctx = context()
-    answer = _design_call(db, _design_values(db, request, topic, ctx, gathering, []), design_calls)
+    answer = _design_call(db, _design_values(db, request, subject, ctx, gathering, []), design_calls)
     if answer["outcome"] == "covered":
         offer_id = ctx.lists["q"].resolve(answer.get("covered_by"))
         offer = db.get(QuestOffer, offer_id) if offer_id else None
         if offer is None or offer.world_id != world_id or offer.status != "open":
             raise LlmParseError("quest_design: covered_by names no open quest offer of the list")
-        move_request(db, request, "covered", offer_id=offer.id, **{SUBJECT_FIELD: topic})
+        move_request(db, request, "covered", offer_id=offer.id, subject=subject)
         return DesignResult("covered", notes=[f"Déjà couvert par « {offer.title} »."])
     if answer["outcome"] == "unknown":
         why = str(answer.get("unknown") or "").strip() or "Le lore ne dit rien de ce sujet."
-        move_request(db, request, "asking", note=why, **{SUBJECT_FIELD: topic})
+        move_request(db, request, "asking", note=why, subject=subject)
         return DesignResult("asking", notes=[why])
     notes: list[str] = []
     steps = _steps(answer, notes)
@@ -342,7 +341,7 @@ def _design(db: Session, request: QuestRequest, subject_calls: list, design_call
     errors = _retry_errors(settled)
     if errors:
         ctx = context()
-        again = _design_call(db, _design_values(db, request, topic, ctx, gathering, errors), design_calls)
+        again = _design_call(db, _design_values(db, request, subject, ctx, gathering, errors), design_calls)
         if again["outcome"] != "offer":
             raise LlmParseError("quest_design: the corrected answer is no offer")
         answer, notes = again, []
@@ -351,12 +350,12 @@ def _design(db: Session, request: QuestRequest, subject_calls: list, design_call
             return DesignResult("refused", notes=notes + [NO_STEP_FR])
         settled = _settle(db, request, ctx, _conditions(steps, answer.get("eligibility")), [], True)
     notes += _settled_notes(settled, answer) + _unknown_facts(db, world_id, gathering.fact_ids)
-    payload = _payload(db, request, topic, answer, steps, settled, ctx, notes)
+    payload = _payload(db, request, subject, answer, steps, settled, ctx, notes)
     mutation = ProposedMutation(
         world_id=world_id, source_type="pass_play", pass_play_id=request.pass_play_id,
         mutation_type=QUEST_OFFER_CREATION, target_table="quest_offer", payload=payload,
-        status="proposed", proposed_by=DESIGNER_PRODUCER, rationale=f"quest request {request.id} -- {topic}")
+        status="proposed", proposed_by=DESIGNER_PRODUCER, rationale=f"quest request {request.id} -- {subject}")
     db.add(mutation)
     db.flush()
-    move_request(db, request, "proposed", mutation_id=mutation.id, **{SUBJECT_FIELD: topic})
+    move_request(db, request, "proposed", mutation_id=mutation.id, subject=subject)
     return DesignResult("proposed", mutation, payload["notes"])

@@ -120,16 +120,19 @@ def save_offer_body(db: Session, world_id: str, body: OfferBody, offer: Optional
     return offer
 
 
-def _insert_designer_drafts(db: Session, request: QuestRequest, payload: dict) -> None:
-    """The creator's approval is the designer's condition being inserted: each `proposed` draft the
-    payload names -- and only a draft journaled by this request -- moves to `inserted`, so the save's
-    `_mark_drafts` can mark it `saved` (`mark_draft_saved` takes an inserted one alone)."""
+def _insert_named_drafts(db: Session, world_id: str, payload: dict) -> None:
+    """AMENDMENT-0121-01, D-02: the creator's approval inserts exactly the drafts the approved payload
+    names in its `*_draft_id` fields -- one still `proposed` moves to `inserted`, so the save's
+    `_mark_drafts` marks it `saved` (`mark_draft_saved` takes an inserted one alone); one already
+    `inserted` is saved as is; any other outcome is left alone. The request's other drafts (a first
+    answer a retry replaced) keep what they recorded. The ids come from the payload, never from a
+    query on `attempt_id`."""
     ids = [payload.get("eligibility_draft_id")] + [
         s.get(role) for s in payload.get("steps") or [] if isinstance(s, dict)
         for role in ("prerequisite_draft_id", "completion_draft_id", "failure_draft_id")]
-    for draft_id in dict.fromkeys(i for i in ids if i):
+    for draft_id in dict.fromkeys(i for i in ids if isinstance(i, str) and i):
         draft = db.get(ConditionDraft, draft_id)
-        if draft is not None and draft.attempt_id == request.id and draft.world_ref == request.world_id                 and draft.outcome == "proposed":
+        if draft is not None and draft.world_ref == world_id and draft.outcome == "proposed":
             move_condition_draft(db, draft, "inserted")
 
 
@@ -147,11 +150,12 @@ def apply_offer_proposal(mut: ProposedMutation, payload: dict, db: Session) -> O
     texts = {"title": payload.get("title") or "", "summary": payload.get("summary") or "",
              **{f"steps.{i}.objective": s.get("objective") or ""
                 for i, s in enumerate(payload.get("steps") or []) if isinstance(s, dict)}}
-    if prose_guard.flags(db, texts, list(payload.get("secret_fact_ids") or []))             and payload.get("flags_confirmed") is not True:
+    flagged = prose_guard.flags(db, texts, list(payload.get("secret_fact_ids") or []))
+    if flagged and payload.get("flags_confirmed") is not True:
         return "Confirme les passages qui répètent un secret."
     if payload.get("pending_drafts"):
         return "Des conditions attendent encore un choix."
-    _insert_designer_drafts(db, request, payload)
+    _insert_named_drafts(db, request.world_id, payload)
     keys = set(OfferBody.model_fields)
     try:
         body = OfferBody.model_validate({k: v for k, v in payload.items() if k in keys})

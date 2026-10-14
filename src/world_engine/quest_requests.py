@@ -10,10 +10,6 @@ from sqlmodel import Session, select
 from .models import AgendaStep, Batch, Entity, PassPlay, ProposedMutation, QuestOffer, QuestRequest
 
 INQUIRY_TRIGGERS: tuple[str, ...] = ("route", "dropped")
-# The framed subject's column, and the key it travels under in the designer's payload and the
-# prompt's answer. Derived from the table rather than spelled, so `knowledge_identity.py` K3's
-# census of `subject` references stays what it pinned (BRIEF-0121-B's posture).
-SUBJECT_FIELD: str = next(name for name in QuestRequest.__table__.c.keys() if name.startswith("subj"))
 
 
 def inquiry_step_ids(db: Session, agenda_id: str) -> frozenset[str]:
@@ -37,7 +33,7 @@ def request_dict(request: QuestRequest, db: Session) -> dict:
     offer = db.get(QuestOffer, request.offer_id) if request.offer_id else None
     return {
         "id": request.id, "trigger": request.trigger, "status": request.status,
-        "declaration": request.declaration, SUBJECT_FIELD: getattr(request, SUBJECT_FIELD),
+        "declaration": request.declaration, "subject": request.subject,
         "character_name": character.name if character is not None else None,
         "day_number": batch.day_number if batch is not None else None,
         "existence_answer": request.existence_answer, "creator_text": request.creator_text,

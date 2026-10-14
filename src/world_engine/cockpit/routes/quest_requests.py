@@ -26,7 +26,7 @@ from ...db import get_session
 from ...llm_parse import LlmParseError
 from ...models import Entity, ProposedMutation, QuestRequest
 from ...ollama_client import OllamaError
-from ...quest_requests import SUBJECT_FIELD, request_dict, world_requests
+from ...quest_requests import request_dict, world_requests
 from ...writes.quest_requests import move_request
 from .. import crud as _crud
 
@@ -92,7 +92,7 @@ def answer(request_id: str, body: AnswerBody, db: Session = Depends(get_session)
     request = _request(db, request_id)
     if request.status != "asking":
         raise HTTPException(status_code=409, detail=f"a {request.status!r} request asks nothing")
-    topic = getattr(request, SUBJECT_FIELD) or request.declaration
+    subject = request.subject or request.declaration
     if body.answer == "already":
         entity = db.get(Entity, body.entity_id) if body.entity_id else None
         if entity is None or entity.world_id != request.world_id:
@@ -102,8 +102,8 @@ def answer(request_id: str, body: AnswerBody, db: Session = Depends(get_session)
     else:
         text = body.text.strip()
         move_request(db, request, "writing_lore", existence_answer=body.answer, creator_text=text)
-        statement = f"{topic} : {text}" if body.answer == "exists" else \
-            f"{topic} n'existe pas dans ce monde. {text}".strip()
+        statement = f"{subject} : {text}" if body.answer == "exists" else \
+            f"{subject} n'existe pas dans ce monde. {text}".strip()
     db.commit()
     db.refresh(request)
     return {"request": request_dict(request, db), "statement": statement}

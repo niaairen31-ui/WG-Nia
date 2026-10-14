@@ -116,6 +116,12 @@ _SUBJECT_CENSUS: dict[str, int] = {
     # TICKET-0112, BRIEF-0112-C: a condition leaf's `subject` in the model's
     # form (C-03) -- whom the leaf judges, never a knowledge key.
     "src/world_engine/condition_interpreter.py": 3,
+    # TICKET-0121, BRIEF-0121-B: a quest request's subject (what the player seeks) -- never a knowledge key.
+    "src/world_engine/writes/quest_requests.py": 1,
+    # TICKET-0121, BRIEF-0121-E: a quest request's subject (what the player seeks) -- never a knowledge key.
+    "src/world_engine/quest_requests.py": 2,
+    "src/world_engine/quest_designer.py": 10,
+    "src/world_engine/cockpit/routes/quest_requests.py": 1,
 }
 
 A = "11111111-1111-1111-1111-111111111111"

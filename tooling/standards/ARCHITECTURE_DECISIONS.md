@@ -20062,6 +20062,36 @@ second structured consumer of the reached « payload » deferral
 (`dashboard_deferrals.py`), flagged for Nia; the exemption's comment names
 both cards, its anchor sentence untouched.
 
+## THE DESIGNER'S DRAFTS ARE SAVED ONLY AS THE APPROVED OFFER NAMES THEM; A REQUEST'S SUBJECT IS COUNTED (TICKET-0121) -- AMENDMENT-0121-01 (BRIEF-0121-e, no schema change)
+
+**D-02, the drafts.** `mark_draft_saved` moves an `inserted` draft only, so
+the applier (`quest_offer_save._insert_named_drafts`) first inserts the
+drafts the approved payload names in its `eligibility_draft_id` and
+`steps[i].*_draft_id` fields -- one still `proposed` becomes `inserted`, one
+already `inserted` (the card) is saved as is, any other is left alone -- and
+the save marks them `saved`. The ids come from the payload, never from a
+query on `attempt_id`: a first answer the retry replaced, or a draft the
+approved payload no longer names, keeps what it recorded. The first form
+inserted every `proposed` draft of the request the payload named and
+filtered on `attempt_id`, which would have skipped a draft the card
+re-interpreted under its own attempt.
+
+**D-03, the `subject` census.** `knowledge_identity.py` K3 pins every
+`subject` reference of `src/world_engine`; a new one is red until someone
+decides it belongs. A quest request's subject (what the player seeks) is
+written plainly -- the column, `move_request`'s `subject=`, the payload key,
+the prompt's answer key -- and each file holding it has its census entry:
+`writes/quest_requests.py` 1 (BRIEF-0121-B), `quest_requests.py` 2,
+`quest_designer.py` 10, `cockpit/routes/quest_requests.py` 1 (BRIEF-0121-E).
+The run-time derivations that kept the census blind (a field name read
+from the table, and `_MOVABLE_FIELDS` computed from its columns) are gone.
+
+**D-05, pending conditions.** A condition whose interpretation is
+`proposed` but which proposes a state, an event type or a sorte stays in
+`pending_drafts`, its tree null: the payload's `unsaved_attributes` is
+empty, so the save would refuse a tree naming a `new:` attribute. The
+creator confirms the definition in the card before it enters the offer.
+
 ---
 
 *Co-built with Claude, June 2026.*
