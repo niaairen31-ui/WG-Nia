@@ -63,6 +63,10 @@ CREATOR_ALLOWED = {
     # TICKET-0112 (BRIEF-0112-C, ID1a): the condition interpreter resolves the
     # names of the creator's own sentence, a surface of the creator's.
     "src/world_engine/condition_interpreter.py",
+    # TICKET-0121 (H2, INV-01): the quest designer reads all lore, secrets
+    # included; prose_guard flags a secret repeated in a player field.
+    "src/world_engine/quest_designer.py",
+    "src/world_engine/quest_lore.py",
 }
 
 FAILURES: list[str] = []
