@@ -363,6 +363,11 @@ One line per property the briefs assert about `main`: property -- finding -- dec
 - CLAUDE.md's size and budget; INV-01's list; the highest id -- R-21 -- `CLAUDE.md`, `checks/claude_md_contract.py`, `invariant_ids.retired`.
 - `evaluate`/`Bindings`/`describe`/`all_of`/`read_condition` signatures -- R-23 -- `conditions.py`, `condition_text.py`.
 - a DB-backed check's fixture setup -- R-24 -- `checks/mutation_reviews.py`.
+- the six rules pinned to `QuestOffers.svelte` and their patterns, now in `OfferEditor.svelte` -- R-A02-01 (AMENDMENT-0121-02) -- `checks/attribute_interpreter.py`, `checks/condition_interpreter.py`, `checks/conditions.py`, `checks/debts.py`, `checks/event_conditions.py`, `checks/quest_rewards.py`.
+- brief F's move is markup-verbatim, wiring-only differences -- R-A02-02 (AMENDMENT-0121-02) -- `OfferEditor.svelte`, `QuestOffers.svelte` (`f499a4a`).
+- no `function_length` baseline: every function <= 80 lines -- R-A02-03 (AMENDMENT-0121-02) -- `checks/function_length.py`, `cockpit/day_plan_finalize.py`, `lore_query.py`.
+- `CREATOR_ALLOWED`'s paths and their per-ticket comments -- R-A02-04 (AMENDMENT-0121-02) -- `checks/name_index.py`.
+- the designer's output reaches a player only after approval; `prose_guard` covers title, summary, objectives -- R-A02-05 (AMENDMENT-0121-02) -- `quest_designer.py`, `quest_lore.py`, `prose_guard.py`.
 
 ### (b) Case tables
 
@@ -456,6 +461,9 @@ The status family (C-02), the trigger family (C-02/C-07), the band family (C-08)
 - `quest_review_card.py` (F) -- `OfferEditor.svelte`, `QuestOffers.svelte`, `QueueCard.svelte`, `questOffers.svelte.js`, `ConditionEditor.svelte`, `ConditionInterpreter.svelte`, `conditionInterpreter.svelte.js`; static text checks only.
 - existing `frontend_build_fresh.py`, `module_budget.py` frontend rule, `creation_island.py`, `effect_self_write.py` (F and G pass them) -- rebuilt output committed; no new island; no self-write in an `$effect`.
 - `quest_request_panel.py` (G) -- `QuestRequests.svelte`, `questRequests.svelte.js`, `Queue.svelte`, `writePanel.svelte.js`, `Lore.svelte`.
+- existing `attribute_interpreter.py` AE1, `condition_interpreter.py` NE1, `conditions.py` CD1, `debts.py` DC3, `event_conditions.py` EE6, `quest_rewards.py` RD2 (AMENDMENT-0121-02, FX-1) -- `OfferEditor.svelte`; CD1 also `QuestOffers.svelte` (exactly one `<OfferEditor`).
+- existing `function_length.py` (AMENDMENT-0121-02, FX-2/FX-3) -- `cockpit/day_plan_finalize.py` (`_inquiry_cut`, `_open_step_requests`), `lore_query.py` (`_call_args`).
+- existing `name_index.py` R5 (AMENDMENT-0121-02, FX-4) -- `CREATOR_ALLOWED` lists `quest_designer.py` and `quest_lore.py`.
 - `corpus_gate.py` -- every check, 15 s each: the DB-backed checks of this lot build one small fixture each.
 
 ## Docs to update (chat-side, Nia's project)

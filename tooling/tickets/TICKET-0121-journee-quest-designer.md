@@ -2,7 +2,7 @@
 id: TICKET-0121
 title: Journée proposes a quest -- the request, the lore searched whole, the existence question, the designer, its review in the offer editor
 type: feature
-status: exec
+status: live-gate
 created: 2026-10-13
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: [migration, db_write]
