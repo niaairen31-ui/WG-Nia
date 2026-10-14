@@ -15,7 +15,7 @@ answers 422.
 from __future__ import annotations
 
 import json
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -26,6 +26,7 @@ from ...dashboard_deferrals import deferral_dicts
 from ...dashboard_export import build_export
 from ...dashboard_metrics import Scope, compute_metrics, world_names
 from ...db import get_session
+from ...local_day import local_midnight_utc
 
 router = APIRouter()
 ALL_WORLDS = "all"
@@ -40,12 +41,6 @@ def _day(raw: Optional[str], name: str) -> Optional[date]:
         raise HTTPException(status_code=422, detail=f"{name} : date invalide {raw!r} (AAAA-MM-JJ)") from exc
 
 
-def _utc(day: date) -> datetime:
-    """Midnight of `day` on the cockpit's own clock (Nia's machine), as the
-    naive UTC the timestamps are stored in."""
-    return datetime.combine(day, time.min).astimezone().astimezone(UTC).replace(tzinfo=None)
-
-
 def scope_of(db: Session, world: str, since: Optional[str], until: Optional[str]) -> Scope:
     """The scope a query names (see the module docstring)."""
     first, last = _day(since, "since"), _day(until, "until")
@@ -56,8 +51,8 @@ def scope_of(db: Session, world: str, since: Optional[str], until: Optional[str]
         raise HTTPException(status_code=422, detail=f"monde inconnu {world!r}")
     return Scope(
         world_ids=None if world == ALL_WORLDS else (world,),
-        since=_utc(first) if first is not None else None,
-        until=_utc(last + timedelta(days=1)) if last is not None else None,
+        since=local_midnight_utc(first) if first is not None else None,
+        until=local_midnight_utc(last + timedelta(days=1)) if last is not None else None,
     )
 
 
