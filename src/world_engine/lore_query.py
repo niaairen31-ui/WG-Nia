@@ -21,6 +21,9 @@ from .lore_selectors import SELECTORS, _SELECTOR_LOOKUPS
 from .name_index import CREATOR
 
 
+TEXT_PREFIX = "text:"  # a `text` argument kind is written `text:<mots>` (BRIEF-0121-C)
+
+
 @dataclass(frozen=True)
 class PlanMention:
     ref: str
@@ -65,7 +68,9 @@ def validate_plan(plan: LorePlan, db: Session) -> PlanValidation:
     an arg count not matching the spec's arity, an arg referencing an
     unknown mention ref, or an `arg_kinds` mismatch (a mention ref where
     `"world_id"` was expected, or `"$world"` where `"entity_id"` was
-    expected)."""
+    expected). An argument of kind `"text"` (BRIEF-0121-C) must be
+    `text:<mots>` with a non-empty rest; a `text:` argument for any other
+    kind is rejected."""
     mention_refs = {m.ref for m in plan.mentions}
     for call in plan.calls:
         if call.selector not in SELECTORS:
@@ -77,7 +82,18 @@ def validate_plan(plan: LorePlan, db: Session) -> PlanValidation:
                 f"selector {call.selector!r} expects {spec.arity} argument(s), got {len(call.args)}",
             )
         for arg, kind in zip(call.args, spec.arg_kinds):
-            if arg == "$world":
+            if kind == "text":
+                if not (arg.startswith(TEXT_PREFIX) and arg[len(TEXT_PREFIX):].strip()):
+                    return PlanValidation(
+                        False,
+                        f"selector {call.selector!r} argument {arg!r} expects text:<mots>",
+                    )
+            elif arg.startswith(TEXT_PREFIX):
+                return PlanValidation(
+                    False,
+                    f"selector {call.selector!r} argument {arg!r} is a text but expects {kind!r}",
+                )
+            elif arg == "$world":
                 if kind != "world_id":
                     return PlanValidation(
                         False,
@@ -138,6 +154,17 @@ def _near_blocks(surface_forms: tuple[str, ...], world_id: str, db: Session) -> 
     )
 
 
+def _call_args(call_args: list, arg_kinds: tuple, world_id: str, resolutions: dict) -> list:
+    """A call's arguments as its selector takes them: a `text:<mots>`
+    argument's words (BRIEF-0121-C), the world id for `$world`, else the
+    mention's resolved entity id."""
+    return [
+        a[len(TEXT_PREFIX):].strip() if kind == "text"
+        else world_id if a == "$world" else resolutions[a].entity_id
+        for a, kind in zip(call_args, arg_kinds)
+    ]
+
+
 def execute_plan(
     plan: LorePlan, world_id: str, db: Session, bindings: Optional[dict[str, str]] = None
 ) -> LoreResult:
@@ -188,7 +215,7 @@ def execute_plan(
     content_row_count = 0
     for call in plan.calls:
         spec = _SELECTOR_LOOKUPS[call.selector]
-        args = [world_id if a == "$world" else resolutions[a].entity_id for a in call.args]
+        args = _call_args(call.args, spec.arg_kinds, world_id, resolutions)
         result_rows = spec.fn(*args, db)
         for row in result_rows:
             if "section" not in row:

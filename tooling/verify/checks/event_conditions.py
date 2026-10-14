@@ -38,7 +38,7 @@ EE5 -- failure and step start (fixture and static). An offer step's
    condition -- nothing acts on it.
 EE6 -- the editor (static). `REQUIREMENT_FORMS.event` lists `eventTypes`;
    `QuestRequirementRow.svelte` edits the role, the place, the window and
-   the filters; `QuestOffers.svelte` has a `failure` editor;
+   the filters; `OfferEditor.svelte` (TICKET-0121) has a `failure` editor;
    `questOffers.svelte.js` sends `failure` and `failure_draft_id`;
    Journée's `QuestPanel.svelte` shows `failure_met`; the editor's choices
    carry `event_types` and `sortes`.
@@ -353,7 +353,7 @@ def check_ee6() -> None:
             "event: { label: 'A vécu l’événement', list: 'eventTypes', column: 'key', threshold: true }",),
         FRONT / "creation" / "QuestRequirementRow.svelte": ("fillerOptions", "EVENT_WINDOWS", "req.since",
                                                            "req.filters", "n’importe quel rôle"),
-        FRONT / "creation" / "QuestOffers.svelte": ('role="failure"',),
+        FRONT / "creation" / "OfferEditor.svelte": ('role="failure"',),
         FRONT / "creation" / "questOffers.svelte.js": ("failure: conditionBody(s.failure)", "failure_draft_id"),
         FRONT / "journee" / "QuestPanel.svelte": ("step.failure_met",),
         SRC / "quest_reads.py": ('"event_types":', '"sortes":'),

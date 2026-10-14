@@ -25,11 +25,19 @@
    proposed is created from its card first (`createProposedType`, POST
    /api/event-types), its participants then bound to its roles by name.
    « Déclarer un événement » (`declareState`) writes one event straight to
-   the journal (POST /api/events), with the world's entities. */
+   the journal (POST /api/events), with the world's entities.
+
+   TICKET-0121 (BRIEF-0121-G, C-14): a quest request hands its answer to
+   this panel -- `questRequestId` set with `statement` (`openForQuestRequest`)
+   before the Lore surface opens. The commit sends it as `quest_request_id`,
+   then runs the designer on what was written and clears it. A pending
+   hand-off survives the panel's own mount reset; a world change or
+   « Recommencer » clears it. */
 import { api } from '../creation/sheetRequest.svelte.js';
 import { serverState } from '../lib/serverState.svelte.js';
 import { blankEventDraft, eventBodyFrom } from '../creation/eventDraft.svelte.js';
 import { typeBody, typeDraft, loadVocabulary, vocabState } from '../creation/eventVocab.svelte.js';
+import { queueState } from '../creation/queue.svelte.js';
 
 export const ENTITY_TYPES = Object.freeze([
   { value: 'character', label: 'personnage' },
@@ -54,6 +62,7 @@ function blank() {
     stage: 'text', statement: '', answers: '', questions: [], draft: null,
     busy: false, error: '', result: null, entities: null, entries: [], pick: {},
     attemptId: crypto.randomUUID(),
+    questRequestId: null, questRequestSubject: '', questRequestWorld: null,
   };
 }
 
@@ -63,7 +72,16 @@ export const declareState = $state({ open: false, draft: null, busy: false, erro
 export const writeState = $state(blank());
 
 export function reloadForWorld() {
+  if (writeState.questRequestId && writeState.questRequestWorld === serverState.worldId) return;
   Object.assign(writeState, blank());
+}
+
+/** A quest request's answer, pre-filled as a fresh use of the panel. */
+export function openForQuestRequest(requestId, subject, statement) {
+  Object.assign(writeState, blank(), {
+    entries: writeState.entries, statement, questRequestId: requestId,
+    questRequestSubject: subject, questRequestWorld: serverState.worldId,
+  });
 }
 
 const post = (path, body) => api(path, {
@@ -356,12 +374,24 @@ function toProposal() {
 
 export function commit() {
   return run(async () => {
+    const requestId = writeState.questRequestId;
     const body = await post('/api/lore/write/commit', {
       proposal: toProposal(), attempt_id: writeState.attemptId,
+      quest_request_id: writeState.questRequestId || null,
     });
     writeState.result = body;
     writeState.stage = 'done';
     writeState.entities = null;
+    if (requestId) {
+      try {
+        await post(`/api/quest-requests/${requestId}/design`, {});
+      } catch (e) {
+        writeState.error = e.message;
+      } finally {
+        writeState.questRequestId = null;
+        queueState.reloadToken += 1;
+      }
+    }
     await loadEntries();
   });
 }

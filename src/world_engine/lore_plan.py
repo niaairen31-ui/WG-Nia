@@ -42,6 +42,10 @@ _SELECTOR_DESCRIPTIONS: dict[str, str] = {
         "savoir portant sur UNE entité nommée : un connaisseur par ligne, avec "
         "son niveau."
     ),
+    "facts_mentioning": (
+        'facts_mentioning("text:<mots>", $world) -- les faits dont le texte contient '
+        "ces mots (un sujet qui n'est pas une entité nommée), avec ceux qui les savent."
+    ),
 }
 
 def _render_selectors() -> str:

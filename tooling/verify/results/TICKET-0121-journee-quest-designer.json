@@ -1,0 +1,47 @@
+{
+  "ticket": "TICKET-0121-journee-quest-designer",
+  "when": "2026-10-14T14:41:58.489121+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "character_form.py",
+      "status": "PASS",
+      "msg": "PASS: character_form -- is_character is one leaf of the one language, judged on the doer, stored and read back like any other"
+    },
+    {
+      "check": "quest_requests.py",
+      "status": "PASS",
+      "msg": "PASS: quest_requests -- v2.28 stores a request per step, its writer keeps the history, and the dashboard watches D2, S3 and P1"
+    },
+    {
+      "check": "lore_facts_mentioning.py",
+      "status": "PASS",
+      "msg": "PASS: lore_facts_mentioning -- the lore is searched by its words: the facts holding every word of three letters or more, of that world only, with their knowers, secrets and creator-only notes marked; a text: argument is validated and rendered; the designer's gathering orders and de-duplicates its facts and says when canon holds nothing"
+    },
+    {
+      "check": "journee_inquiry.py",
+      "status": "PASS",
+      "msg": "PASS: journee_inquiry -- the selection routes, a blocked or unanchored step opens a request, and an inquiry day is narrated without dice and closed without a proposal"
+    },
+    {
+      "check": "quest_designer.py",
+      "status": "PASS",
+      "msg": "PASS: quest_designer -- a request the lore cannot answer asks the creator, a covered or unknown one says so, an offer is proposed with its conditions journaled, its givers suggested and its secrets flagged, and the applier writes it through Cr\u00c3\u00a9ation's save only with a giver, no condition waiting and every flag confirmed"
+    },
+    {
+      "check": "quest_review_card.py",
+      "status": "PASS",
+      "msg": "PASS: quest_review_card -- the offer editor is one component shared by \u00c2\u00ab Qu\u00c3\u00aates \u00c2\u00bb and the review card; a designer's waiting condition opens seeded and settles; the card names the giver suggestions, \u00c2\u00ab a rencontr\u00c3\u00a9 \u00c2\u00bb, \u00c2\u00ab Qu\u00c3\u00aate unique \u00c2\u00bb, the creator's own confirmation, and approves the edited offer with its review keys"
+    },
+    {
+      "check": "quest_request_panel.py",
+      "status": "PASS",
+      "msg": "PASS: quest_request_panel -- \u00c2\u00ab Demandes de qu\u00c3\u00aate \u00c2\u00bb is rendered by the review queue with its statuses and existence answers, calls the four request routes and opens Lore; the writing panel's commit carries the request and designs after it; Lore opens \u00c2\u00ab \u00c3\u2030crire \u00c2\u00bb on the hand-off"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u00e2\u20ac\u201d 174 check(s) discovered, 174 executed, 174 passed"
+    }
+  ]
+}

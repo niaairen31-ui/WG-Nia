@@ -15,10 +15,15 @@
      is the second reload trigger -- bumped by QueueFilters.svelte's
      setFilter on every filter click and by the post-tick /
      post-analysis reassert, since those must reload even when the
-     filter value itself doesn't change. */
+     filter value itself doesn't change.
+
+     TICKET-0121 (BRIEF-0121-G): « Demandes de quête » (QuestRequests.svelte),
+     a child rendered between the batch verdict and the card list -- no
+     island of its own (INV-50). */
   import { serverState } from '../lib/serverState.svelte.js';
   import { queueState, loadQueue } from './queue.svelte.js';
   import QueueCard from './QueueCard.svelte';
+  import QuestRequests from './QuestRequests.svelte';
 
   $effect(() => {
     void serverState.worldId;
@@ -35,6 +40,7 @@
   {#if queueState.batchVerdict}
     <div class="batch-verdict {queueState.batchVerdict.cls ? 'r-' + queueState.batchVerdict.cls : ''}">{queueState.batchVerdict.msg}</div>
   {/if}
+  <QuestRequests />
   <div class="queue-body">
     {#if queueState.loading}
       <div class="empty"><span class="spin">⟳</span></div>

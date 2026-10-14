@@ -18,6 +18,11 @@
   import { creationState } from './state.svelte.js';
   import { serverState } from '../lib/serverState.svelte.js';
   import EventEditor from './EventEditor.svelte';
+  import OfferEditor from './OfferEditor.svelte';
+  import { onMount, untrack } from 'svelte';
+  import { api } from './sheetRequest.svelte.js';
+  import { blankRequirement } from './questRequirements.js';
+  import { questOffersState, reloadChoices, draftFromProposal, proposalBody, offerValue } from './questOffers.svelte.js';
 
   let { mutation, selected } = $props();
 
@@ -45,7 +50,98 @@
   const typedEvent = mutation.mutation_type === 'event_creation' && mutation.status === 'proposed'
     && !!(mutation.payload && mutation.payload.type_name);
   let eventDraft = $state(typedEvent ? draftFromPayload(mutation.payload, mutationEntityName) : null);
-  let showJson = $state(!typedEvent);
+
+  /* TICKET-0121 (BRIEF-0121-F, B1, E1, E3a, V1): a quest the designer
+     proposed is reviewed in the offer editor itself (OfferEditor), seeded
+     once on mount: each condition's tree read back through
+     /api/conditions/view, each condition still waiting opened on the
+     designer's answer (`seeds`). Above it: the giver, the designer's
+     suggestions first -- the eligibility gains « a rencontré » the giver
+     (the contact, for a faction, once chosen) ONCE, an ordinary row the
+     creator may remove, its target following the giver; « Quête unique »
+     (`is_character` -> the requesting character); the passages that
+     repeat a secret, confirmed only by the creator's own tick
+     (`flags_confirmed`, INV-63). « Approve » sends `proposalBody`. */
+  const quest = mutation.mutation_type === 'quest_offer_creation' && mutation.status === 'proposed';
+  const questPayload = quest ? mutation.payload : null;
+  const seeds = {};
+  let questDraft = $state(null);
+  let questValue = $state(null);
+  let questError = $state('');
+  let flagsConfirmed = $state(false);
+  let giverRow = null; // the « a rencontré le donneur » row, once added
+  let questChoices = $derived(questOffersState.choices);
+  let showJson = $state(!typedEvent && !quest);
+
+  onMount(() => {
+    if (quest) seedQuest();
+  });
+
+  async function seedQuest() {
+    reloadChoices();
+    const trees = [['eligibility', questPayload.eligibility]];
+    (questPayload.steps || []).forEach((st, i) => {
+      for (const role of ['prerequisite', 'completion', 'failure']) trees.push(['steps.' + i + '.' + role, st[role]]);
+    });
+    const views = {};
+    try {
+      await Promise.all(trees.filter(([, tree]) => tree).map(async ([where, tree]) => {
+        const r = await api('/api/conditions/view', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tree, unsaved_attributes: [] }),
+        });
+        if (r.view) views[where] = r.view;
+      }));
+    } catch (e) {
+      questError = e.message;
+      showJson = true;
+      return;
+    }
+    for (const p of questPayload.pending_drafts || []) seeds[p.where] = p.answer;
+    const draft = draftFromProposal(questPayload, views);
+    questValue = await offerValue(draft.terms);
+    questDraft = draft;
+  }
+
+  function leafRow(type, target) {
+    return { ...blankRequirement(), type, target_entity_id: target };
+  }
+
+  // E1: the giver -- or a faction giver's contact -- met, added once.
+  $effect(() => {
+    if (!questDraft) return;
+    const target = questDraft.contact_entity_id || questDraft.giver_entity_id;
+    untrack(() => placeGiverRow(target));
+  });
+
+  function placeGiverRow(target) {
+    const eligibility = questDraft.eligibility;
+    if (!target || eligibility.locked) return;
+    if (giverRow === null) {
+      eligibility.list.push(leafRow('has_met', target));
+      giverRow = eligibility.list[eligibility.list.length - 1];
+    } else if (eligibility.list.includes(giverRow)) {
+      giverRow.target_entity_id = target;
+    }
+  }
+
+  function pickGiver(id) {
+    questDraft.giver_entity_id = id;
+    questDraft.contact_entity_id = '';
+  }
+
+  // E3a: « Quête unique », the offer for the requesting character alone.
+  function isUniqueRow(r) {
+    return r.type === 'is_character' && r.subject === 'role:doer' && r.target_entity_id === questPayload.character_id;
+  }
+  let unique = $derived(!!questDraft && questDraft.eligibility.list.some(isUniqueRow));
+
+  function setUnique(on) {
+    const list = questDraft.eligibility.list;
+    const index = list.findIndex(isUniqueRow);
+    if (on && index < 0) list.push(leafRow('is_character', questPayload.character_id));
+    if (!on && index >= 0) list.splice(index, 1);
+  }
 
   $effect(() => {
     if (typedEvent) loadVocabulary(serverState.worldId);
@@ -156,6 +252,7 @@
 
   async function onApprove() {
     if (eventDraft) payloadText = JSON.stringify(payloadFromDraft(eventDraft, mutation.payload, vocabState.types), null, 2);
+    if (questDraft) payloadText = JSON.stringify(proposalBody(questDraft, questPayload, seeds, flagsConfirmed), null, 2);
     // Validate JSON before sending -- saves a round trip.
     try {
       JSON.parse(payloadText);
@@ -291,11 +388,47 @@
     </div>
   {/if}
 
+  {#if quest && editable}
+    <div class="card-fields" style="margin-bottom:8px;">
+      {#if questError}<div class="r-err">✗ {questError}</div>{/if}
+      {#if questDraft}
+        <label class="q-line">Donneur
+          <select value={questDraft.giver_entity_id} onchange={(e) => pickGiver(e.target.value)}>
+            <option value="">— à choisir</option>
+            {#each questPayload.giver_suggestions || [] as g (g.entity_id)}
+              <option value={g.entity_id}>{g.name} (suggéré)</option>
+            {/each}
+            {#each questChoices?.givers || [] as g (g.id)}<option value={g.id}>{g.name}</option>{/each}
+          </select>
+        </label>
+        <label class="q-line"><input type="checkbox" checked={unique} disabled={!!questDraft.eligibility.locked}
+                      onchange={(e) => setUnique(e.currentTarget.checked)}>
+          Quête unique (proposée à ce seul personnage)</label>
+        <OfferEditor draft={questDraft} choices={questChoices} value={questValue} {seeds}
+                     onchange={async () => { questValue = await offerValue(questDraft.terms); }} />
+        {#if (questPayload.flags || []).length || (questPayload.secret_fact_ids || []).length}
+          <div class="field-label">Passages qui répètent un secret</div>
+          {#each questPayload.flags || [] as f, i (i)}
+            <div style="font-size:12px;">{f.path} : « {f.words} »</div>
+          {:else}
+            <div style="font-size:12px; color:var(--muted);">Aucun relevé à la conception.</div>
+          {/each}
+          <label class="q-line"><input type="checkbox" bind:checked={flagsConfirmed}> Je confirme</label>
+        {/if}
+        {#each questPayload.notes || [] as note, i (i)}
+          <div style="font-size:12px; color:var(--muted);">{note}</div>
+        {/each}
+      {:else if !questError}
+        <div style="font-size:12px; color:var(--muted);">⟳ Chargement de la quête…</div>
+      {/if}
+    </div>
+  {/if}
+
   <div class="card-fields">
     {#if showJson}
       <div>
         <div class="field-label">Payload</div>
-        <textarea class="payload" rows="5" spellcheck="false" readonly={!editable || !!eventDraft} bind:value={payloadText}></textarea>
+        <textarea class="payload" rows="5" spellcheck="false" readonly={!editable || !!eventDraft || !!questDraft} bind:value={payloadText}></textarea>
       </div>
     {:else}
       <button class="btn-icon" style="font-size:12px" onclick={() => (showJson = true)}>Voir le JSON</button>
@@ -315,3 +448,7 @@
 
   <div class="card-result {resultMsg ? 'show' : ''} {resultCls ? 'r-' + resultCls : ''}">{resultMsg}</div>
 </div>
+
+<style>
+  .q-line { display: block; margin: 4px 0; }
+</style>

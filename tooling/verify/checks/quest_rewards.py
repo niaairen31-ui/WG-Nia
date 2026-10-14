@@ -94,7 +94,7 @@ RD1 -- the editor's mirror (BRIEF-0109-D, static). `frontend/src/creation/
    `TERM_DIRECTIONS` has the keys of `QUEST_TERM_DIRECTIONS`.
 RD2 -- the editor (static). `questOffers.svelte.js` sends `terms:
    draft.terms.map(termBody)`, reads `/api/quest-offers/value` and
-   `/api/quest-economy`; `QuestOffers.svelte` renders `<QuestTermRow`.
+   `/api/quest-economy`; `OfferEditor.svelte` (TICKET-0121) renders `<QuestTermRow`.
 RD3 -- Journée (static). `quests.svelte.js` reads `'/settlement'` and posts
    `'/settle'`; `QuestPanel.svelte` shows « Déclarer accomplie » under
    `quest.settleable` and renders `<SettlementRecap`; the recap's confirm
@@ -981,8 +981,8 @@ def check_rd2() -> None:
     for needle in ("terms: draft.terms.map(termBody)", "'/api/quest-offers/value'", "'/api/quest-economy'"):
         if needle not in state:
             fail(f"RD2: questOffers.svelte.js lacks {needle}")
-    if "<QuestTermRow" not in _read("creation/QuestOffers.svelte"):
-        fail("RD2: QuestOffers.svelte renders no QuestTermRow")
+    if "<QuestTermRow" not in _read("creation/OfferEditor.svelte"):
+        fail("RD2: OfferEditor.svelte renders no QuestTermRow")
 
 
 def check_rd3() -> None:

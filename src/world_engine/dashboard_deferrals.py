@@ -44,6 +44,7 @@ _T0112 = "tooling/tickets/TICKET-0112-condition-interpreter.md"
 _T0113 = "tooling/tickets/TICKET-0113-world-state.md"
 _T0114 = "tooling/tickets/TICKET-0114-event-journal.md"
 _T0119 = "tooling/tickets/TICKET-0119-event-producers.md"
+_T0121 = "tooling/tickets/TICKET-0121-journee-quest-designer.md"
 _DECISIONS = "tooling/standards/ARCHITECTURE_DECISIONS.md"
 _JSON_BOUNDARY = "tooling/verify/checks/json_ui_boundary.py"
 
@@ -151,6 +152,24 @@ DEFERRALS: tuple[Deferral, ...] = (
              "Un site `primaryAction: {` sans `createPanel` dans `tabs.js`.",
              _DECISIONS, "**D-0088-rule11-unrouted**: a non-routed `primaryAction` object with no "
                          "`createPanel` field at all passes rule 11 unchecked;"),
+    Deferral("D2", "TICKET-0121",
+             "Le concepteur invente un donneur, créé à l'approbation.",
+             "Nia crée souvent un PNJ juste pour donner une offre proposée.",
+             _T0121, "D2 (an invented giver; reactivation: the creator often creates a character just to "
+                     "give a proposed offer)",
+             metric="quest_requests"),
+    Deferral("S3", "TICKET-0121",
+             "Une recherche du lore par le sens.",
+             "Des demandes où Nia répond que le lore le disait déjà.",
+             _T0121, "S3 (a search by meaning; reactivation: requests the creator answers « the lore "
+                     "already says it »)",
+             metric="quest_requests"),
+    Deferral("P1", "TICKET-0121",
+             "Revoir l'outil de plan en plan global.",
+             "La part des journées aiguillées vers une quête le demande.",
+             _T0121, "P1 (the plan tool reworked; reactivation: the share of days routed to a quest asks "
+                     "for it)",
+             metric="quest_requests"),
 )
 
 

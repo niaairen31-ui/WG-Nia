@@ -19828,6 +19828,375 @@ entries are `lore_usage.py` (13.9-18.2 s once U12f joined it) and
 higher default for every check -- it would hide a fast check that grows
 slow (reactivation: more than a handful of checks need their own entry).
 
+## A QUEST FOR ONE CHARACTER IS A LEAF (TICKET-0121) -- THE FORM is_character (BRIEF-0121-a, no schema change)
+
+E3a: the creator keeps a proposed offer for the character whose day gave it
+birth. The eligibility of an offer is already a condition tree, so « only
+this character » is one more leaf of that language -- `is_character`, whose
+target is a character and whose subject is always the role `doer` -- and
+not a column on `quest_offer`. One language for eligibility (I1 of the
+series); a new primitive is code, no table rebuild and no migration, since
+no CHECK names a form (R-02). The subject is restricted to `doer` in
+`clean_leaf`: the form judges the one who acts, and a fixed or other-role
+subject has no meaning for it. A player reads his own name, so INV-62's
+`seen_by` is unchanged. The planner's four forms (`MODEL_REQUIREMENT_TYPES`)
+are untouched: only the creator writes this leaf.
+
+**Rejected.** A `for_character_id` column on `quest_offer`: a second place
+eligibility lives, outside the tree every reader already judges and
+describes.
+
+## A QUEST REQUEST IS A ROW THE CREATOR WORKS THROUGH (TICKET-0121) -- quest_request (BRIEF-0121-b, schema v2.28)
+
+L1: each quest request -- a day routed to a quest, a step blocked, a
+knowledge nobody can anchor -- is a relational row (`quest_request`, a
+pipeline table, one per agenda step) the creator works through: designed,
+asked about, written into the lore, proposed, set aside. Its status is one
+of `QUEST_REQUEST_STATUSES` and moves only through
+`writes/quest_requests.move_request`, which appends the former state to
+`change_history`; no writer commits (INV-18's posture).
+
+**A proposal's fate is not a column.** `proposed` says a
+`quest_offer_creation` exists (`mutation_id`); whether it was approved or
+rejected is that `proposed_mutation`'s `status`. A second column would be a
+second place for one fact, and would drift the day the review queue moves a
+proposal without the request.
+
+**The deferrals watched.** D2 (the designer invents a giver, created at
+approval), S3 (a search of the lore by meaning) and P1 (the plan tool
+reworked) are each measured by the « Demandes de quête » metric: the
+requests by origin, by existence answer, and the approved offers whose giver
+was created after the proposal. The numbers are shown and Nia judges (E2).
+
+**Rejected.** A status per proposal outcome (`approved`, `rejected`) on the
+request: see above; reactivation: a reader that cannot join
+`proposed_mutation`.
+
+## THE LORE IS SEARCHED BY ITS WORDS TOO (TICKET-0121) -- facts_mentioning AND THE text: ARGUMENT (BRIEF-0121-c, no schema change)
+
+S2: the consultation reached only what is attached to a named entity or to
+the world as a whole, so a secret phrased as a fact only a scholar holds --
+« le secret de l'acier noir » -- was unreachable, and the designer would
+have asked the creator whether something that already exists exists. A
+fourth selector, `facts_mentioning`, takes an argument of a new kind
+`text` (`text:<mots>`, validated by `validate_plan`): a fact matches when
+every token of three letters or more of the query appears among the tokens
+of its rendered text. The comparison is in Python over `normalize_surface`,
+never in SQL, and the floor applies to the query only. Creator-only facts
+are returned and flagged (INV-01's creator regime: the Lore consultation and
+the quest designer, no play path). `quest_lore.gather_lore` is the
+designer's direct gathering of the same search, the facts on the entities
+the request names, and the facts of the Lore entry it came from; it reads
+only.
+
+**Why tokens and not a model.** An empty search is `silent_canon`, rendered
+by code (INV-58): a model asked to explain an absence fills it. A search by
+words is also the one a creator can reproduce by hand.
+
+**A name is certain or skipped.** `gather_lore` resolves each name across
+every category (`other` claims no character, place, faction or item) and
+keeps it only when exactly one entity matches; an ambiguous name is left
+out, so the designer sees what is certain.
+
+**Deferred and watched.** S3, a search by meaning (embeddings, a new
+dependency), is not built; the « Demandes de quête » metric of BRIEF-0121-b
+shows how many requests the words do not reach.
+
+## JOURNÉE ROUTES A DECLARATION TO A QUEST (TICKET-0121) -- THE SELECTION'S THIRD ANSWER (BRIEF-0121-d, no schema change)
+
+**Decision (K1).** Plan selection answered two things: which open plan a
+declaration targets, or none. A declaration that seeks what a day cannot give
+-- a precise knowledge, a person to find, an object, an access the character
+does not have -- reached the planner like any other and produced a plan of
+dice it could never win. The selection now answers a third thing:
+`{"selected": <int|null>, "route": "plan"|"quest", "rationale": ...}`.
+`selected` non-null is `plan` whatever `route` says; null carries the route,
+and a missing or unknown `route` is an `LlmParseError`, never a silent
+default (the discipline of `selected` itself).
+
+**The call is made on every declaration**, an empty plan list included
+(`(aucun plan ouvert)`): the `if not plans: return None` shortcut was the
+very place a first declaration of a new character, the commonest search,
+could never be routed. `select_plan` returns `PlanSelection(agenda, route)`;
+`day_plan_select.PLAN_ROUTES` is the vocabulary. The prompt change is the
+fragments of `seed_pilot.DAY_PLAN_SELECT_FRAGMENTS_0121`, delivered to a live
+database by `scripts/apply_ticket_0121_select_prompt.py` (a new
+`prompt_version`, the creator's own edits kept).
+
+**What `quest` does.** `plan_day` parks the standing plan and
+`finalize_inquiry_day` writes a one-step plan titled like any day plan, its
+step `Se renseigner : <declaration>`, no dice, no prerequisite, and opens a
+`route` quest request on that step. The player is never told a quest is being
+prepared (J2-a1): the narrator reads the declaration only. The pinned-quest
+path (O1) and the reconciliation paths are unchanged.
+
+**Watched.** How a production world's open plans answer the new prompt is
+unmeasured until it is run live; a `quest` answer that should have been a
+`plan` costs the player one day of search, never canon.
+
+## A SEARCH IS A DAY WITHOUT DICE (TICKET-0121) -- THE INQUIRY BAND; BLOCKED AND UNANCHORED STEPS OPEN A REQUEST (BRIEF-0121-d, no schema change)
+
+**Decision (K1b, R1, T1).** A day that is a search has no roll to make and
+nothing to propose, yet a step with no domain was `success` and so fired
+every emitter. Three openers now feed the creator's request list, and one new
+band tells the narrator the truth about such a day.
+
+**The openers (C-07).** `finalize_inquiry_day` (K1, the `quest` route) opens
+a `route` request on its one step. In `_finalize_plan`, a step blocked on an
+unmet prerequisite opens a `blocked` request (K1b), and the first step that
+holds a knowledge leaf the planner cannot anchor becomes the day's inquiry
+step: the plan stops there, the steps after it are never written
+(`inquiry_cut` in the response, a count and no id) and a `dropped` request
+is born on it (R1). A secret-only fact reaches the designer through this
+path: the planner may not gate on what no one may confess, so the leaf is
+dropped and the creator decides. One request per step; opening again returns
+the first (an inquiry step that is also the budget-excluded one keeps its
+`dropped` request, the one that decides the band).
+
+**The `inquiry` band (C-08).** `resolve_steps` gives an included step whose
+id `quest_requests.inquiry_step_ids` returns the band `inquiry`: no roll
+(`verdict=None`), the walk stops after it. `BAND_MARKERS["inquiry"]` is
+`[RECHERCHE]`, its label « recherche en cours, sans réponse encore »;
+`emit_mutations` skips it, so no `agenda_step_change`, no `new_knowledge`,
+no event is proposed for a search. A blocked step's unmet `knowledge` verdict
+still proposes its rumor-level lead (U1: unchanged, kept).
+
+**Why its step closes directly (T1).** Left active, the inquiry step would be
+walked again the next day and spend it searching for ever; proposing its
+completion would put a non-event in the review queue and invite the creator
+to approve an achievement that did not happen. `close_inquiry_steps` writes
+`completed` with outcome `inquiry` through `write_agenda_step_status`, and
+`completed` on the agenda when no `pending`/`active` step is left, in the
+resolution's own transaction and never on the judge-failure path. This is an
+exception to V1 of 0075 (every step transition is a proposal) decided by Nia
+for this band and nothing else: the transition carries no canon consequence,
+it only stops a search from repeating. A replay finds the step terminal and
+`_load_evaluated_steps` does not walk it again.
+
+**What the player sees.** Nothing of the request (J2-a1): the step's
+objective is the player's declaration, the narrator reads it and the band
+label, and no response field names a request, an agenda or a step.
+
+## ONE OFFER SAVE FOR CRÉATION AND THE REVIEW QUEUE (TICKET-0121) -- quest_offer_save.py (BRIEF-0121-e, no schema change)
+
+A pure move (C-09). `OfferStepBody`, `TermBody`, `OfferBody`, `_mark_drafts`
+and `_term` (now `term_spec`) leave `routes/quests.py` byte-identical for
+`cockpit/quest_offer_save.py`, joined by `save_offer_body(db, world_id, body,
+offer)`: the old `_save_offer` try block followed by `_mark_drafts`, without
+the rollback, the HTTP mapping or the commit. A refusal is a `ValueError`.
+`routes/quests.py::_save_offer` keeps its signature and maps `ValueError` to
+422, then commits; the old names stay importable from the route module.
+
+**Why.** The `quest_offer_creation` applier (a later commit of this brief)
+must write an approved proposal through the very save Création › Quêtes
+uses, so no second offer writer exists (INV-08) and the commit boundary
+stays with the caller (INV-18). The move lands first so the applier never
+touches `_apply_mutation`'s dispatch before the shared save exists (INV-11).
+`condition_interpreter.py`'s ND1 asserts the same order -- write, mark
+drafts, commit -- split over the route and the shared function.
+
+## THE INTERPRETER READS A DESIGNER'S CONDITIONS TOO (TICKET-0121) -- settle_answer, extra_fact_ids, answer_dict, /api/conditions/view (BRIEF-0121-e, no schema change)
+
+Four reuse points (C-13), no behaviour change for the editor.
+`condition_interpreter.build_context(..., extra_fact_ids=())` codes the given
+facts first, then what it codes today, the `MAX_CODED_FACTS` cap unchanged:
+the designer's gathered lore is never the part the cap drops.
+`settle_answer` is the public name of `_answer` (which stays and delegates);
+`routes/conditions.py::answer_dict` is the public name of its `_answer`
+(same). `POST /api/conditions/view` returns the French reading of a tree
+(`clean_condition`, then `condition_view`), 422 on a tree it refuses, and
+writes nothing.
+
+**Why.** The quest designer asks the model for a whole offer, then reads each
+of its conditions through the interpreter's own reader, so a designer's
+condition passes every validation, name resolution and journaling a creator's
+sentence does (C1). A pending condition's answer travels in the proposal's
+payload, built with `answer_dict`; no route reads a `condition_draft` back
+(its payload stays « never rendered », `json_ui_boundary.py`). ND1 lists the
+new route.
+
+## JOURNÉE'S QUEST DESIGNER (TICKET-0121) -- THE LORE SEARCHED WHOLE, THE EXISTENCE QUESTION, A QUEST OFFER PROPOSED AND GUARDED (BRIEF-0121-e, no schema change)
+
+From a `quest_request` the designer (`quest_designer.design`, C-11) frames the
+subject (`quest_subject`), reads what the whole lore says of it
+(`quest_lore.gather_lore`, creator regime), and answers one of four things:
+`asking` (nothing in the lore and no answer yet: the creator is asked whether
+the subject exists, N1), `covered` (an open offer already leads there),
+`refused` (no usable step), or `proposed` -- a `quest_offer_creation` row,
+`proposed_by = local_ai_quest_designer`, sourced from the request's
+`pass_play`, never auto-applied (INV-14). Two prompts, `quest_subject` and
+`quest_design`, on the authoring model (INV-19); the design prompt is built in
+the seed from the interpreter's own language text, one source.
+
+**H2 and INV-01.** The designer reads creator-only and secret facts: it is a
+creator surface, so INV-01 names it beside the interpreter. Its output goes
+only into a creator-reviewed proposal; no assembler or player route calls
+`quest_designer` or `gather_lore`.
+
+**C1.** Each condition of the answer is read by the interpreter's own reader
+(`settle_answer`) and journaled as a `condition_draft` (attempt id = the
+request's). A clean tree goes into the payload with its draft id; one that
+needs a name, a proposed attribute or a vocabulary entry, or was refused, has
+tree `null` and a `pending_drafts` entry built with `answer_dict` -- no route
+reads a draft back. The creator's approval inserts the proposed drafts
+(`proposed` -> `inserted`, only those this request journaled) so the offer's
+save marks them `saved`: the dashboard's acceptance rate sees a designer's
+condition like a creator's. One retry carries the retryable errors (II1).
+
+**D1, F1, G1.** Up to three givers resolved by name (matched only, never
+picked for the creator); terms resolved by code (`f`, `s`) or name, an
+unresolved one dropped with a note; a gathered fact no entity knows is a note,
+nothing is invented. A vocabulary the designer lacks is left pending for the
+creator (G1).
+
+**V1 and INV-63.** `prose_guard.flags` finds a run of four tokens shared by
+the title, summary or an objective and a secret fact the designer read
+(creator-only, or held on no non-secret row). The applier recomputes them and
+writes nothing without `flags_confirmed`, a giver and no pending condition
+(`apply_offer_proposal` through `save_offer_body`, the creator CRUD's own
+save, INV-08). A paraphrase passes: the creator's review stays the last
+barrier for prose.
+
+**The payload consumer.** The review card edits `payload` field by field, a
+second structured consumer of the reached « payload » deferral
+(`dashboard_deferrals.py`), flagged for Nia; the exemption's comment names
+both cards, its anchor sentence untouched.
+
+## THE DESIGNER'S DRAFTS ARE SAVED ONLY AS THE APPROVED OFFER NAMES THEM; A REQUEST'S SUBJECT IS COUNTED (TICKET-0121) -- AMENDMENT-0121-01 (BRIEF-0121-e, no schema change)
+
+**D-02, the drafts.** `mark_draft_saved` moves an `inserted` draft only, so
+the applier (`quest_offer_save._insert_named_drafts`) first inserts the
+drafts the approved payload names in its `eligibility_draft_id` and
+`steps[i].*_draft_id` fields -- one still `proposed` becomes `inserted`, one
+already `inserted` (the card) is saved as is, any other is left alone -- and
+the save marks them `saved`. The ids come from the payload, never from a
+query on `attempt_id`: a first answer the retry replaced, or a draft the
+approved payload no longer names, keeps what it recorded. The first form
+inserted every `proposed` draft of the request the payload named and
+filtered on `attempt_id`, which would have skipped a draft the card
+re-interpreted under its own attempt.
+
+**D-03, the `subject` census.** `knowledge_identity.py` K3 pins every
+`subject` reference of `src/world_engine`; a new one is red until someone
+decides it belongs. A quest request's subject (what the player seeks) is
+written plainly -- the column, `move_request`'s `subject=`, the payload key,
+the prompt's answer key -- and each file holding it has its census entry:
+`writes/quest_requests.py` 1 (BRIEF-0121-B), `quest_requests.py` 2,
+`quest_designer.py` 10, `cockpit/routes/quest_requests.py` 1 (BRIEF-0121-E).
+The run-time derivations that kept the census blind (a field name read
+from the table, and `_MOVABLE_FIELDS` computed from its columns) are gone.
+
+**D-05, pending conditions.** A condition whose interpretation is
+`proposed` but which proposes a state, an event type or a sorte stays in
+`pending_drafts`, its tree null: the payload's `unsaved_attributes` is
+empty, so the save would refuse a tree naming a `new:` attribute. The
+creator confirms the definition in the card before it enters the offer.
+
+## ONE OFFER EDITOR FOR CRÉATION AND THE REVIEW CARD (TICKET-0121) -- OfferEditor.svelte (BRIEF-0121-f, no schema change)
+
+**A pure move.** The markup of « Quêtes »'s offer editor -- from « Titre »
+to the indicative value line -- and its helpers (`moveStep`, `giverMembers`,
+the term adder) are `frontend/src/creation/OfferEditor.svelte`, props
+`{draft, choices, value, seeds = {}, onchange}`; its CSS moved with it.
+`QuestOffers.svelte` renders `<OfferEditor {draft} {choices} {value}
+onchange={refreshValue} />` where the markup stood and keeps the save
+error and « 💾 Enregistrer ». A term change, or a term added, calls
+`onchange` where it called `refreshValue`. Nothing « Quêtes » renders or
+saves changed.
+
+**Why a component, not an island.** The queue's review card of a
+`quest_offer_creation` proposal edits the very form the creator writes an
+offer in (B1). The editor never mounts on its own: it is a child of
+`QuestOffers.svelte` and of `QueueCard.svelte`, so it is no
+`CREATION_ISLANDS` entry (INV-50). The editor owns no state: `draft` is
+the caller's, so the term adder pushes on that draft instead of on
+`questOffersState.draft` -- `addTerm` left `questOffers.svelte.js`.
+
+## A PROPOSED QUEST IS REVIEWED IN THE OFFER EDITOR (TICKET-0121) -- THE GIVER, « QUÊTE UNIQUE », THE FLAGS, THE DESIGNER'S WAITING CONDITIONS (BRIEF-0121-f, no schema change)
+
+**B1, one editor.** A `quest_offer_creation` still `proposed` renders, in
+its queue card, `OfferEditor` on a draft of its own
+(`draftFromProposal`), seeded once on mount: the giver lists reloaded,
+each non-null tree read back through `POST /api/conditions/view`, and
+each `pending_drafts` entry kept as `seeds[where]` -- its condition's
+interpreter opens on the designer's answer (`seededState`), as after
+« Proposer », and « Choisir », « Insérer », « Écarter » go through the
+existing draft routes by its `draft_id`. Inserting or discarding calls
+`onsettle`, which drops the seed: `proposalBody` sends as
+`pending_drafts` only the entries still seeded, so the applier refuses
+while a condition waits. « Approve » sends `proposalBody(draft, payload,
+seeds, flagsConfirmed)` -- `draftBody` plus the designer's review keys --
+through the ordinary approve route; an applier refusal shows as for any
+proposal. A tree the view route refuses leaves the card on its JSON, with
+the error. The JSON view stays, collapsed and read-only while the editor
+holds the draft.
+
+**E1, the giver.** « Donneur » lists the designer's `giver_suggestions`
+first (« suggéré »), then every giver; the editor's own « Donnée par »
+and « Contact de la faction » stay. Whichever sets the giver, one
+`$effect` (its writes under `untrack`, INV-55) adds ONCE to the
+eligibility list the row `has_met`, subject `doer`, target the giver --
+the contact once chosen, for a faction. The card remembers that row:
+a later giver moves its target; a row the creator removed is not added
+again. A nested (locked) eligibility gets no row.
+
+**E3a, « Quête unique ».** A checkbox reading the list: ticked adds the
+row `is_character`, subject `doer`, target the payload's `character_id`;
+unticked removes it. Disabled on a nested eligibility.
+
+**V1, the flags.** « Passages qui répètent un secret » lists each
+`flags` entry (path, words) with « Je confirme », unticked by default;
+only that tick sets `flags_confirmed` (INV-63). The section also shows,
+« Aucun relevé à la conception. », when the designer read a secret fact
+but flagged nothing -- the applier recomputes the flags on the edited
+prose, so a passage the creator writes can still need her confirmation.
+The notes are read-only.
+
+**The payload, field by field.** The card is the second structured
+consumer of `payload` under the reached « payload » deferral
+(`dashboard_deferrals.py`), as the typed event card is. `offerValue(terms)`
+is the value request both « Quêtes » and the card make. Gate:
+`quest_review_card.py` RC1-RC4.
+
+## A QUEST REQUEST IS WORKED FROM THE REVIEW QUEUE, ITS LORE FROM THE LORE PANEL (TICKET-0121) -- QuestRequests.svelte (BRIEF-0121-g, no schema change)
+
+**L1, N1.** Every request a day opened waits in « Demandes de quête »,
+above the review queue's cards: the day, the declaration's first line,
+the trigger and the status in French, the subject once known, the note.
+Each row offers what its status allows -- « Concevoir » (`new`,
+`covered`, a rejected proposal), the existence question (`asking`),
+« Écrire dans Lore » (`writing_lore`), « Mettre de côté », and « Voir la
+proposition », which sets the queue's filter to the proposal's status so
+its card shows below. The client mirrors C-02's case table only to hide
+buttons; the server decides every move. `questRequests.svelte.js` holds
+the state and the four route calls.
+
+**Why above the queue, not a tab.** A request becomes a proposal, and the
+proposal is reviewed in the queue's card (BRIEF-0121-f): the two belong
+on one surface. `QuestRequests.svelte` is a child of `Queue.svelte`,
+reloading on the world and the queue's `reloadToken` like the queue --
+no Création island and no registry entry (INV-49, INV-50).
+
+**The Lore hand-off and its return.** « Oui, il existe » and « Non, il
+n'existe pas » post the answer; the route's statement pre-fills the
+writing panel (`openForQuestRequest`: a fresh use of the panel, with
+`questRequestId`, its subject and its world) and the Lore surface opens.
+« Écrire dans Lore » on a `writing_lore` row rebuilds the same statement
+client-side from `creator_text`. `Lore.svelte` opens « Écrire » from one
+`$effect` that reads `writeState.questRequestId` and writes only `loreTab`
+(INV-55), and shows « Pour la demande de quête : <subject> » while it is
+set. The panel's own mount reset (`reloadForWorld`) keeps a pending
+hand-off of the same world; a world change or « Recommencer » clears it.
+The commit sends `quest_request_id`; on success it posts `.../design` --
+its error in the panel's error line, the commit already done -- then
+clears the id and bumps the queue's `reloadToken`. « Le lore le dit
+déjà » picks the entity from the offer editor's choices and designs at
+once.
+
+Nothing here reaches a model or a player surface (INV-01): the panel
+shows the creator what she asked about. Gate: `quest_request_panel.py`
+RP1-RP4.
+
 ---
 
 *Co-built with Claude, June 2026.*

@@ -121,7 +121,7 @@ ND3 -- saving the offer (fixture). An offer saved with its eligibility as
 NE1 -- the editor (BRIEF-0112-E; static). `ConditionEditor.svelte` renders
    `<ConditionInterpreter {cond} {role}` (with the draft's unsaved
    attributes since TICKET-0113, `attribute_interpreter.py` AE1);
-   `QuestOffers.svelte` passes
+   `OfferEditor.svelte` (TICKET-0121) passes
    `role="eligibility"`, `"prerequisite"` and `"completion"`, one each.
    `conditionInterpreter.svelte.js` POSTs `/api/conditions/interpret` with
    `current: conditionBody(cond)` and `attempt_id: state.attemptId`,
@@ -925,7 +925,8 @@ def _nd1_route() -> None:
     tree = _parse(path)
     paths = set(_decorated_paths(tree))
     want = {"/api/conditions/interpret", "/api/conditions/drafts/{draft_id}/resolve",
-            "/api/conditions/drafts/{draft_id}/decision"}
+            "/api/conditions/drafts/{draft_id}/decision",
+            "/api/conditions/view"}  # TICKET-0121 (BRIEF-0121-E, C-13): the reading of a tree
     if paths != want:
         fail(f"ND1: the routes are {sorted(paths)}")
     calls = {_callee(n) for n in ast.walk(tree) if isinstance(n, ast.Call)} & {"chat", "select"}
@@ -949,17 +950,25 @@ def _nd1_route() -> None:
 
 
 def _nd1_save() -> None:
-    tree = _parse(SRC / "cockpit" / "routes" / "quests.py")
-    fns = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
-    save, mark = fns.get("_save_offer"), fns.get("_mark_drafts")
-    if save is None or mark is None:
-        fail("ND1: routes/quests.py lacks _save_offer or _mark_drafts")
+    # TICKET-0121 (BRIEF-0121-E, C-09): the save moved to cockpit/quest_offer_save.py;
+    # the route's _save_offer calls save_offer_body then commits.
+    route = {n.name: n for n in _parse(SRC / "cockpit" / "routes" / "quests.py").body
+             if isinstance(n, ast.FunctionDef)}
+    shared = {n.name: n for n in _parse(SRC / "cockpit" / "quest_offer_save.py").body
+              if isinstance(n, ast.FunctionDef)}
+    save, core, mark = route.get("_save_offer"), shared.get("save_offer_body"), shared.get("_mark_drafts")
+    if save is None or core is None or mark is None:
+        fail("ND1: _save_offer, save_offer_body or _mark_drafts is missing")
         return
-    order = [(n.lineno, _callee(n)) for n in ast.walk(save) if isinstance(n, ast.Call)
-             and _callee(n) in ("write_quest_offer", "_mark_drafts", "commit")]
-    names = [name for _, name in sorted(order)]
-    if names != ["write_quest_offer", "_mark_drafts", "commit"]:
-        fail(f"ND1: _save_offer calls {names}, not write_quest_offer -> _mark_drafts -> commit")
+    names = [name for _, name in sorted((n.lineno, _callee(n)) for n in ast.walk(save)
+                                        if isinstance(n, ast.Call) and _callee(n) in ("save_offer_body", "commit"))]
+    if names != ["save_offer_body", "commit"]:
+        fail(f"ND1: _save_offer calls {names}, not save_offer_body -> commit")
+    order = [name for _, name in sorted((n.lineno, _callee(n)) for n in ast.walk(core)
+                                        if isinstance(n, ast.Call)
+                                        and _callee(n) in ("write_quest_offer", "_mark_drafts", "commit"))]
+    if order != ["write_quest_offer", "_mark_drafts"]:
+        fail(f"ND1: save_offer_body calls {order}, not write_quest_offer -> _mark_drafts (no commit)")
     if "mark_draft_saved" not in {_callee(n) for n in ast.walk(mark) if isinstance(n, ast.Call)}:
         fail("ND1: _mark_drafts does not call mark_draft_saved")
 
@@ -1148,10 +1157,10 @@ def check_ne1() -> None:
     editor = _front("ConditionEditor.svelte")
     if "<ConditionInterpreter {cond} {role} " not in editor:
         fail("NE1: ConditionEditor.svelte does not render the interpreter with its role")
-    offers = _front("QuestOffers.svelte")
+    offers = _front("OfferEditor.svelte")
     for role in ("eligibility", "prerequisite", "completion"):
         if len(re.findall(r'<ConditionEditor[^>]*role="' + role + '"', offers)) != 1:
-            fail(f"NE1: QuestOffers.svelte does not pass role={role!r} to one ConditionEditor")
+            fail(f"NE1: OfferEditor.svelte does not pass role={role!r} to one ConditionEditor")
     state = _front("conditionInterpreter.svelte.js")
     for needle in ("'/api/conditions/interpret'", "current: conditionBody(cond)", "attempt_id: state.attemptId",
                    "'/resolve'", "{ ...state.picks }", "'/decision'", "decide(state, 'discarded')"):

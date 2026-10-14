@@ -12,10 +12,12 @@
    attributes the interpreter proposed and the creator confirmed, sent with
    the save, which writes those a condition names. Since TICKET-0114
    (BRIEF-0114-E, H1): each step's failure condition, shown on the quest
-   and never acting. */
+   and never acting. Since TICKET-0121 (BRIEF-0121-F, C-14): the draft of a
+   `quest_offer_creation` proposal (`draftFromProposal`) and the payload its
+   review card approves (`proposalBody`). */
 import { api } from './sheetRequest.svelte.js';
 import { blankCondition, conditionBody, conditionDraft } from './questRequirements.js';
-import { blankTerm, termBody } from './questTerms.js';
+import { termBody } from './questTerms.js';
 
 export const questOffersState = $state({
   offers: [],
@@ -56,32 +58,60 @@ export function editOffer(offer) {
       prerequisite: conditionDraft(s.prerequisite), completion: conditionDraft(s.completion),
       failure: conditionDraft(s.failure),
     })),
-    terms: (offer.terms || []).map((t) => ({
-      direction: t.direction, currency: t.currency, counterparty_entity_id: t.counterparty_entity_id || '',
-      item_id: t.item_id || '', fact_id: t.fact_id || '', skill_key: t.skill_key || '', amount: t.amount,
-      level: t.level || '',
-    })),
+    terms: (offer.terms || []).map(termDraft),
     unsavedAttributes: [],
   };
   questOffersState.value = offer.value || null;
 }
 
-export function addTerm(direction) {
-  questOffersState.draft.terms.push(blankTerm(direction));
-  refreshValue();
+function termDraft(t) {
+  return {
+    direction: t.direction, currency: t.currency, counterparty_entity_id: t.counterparty_entity_id || '',
+    item_id: t.item_id || '', fact_id: t.fact_id || '', skill_key: t.skill_key || '', amount: t.amount,
+    level: t.level || '',
+  };
+}
+
+/** The editor's draft of a designer's proposal (C-10's payload): what
+    `editOffer` builds from an offer, each condition from `views[where]`
+    (its `condition_view`, `where` = `eligibility` | `steps.<i>.<role>`)
+    with the payload's draft id, a null tree blank; never saved by id. */
+export function draftFromProposal(payload, views) {
+  const cond = (where, draftId) => (views[where]
+    ? { ...conditionDraft(views[where]), draftId: draftId || null } : blankCondition());
+  return {
+    id: null, giver_entity_id: payload.giver_entity_id || '', contact_entity_id: payload.contact_entity_id || '',
+    title: payload.title || '', summary: payload.summary || '',
+    repeatable: !!payload.repeatable, status: payload.status || 'open',
+    eligibility: cond('eligibility', payload.eligibility_draft_id),
+    steps: (payload.steps || []).map((st, i) => ({
+      objective: st.objective, cost: st.cost, domain: st.domain || '',
+      prerequisite: cond('steps.' + i + '.prerequisite', st.prerequisite_draft_id),
+      completion: cond('steps.' + i + '.completion', st.completion_draft_id),
+      failure: cond('steps.' + i + '.failure', st.failure_draft_id),
+    })),
+    terms: (payload.terms || []).map(termDraft),
+    unsavedAttributes: [],
+  };
 }
 
 /** The draft's indicative value, recomputed by the server (C1). */
 export async function refreshValue() {
   const draft = questOffersState.draft;
   if (!draft) return;
+  questOffersState.value = await offerValue(draft.terms);
+}
+
+/** The indicative value of these terms, or null -- « Quêtes » and the
+    review card (TICKET-0121) alike. */
+export async function offerValue(terms) {
   try {
-    questOffersState.value = await api('/api/quest-offers/value', {
+    return await api('/api/quest-offers/value', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ terms: draft.terms.map(termBody) }),
+      body: JSON.stringify({ terms: terms.map(termBody) }),
     });
   } catch (_e) {
-    questOffersState.value = null;
+    return null;
   }
 }
 
@@ -150,6 +180,22 @@ function draftBody(draft) {
     terms: draft.terms.map(termBody),
     unsaved_attributes: draft.unsavedAttributes.map((u) => ({ ref: u.ref, definition: u.definition })),
   };
+}
+
+const REVIEW_KEYS = ['request_id', 'character_id', 'subject', 'giver_suggestions', 'notes', 'consulted_fact_ids',
+                     'secret_fact_ids', 'flags'];
+
+/** The payload the review card approves: the offer as edited (`draftBody`),
+    the proposal's review keys as the designer wrote them, the conditions
+    still waiting (those whose seed was neither inserted nor discarded),
+    and `flags_confirmed` -- the creator's own tick, never set otherwise
+    (INV-63). */
+export function proposalBody(draft, payload, seeds, flagsConfirmed) {
+  const body = draftBody(draft);
+  for (const key of REVIEW_KEYS) body[key] = payload[key];
+  body.pending_drafts = (payload.pending_drafts || []).filter((p) => p.where in seeds);
+  body.flags_confirmed = flagsConfirmed === true;
+  return body;
 }
 
 export async function saveDraft(worldId) {

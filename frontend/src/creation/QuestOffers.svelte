@@ -6,16 +6,13 @@
      (M1) -- when its objective is reached. Its CREATION_ISLANDS
      entry declares origin 'new'. Saving sends the whole offer; an accepted
      quest keeps its own copy (writes/quests.py). State and requests live in
-     questOffers.svelte.js. */
+     questOffers.svelte.js. TICKET-0121 (BRIEF-0121-F): the editor itself
+     is OfferEditor.svelte, shared with the queue's review card. */
   import { serverState } from '../lib/serverState.svelte.js';
-  import ConditionEditor from './ConditionEditor.svelte';
-  import QuestTermRow from './QuestTermRow.svelte';
+  import OfferEditor from './OfferEditor.svelte';
   import {
-    questOffersState, loadOffers, newDraft, editOffer, saveDraft, blankStep,
-    addTerm, refreshValue, saveEconomy,
+    questOffersState, loadOffers, newDraft, editOffer, saveDraft, refreshValue, saveEconomy,
   } from './questOffers.svelte.js';
-  import { TERM_DIRECTIONS } from './questTerms.js';
-  import { STEP_DOMAINS } from './questRequirements.js';
 
   $effect(() => {
     questOffersState.draft = null;
@@ -29,8 +26,6 @@
 
   let draft = $derived(questOffersState.draft);
   let choices = $derived(questOffersState.choices);
-  // TICKET-0110 (X1): a faction giver may name its contact, one of its members.
-  let giverMembers = $derived(draft ? choices?.members?.[draft.giver_entity_id] : null);
   let value = $derived(questOffersState.value);
 
   // TICKET-0109 (E1): the world's rates; '' = the code's default.
@@ -47,13 +42,6 @@
     const stored = questOffersState.economy?.stored || {};
     economyDraft = Object.fromEntries(Object.keys(RATE_LABELS).map((k) => [k, stored[k] ?? '']));
     showEconomy = !showEconomy;
-  }
-
-  function moveStep(index, delta) {
-    const steps = draft.steps;
-    const target = index + delta;
-    if (target < 0 || target >= steps.length) return;
-    [steps[index], steps[target]] = [steps[target], steps[index]];
   }
 </script>
 
@@ -106,86 +94,7 @@
         <h2>{draft.id ? 'Modifier la quête' : 'Nouvelle quête'}</h2>
       </div>
       <div class="queue-body">
-        <label>Titre <input type="text" bind:value={draft.title}></label>
-        <label>Donnée par
-          <select value={draft.giver_entity_id}
-                  onchange={(e) => { draft.giver_entity_id = e.target.value; draft.contact_entity_id = ''; }}>
-            <option value="">—</option>
-            {#each choices?.givers || [] as g (g.id)}<option value={g.id}>{g.name}</option>{/each}
-          </select>
-        </label>
-        {#if giverMembers}
-          <label>Contact de la faction
-            <select bind:value={draft.contact_entity_id}>
-              <option value="">— à choisir au besoin</option>
-              {#each giverMembers as m (m.id)}<option value={m.id}>{m.name}</option>{/each}
-            </select>
-          </label>
-        {/if}
-        <label>Résumé <textarea rows="2" bind:value={draft.summary}></textarea></label>
-        <div class="inline">
-          <label><input type="checkbox" bind:checked={draft.repeatable}> Répétable</label>
-          <label>État
-            <select bind:value={draft.status}>
-              <option value="open">proposée</option>
-              <option value="closed">fermée</option>
-            </select>
-          </label>
-        </div>
-
-        <h4>Proposée à qui remplit</h4>
-        <ConditionEditor cond={draft.eligibility} {choices} unsaved={draft.unsavedAttributes} role="eligibility" emptyLabel="Tout le monde." addLabel="+ condition" />
-
-        <h4>Étapes</h4>
-        {#each draft.steps as step, i (i)}
-          <div class="quest-step">
-            <div class="inline">
-              <strong>{i + 1}.</strong>
-              <input type="text" style="flex:1" placeholder="Objectif" bind:value={step.objective}>
-              <label>Coût
-                <select bind:value={step.cost}>{#each [1, 2, 3, 4] as c}<option value={c}>{c}</option>{/each}</select>
-              </label>
-              <label>Jet
-                <select bind:value={step.domain}>
-                  <option value="">aucun</option>
-                  {#each STEP_DOMAINS as d}<option value={d}>{d}</option>{/each}
-                </select>
-              </label>
-              <button class="btn-icon" title="Monter" onclick={() => moveStep(i, -1)}>↑</button>
-              <button class="btn-icon" title="Descendre" onclick={() => moveStep(i, 1)}>↓</button>
-              <button class="btn-icon" title="Retirer l'étape" disabled={draft.steps.length === 1}
-                      onclick={() => draft.steps.splice(i, 1)}>✕</button>
-            </div>
-            <div class="muted">Prérequis</div>
-            <ConditionEditor cond={step.prerequisite} {choices} unsaved={draft.unsavedAttributes} role="prerequisite" addLabel="+ prérequis de l'étape" />
-            <div class="muted">Objectif atteint quand</div>
-            <ConditionEditor cond={step.completion} {choices} unsaved={draft.unsavedAttributes} role="completion"
-                             emptyLabel="Rien de vérifiable : c'est vous qui le déclarez." addLabel="+ condition d'objectif" />
-            <div class="muted">Échouée quand (affiché, n'agit jamais)</div>
-            <ConditionEditor cond={step.failure} {choices} unsaved={draft.unsavedAttributes} role="failure"
-                             emptyLabel="Aucune condition d'échec." addLabel="+ condition d'échec" />
-          </div>
-        {/each}
-        <button onclick={() => draft.steps.push(blankStep())}>+ étape</button>
-
-        {#each Object.entries(TERM_DIRECTIONS) as [direction, label] (direction)}
-          <h4>{direction === 'cost' ? 'Coûts (payés en déclarant la quête accomplie)' : 'Récompenses'}</h4>
-          {#each draft.terms as term, k (k)}
-            {#if term.direction === direction}
-              <QuestTermRow {term} {choices} onchange={() => refreshValue()}
-                            onremove={() => draft.terms.splice(k, 1)} />
-            {/if}
-          {/each}
-          <button onclick={() => addTerm(direction)}>+ {label.toLowerCase()}</button>
-        {/each}
-
-        {#if value}
-          <div class="value" class:warn={value.verdict === 'meagre' || value.verdict === 'generous'}>
-            Valeur indicative : coût {value.cost}, récompense {value.reward}
-            {#if value.ratio_pct !== null} — {value.ratio_pct} % (bande {value.band_low_pct}-{value.band_high_pct} %){/if}
-            — <strong>{value.verdict_label}</strong>
-          </div>
-        {/if}
+        <OfferEditor {draft} {choices} {value} onchange={refreshValue} />
 
         {#if questOffersState.saveError}<div class="r-err">{questOffersState.saveError}</div>{/if}
         <div style="margin-top:10px">
@@ -202,18 +111,10 @@
   .quest-offers { display: flex; gap: 12px; align-items: flex-start; }
   .quest-list { flex: 0 0 300px; }
   .quest-editor { flex: 1; }
-  .quest-editor label { display: block; margin: 4px 0; }
-  .quest-editor input[type="text"], .quest-editor textarea { width: 100%; box-sizing: border-box; }
-  .inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .inline label { display: inline-flex; gap: 4px; align-items: center; }
-  .quest-step { border-left: 2px solid var(--border); padding: 4px 0 6px 8px; margin: 6px 0; }
   .row-card { cursor: pointer; }
   .row-card.selected { background: rgba(106, 176, 255, 0.15); }
   .muted { color: var(--muted); font-size: 12px; }
   .r-err { color: var(--red); }
-  h4 { margin: 12px 0 4px; font-size: 13px; color: var(--muted); }
   .economy { border: 1px solid var(--border); padding: 6px 8px; margin-bottom: 8px; }
   .economy label { display: inline-flex; gap: 4px; align-items: center; margin: 2px 8px 2px 0; }
-  .value { margin-top: 10px; font-size: 13px; }
-  .value.warn { color: var(--red); }
 </style>

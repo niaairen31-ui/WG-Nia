@@ -298,6 +298,23 @@ PROMPT_REGISTRY: dict[str, PromptSpec] = {
         call_sites=("src/world_engine/condition_interpreter.py:_call",),
         default_model=_author_model,
     ),
+    # TICKET-0121 (BRIEF-0121-E): the quest designer's two calls -- the
+    # subject of a request, then the offer. Creator tools: the authoring
+    # model by default, overridable per template.
+    "quest_subject": PromptSpec(
+        surface="authoring",
+        world_scoped=False,
+        dry_run_capable=True,
+        call_sites=("src/world_engine/quest_designer.py:_subject",),
+        default_model=_author_model,
+    ),
+    "quest_design": PromptSpec(
+        surface="authoring",
+        world_scoped=False,
+        dry_run_capable=True,
+        call_sites=("src/world_engine/quest_designer.py:_design_call",),
+        default_model=_author_model,
+    ),
     "world_tick": PromptSpec(
         surface="play",
         world_scoped=False,

@@ -13,10 +13,17 @@ Selection and reconciliation are deliberately TWO model calls, not one
 (Nia's decision C3): this module answers "which open plan, if any, does the
 declaration target" and nothing else; `day_reconcile.reconcile` then
 classifies the declaration against that ONE plan's remaining steps.
+
+K1 (TICKET-0121): the selection has a third answer. When no plan is
+selected it also says what the declaration opens -- `route` "plan" (an
+activity a day can carry) or "quest" (something a day cannot give: a
+search). The call is made on EVERY declaration, an empty plan list included
+(rendered `(aucun plan ouvert)`).
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Optional
 
 from sqlmodel import Session, select
@@ -28,6 +35,19 @@ from .prompt_store import current_prompt
 
 # Same mild repetition controls as the rest of the day chain's emission calls.
 SELECT_OPTIONS: dict = {"repeat_penalty": 1.1, "repeat_last_n": 128}
+
+# K1 (TICKET-0121): what a declaration that attaches to no plan opens.
+PLAN_ROUTES: tuple[str, ...] = ("plan", "quest")
+
+NO_OPEN_PLAN_FR = "(aucun plan ouvert)"
+
+
+@dataclass(frozen=True)
+class PlanSelection:
+    """`select_plan`'s answer: the open plan the declaration targets (or
+    None) and the route. `route` is "plan" whenever `agenda` is set."""
+    agenda: Optional[Agenda]
+    route: str
 
 
 def _load_day_plan_select_template(world_id: Optional[str], db: Session) -> Optional[PromptTemplate]:
@@ -63,7 +83,10 @@ def _first_open_objective(agenda: Agenda, db: Session) -> str:
 def _render_plans(plans: list[Agenda], db: Session) -> str:
     """One line per plan, numbered from 1 in the order `plans` arrives —
     never an id (Scope IN item 1c): the model answers with the ordinal,
-    exactly as `day_reconcile` cites a `step_order` rather than a `step_id`."""
+    exactly as `day_reconcile` cites a `step_order` rather than a `step_id`.
+    An empty list renders `(aucun plan ouvert)` (K1)."""
+    if not plans:
+        return NO_OPEN_PLAN_FR
     lines = []
     for idx, agenda in enumerate(plans, start=1):
         objective = _first_open_objective(agenda, db)
@@ -72,16 +95,17 @@ def _render_plans(plans: list[Agenda], db: Session) -> str:
     return "\n".join(lines)
 
 
-def select_plan(declaration: str, plans: list[Agenda], db: Session) -> Optional[Agenda]:
-    """ONE model call (Scope IN item 1). `plans` is Python-owned and
-    Python-ordered; the model answers with an ORDINAL into it, never an id.
-    Raises `llm_parse.LlmParseError` on a missing template or a malformed or
-    out-of-range answer — never a silent fallback to `None` or to plan 1,
-    the same discipline `day_reconcile.reconcile` applies."""
-    if not plans:
-        return None
-
-    template = _load_day_plan_select_template(plans[0].world_id, db)
+def select_plan(declaration: str, plans: list[Agenda], db: Session, world_id: Optional[str] = None) -> PlanSelection:
+    """ONE model call, ALWAYS (K1, TICKET-0121: an empty `plans` included).
+    `plans` is Python-owned and Python-ordered; the model answers with an
+    ORDINAL into it, never an id, and, when it selects none, a `route`
+    ("plan" | "quest"). Raises `llm_parse.LlmParseError` on a missing
+    template or a malformed or out-of-range answer, or a missing or unknown
+    `route` with no plan selected — never a silent fallback to a route or to
+    plan 1, the same discipline `day_reconcile.reconcile` applies."""
+    if plans:
+        world_id = plans[0].world_id
+    template = _load_day_plan_select_template(world_id, db)
     if template is None:
         raise llm_parse.LlmParseError(
             "day_plan_select: no active prompt_template for usage='day_plan_select'"
@@ -108,11 +132,16 @@ def select_plan(declaration: str, plans: list[Agenda], db: Session) -> Optional[
 
     selected = obj.get("selected")
     if selected is None or selected == 0:
-        return None
+        route = obj.get("route")
+        if route not in PLAN_ROUTES:
+            raise llm_parse.LlmParseError(
+                f"day_plan_select: route must be one of {PLAN_ROUTES!r} when no plan is selected, got {route!r}"
+            )
+        return PlanSelection(None, route)
     if not isinstance(selected, int) or isinstance(selected, bool):
         raise llm_parse.LlmParseError(f"day_plan_select: selected must be an int, got {selected!r}")
     if not (1 <= selected <= len(plans)):
         raise llm_parse.LlmParseError(
             f"day_plan_select: selected {selected!r} outside range 1..{len(plans)}"
         )
-    return plans[selected - 1]
+    return PlanSelection(plans[selected - 1], "plan")

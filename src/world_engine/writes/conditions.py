@@ -62,6 +62,8 @@ _TARGET_ENTITY_TYPE: dict[str, Optional[tuple[str, ...]]] = {
     "has_debt_to": ("character", "faction"), "no_debt_to": ("character", "faction"),
     # TICKET-0111 (S1): an item held in quantity (`item_holding`).
     "item_held": ("item",),
+    # TICKET-0121 (E3a): the one character an offer is kept for.
+    "is_character": ("character",),
 }
 
 
@@ -236,6 +238,8 @@ def clean_leaf(db: Session, world_id: str, req: RequirementSpec, where: str = ""
     if req.type not in REQUIREMENT_TYPES:
         raise ValueError(f"{where}unknown requirement type {req.type!r}")
     _clean_subject(db, world_id, where, req)
+    if req.type == "is_character" and req.subject_role != "doer":
+        raise ValueError(f"{where}is_character judges the one who acts (subject: doer)")
     if req.type == ATTRIBUTE_FORM:
         return _clean_attribute(db, world_id, where, req, unsaved)
     if req.type == EVENT_FORM:

@@ -14,11 +14,14 @@
      question view still writes nothing -- the link only opens the panel.
      TICKET-0095 (K1): the same tab hosts the model-choice review (ChoiceReviewPanel.svelte).
      TICKET-0098 (BRIEF-0098-F, H1): the "Écrire" tab hosts the writing panel (WritePanel.svelte),
-     a second bounded reopening; the question view still writes nothing. */
+     a second bounded reopening; the question view still writes nothing.
+     TICKET-0121 (BRIEF-0121-G, C-14): a quest request's hand-off
+     (`writeState.questRequestId`) opens the "Écrire" tab, pre-filled. */
   import { serverState } from '../lib/serverState.svelte.js';
   import NamesPanel from './NamesPanel.svelte';
   import ChoiceReviewPanel from './ChoiceReviewPanel.svelte';
   import WritePanel from './WritePanel.svelte';
+  import { writeState } from './writePanel.svelte.js';
   import { openLookup } from './namesPanel.svelte.js';
   import {
     loreState, askLore, selectCandidate, allAmbiguitiesResolved, confirmResolution,
@@ -91,6 +94,11 @@
     void serverState.worldId;
     reloadForWorld();
   });
+
+  // Reads the hand-off, writes only the tab (INV-55).
+  $effect(() => {
+    if (writeState.questRequestId) loreTab = 'write';
+  });
 </script>
 
 <div class="app-view" id="lore-view" style:display={active ? '' : 'none'}>
@@ -99,6 +107,9 @@
     <button class:active={loreTab === 'names'} onclick={() => (loreTab = 'names')}>Noms à lier</button>
     <button class:active={loreTab === 'write'} onclick={() => (loreTab = 'write')}>Écrire</button>
   </div>
+  {#if loreTab === 'write' && writeState.questRequestId}
+    <div class="lore-quest-request">Pour la demande de quête : {writeState.questRequestSubject}</div>
+  {/if}
   {#if loreTab === 'write'}
     <WritePanel visible={active} />
   {/if}
@@ -211,6 +222,7 @@
   .r-err { color: var(--red); }
   .lore-tabs { display: flex; gap: 6px; margin-bottom: 8px; }
   .lore-tabs button.active { font-weight: 600; }
+  .lore-quest-request { margin-bottom: 8px; font-weight: 600; }
   textarea { width: 100%; box-sizing: border-box; font: inherit; }
   .answer-prose { white-space: pre-wrap; }
   .muted { color: var(--muted); font-size: 12px; }

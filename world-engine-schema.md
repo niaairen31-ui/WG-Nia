@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.27
+Current schema version: v2.28
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -1305,6 +1305,63 @@ CREATE TABLE condition_draft (
 );
 CREATE INDEX idx_condition_draft_attempt ON condition_draft(attempt_id, created_at);
 CREATE INDEX idx_condition_draft_world ON condition_draft(world_ref, created_at);
+```
+
+-----
+
+### `quest_request`
+
+A quest the creator is asked to design (schema v2.28, TICKET-0121,
+BRIEF-0121-B, decision L1): one row per agenda step that needs a quest --
+a day routed to one (`trigger = 'route'`), a step blocked (`'blocked'`), a
+knowledge nobody can anchor (`'dropped'`) -- worked through by the creator:
+designed, asked about, written into the lore, proposed, set aside. One
+request per step (`idx_quest_request_step` is unique).
+
+`status` is `new` (waits for the designer), `asking` (the subject is
+unknown, the existence question is shown), `writing_lore` (answered
+`exists` or `absent`, the Lore panel is open for it), `proposed` (a
+`quest_offer_creation` -- `mutation_id` -- exists), `covered` (an open
+offer already covers it -- `offer_id`) or `dropped` (the creator set it
+aside). A proposal's fate -- approved or rejected -- is that
+`proposed_mutation`'s `status`, never a second column here.
+`existence_answer` is `exists`, `absent` or `already` (the lore already says
+it). `change_history` holds every former state, never rendered in any UI
+surface.
+
+Written only by `writes/quest_requests.py`, which never commits. Non-canon;
+deleted with its world (`delete_world_cascade`).
+
+```sql
+CREATE TABLE quest_request (
+  id                  TEXT PRIMARY KEY NOT NULL,
+  world_id            TEXT NOT NULL REFERENCES world(id),
+  character_id        TEXT NOT NULL REFERENCES entity(id),
+  pass_play_id        TEXT NOT NULL REFERENCES pass_play(id),
+  agenda_step_id      TEXT NOT NULL REFERENCES agenda_step(id),
+  trigger             TEXT NOT NULL,
+  declaration         TEXT NOT NULL,
+  subject             TEXT,
+  status              TEXT NOT NULL DEFAULT 'new',
+  existence_answer    TEXT,
+  creator_text        TEXT,
+  existing_entity_id  TEXT REFERENCES entity(id),
+  lore_entry_id       TEXT REFERENCES lore_entry(id),
+  mutation_id         TEXT REFERENCES proposed_mutation(id),
+  offer_id            TEXT REFERENCES quest_offer(id),
+  note                TEXT,
+  created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  change_history      JSON NOT NULL DEFAULT '[]',
+  CONSTRAINT ck_quest_request_trigger CHECK (
+    trigger IN ('route','blocked','dropped')),
+  CONSTRAINT ck_quest_request_status CHECK (
+    status IN ('new','asking','writing_lore','proposed','covered','dropped')),
+  CONSTRAINT ck_quest_request_answer CHECK (
+    existence_answer IS NULL OR existence_answer IN ('exists','absent','already'))
+);
+CREATE INDEX idx_quest_request_world ON quest_request(world_id, created_at);
+CREATE UNIQUE INDEX idx_quest_request_step ON quest_request(agenda_step_id);
 ```
 
 -----

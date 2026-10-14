@@ -41,6 +41,7 @@ MODELS_DIR = SRC / "world_engine" / "models"
 # one line each with justification. Adding a JSON column requires editing
 # this allow-list — a visible, reviewable diff, never a convention.
 JSON_COLUMN_ALLOWLIST = {
+    # Edited field by field by the review card for event_creation (TICKET-0119) and quest_offer_creation (TICKET-0121): the « payload » deferral, reached (dashboard_deferrals.py).
     # Polymorphic model-proposal envelope; rendered readonly in the
     # review queue; shape is the mutation type's contract, not a UI
     # field. First structured UI consumer must relationalize.
@@ -123,6 +124,9 @@ JSON_COLUMN_ALLOWLIST = {
     # FIRST UI consumer of these two columns must relationalize.
     "ConditionDraft.payload",
     "ConditionDraft.model_calls",
+    # TICKET-0121 (BRIEF-0121-B, L1): a request's former states -- an audit
+    # snapshot, never rendered in any UI surface (the change_history posture).
+    "QuestRequest.change_history",
 }
 
 

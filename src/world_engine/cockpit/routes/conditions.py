@@ -8,6 +8,7 @@ conditions series:
     POST /api/conditions/interpret                    a sentence -> a proposal
     POST /api/conditions/drafts/{draft_id}/resolve    the names she picked
     POST /api/conditions/drafts/{draft_id}/decision   inserted | discarded
+    POST /api/conditions/view                         a tree -> its French reading (TICKET-0121)
 
 Since TICKET-0113 (BRIEF-0113-E, WK2, WN2), a proposal may carry the
 attributes it proposes: the editor sends the draft's unsaved ones with each
@@ -80,6 +81,12 @@ class ResolveBody(BaseModel):
     unsaved_attributes: list[UnsavedBody] = Field(default_factory=list)
 
 
+class ViewBody(BaseModel):
+    """`POST /api/conditions/view` (TICKET-0121, C-13)."""
+    tree: Optional[dict] = None
+    unsaved_attributes: list[UnsavedBody] = Field(default_factory=list)
+
+
 class DecisionBody(BaseModel):
     decision: str
     # On `inserted` (BRIEF-0113-E): the proposed attributes as the creator
@@ -110,8 +117,16 @@ def _current(body: InterpretBody, world_id: str, db: Session, unsaved: tuple):
 
 def _answer(draft: ConditionDraft, result: Optional[_interpreter.Interpretation], db: Session,
             unsaved: tuple = ()) -> dict:
+    """`answer_dict` under its first name, kept for the routes below."""
+    return answer_dict(draft, result, db, unsaved)
+
+
+def answer_dict(draft: ConditionDraft, result: Optional[_interpreter.Interpretation], db: Session,
+                unsaved: tuple = ()) -> dict:
     """C-06: what the editor shows; since TICKET-0113 (BRIEF-0113-E) the
-    attributes the answer proposes, each with the attributes near it."""
+    attributes the answer proposes, each with the attributes near it.
+    Public since TICKET-0121 (BRIEF-0121-E, C-13): the quest designer builds
+    each pending condition's answer with it, into its proposal's payload."""
     if result is None:
         return {"draft_id": draft.id, "outcome": draft.outcome, "view": None, "mentions": [], "notes": [],
                 "errors": [], "definitions": [], "vocabulary": []}
@@ -168,6 +183,20 @@ def _draft(db: Session, draft_id: str) -> ConditionDraft:
     if draft is None or draft.world_ref != world_id:
         raise HTTPException(status_code=404, detail=f"condition draft {draft_id!r} not found")
     return draft
+
+
+@router.post("/api/conditions/view")
+def view(body: ViewBody, db: Session = Depends(get_session)) -> dict:
+    """C-13: the French reading of a condition tree, nothing written -- the
+    review card shows a designer's tree through it. 422 on a tree
+    `clean_condition` refuses."""
+    world_id = _crud._world_id(db)
+    unsaved = _unsaved(db, world_id, body.unsaved_attributes)
+    try:
+        tree = clean_condition(db, world_id, node_from_dict(body.tree), unsaved=unsaved_views(unsaved))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"view": condition_view(db, tree, unsaved_views(unsaved)) if tree is not None else None}
 
 
 @router.post("/api/conditions/drafts/{draft_id}/resolve")

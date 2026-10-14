@@ -18,7 +18,11 @@
    uses a near one, or creates this one -- retouched in EventTypeForm --
    through the vocabulary's own routes; « Appliquer les choix » then binds
    each ref to the id she chose. Created at once: the vocabulary belongs to
-   the world, not to the offer. */
+   the world, not to the offer.
+   TICKET-0121 (BRIEF-0121-F, C-14): a condition the quest designer left
+   waiting for the creator opens seeded (`seededState`) on the designer's
+   answer, as after « Proposer »; « Insérer » and « Écarter » then call
+   `onsettle`, so the review card stops counting it as pending. */
 import { api } from './sheetRequest.svelte.js';
 import { conditionBody, conditionDraft } from './questRequirements.js';
 import { definitionBody, specDraft } from './attributes.svelte.js';
@@ -28,6 +32,14 @@ import { reloadChoices } from './questOffers.svelte.js';
 export function interpreterState() {
   return { open: false, instruction: '', attemptId: crypto.randomUUID(), busy: false, error: '',
            proposal: null, picks: {}, cards: [], vocab: [] };
+}
+
+/** An interpreter opened on an answer it did not ask for -- one of the
+    designer's `pending_drafts` (TICKET-0121, C-10): the same shape `run`
+    leaves after a request. */
+export function seededState(answer) {
+  return { ...interpreterState(), open: true, instruction: answer.instruction || '', proposal: answer,
+           cards: cardsOf(answer), vocab: vocabCardsOf(answer) };
 }
 
 async function post(path, body) {
@@ -112,7 +124,7 @@ async function decide(state, decision, body) {
 
 /** Insert the proposal into the condition draft (a flat one as rows, a
     nested one locked), with the attributes it proposes as confirmed. */
-export async function insertProposal(state, cond, unsaved) {
+export async function insertProposal(state, cond, unsaved, onsettle) {
   const proposal = state.proposal;
   const definitions = state.cards.map((c) => ({ ref: c.ref, definition: definitionBody(c.draft, false) }));
   try {
@@ -128,16 +140,20 @@ export async function insertProposal(state, cond, unsaved) {
   state.vocab = [];
   state.instruction = '';
   state.open = false;
+  if (onsettle) onsettle();
 }
 
 /** Discard the proposal; the sentence stays, to reformulate. */
-export async function discardProposal(state) {
+export async function discardProposal(state, onsettle) {
+  let settled = true;
   try {
     if (state.proposal.outcome !== 'refused') await decide(state, 'discarded');
   } catch (e) {
     state.error = e.message;
+    settled = false;
   }
   state.proposal = null;
   state.cards = [];
   state.vocab = [];
+  if (settled && onsettle) onsettle();
 }

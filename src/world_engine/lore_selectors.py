@@ -19,6 +19,7 @@ from .context import read_public_memberships
 from .facet_reads import creator_only_fact_ids, facts_of, joined
 from .facets import DESCRIPTIVE_FACETS, FACETS
 from .knowledge_resolve import resolve_knowledge
+from .lore_resolve import normalize_surface
 from .models import Character, Entity, Fact, FactParticipant, Faction, Knowledge, NpcGoal, Relation
 from .prose_render import fact_is_stale, fact_texts, fact_texts_at, knowledge_texts
 from .relation_orientation import MAP_TOPOLOGY_TYPES
@@ -298,7 +299,79 @@ def who_knows_about(entity_id: str, world_id: str, db: Session) -> list[dict]:
     return [coverage] + knowers
 
 
-SELECTORS: tuple[str, ...] = ("entity_dossier", "world_factions", "who_knows_about")
+_MIN_TOKEN_LENGTH = 3
+
+
+def facts_mentioning(text: str, world_id: str, db: Session) -> list[dict]:
+    """The facts of the world whose text holds every word of `text`
+    (TICKET-0121, BRIEF-0121-C, C-04): a subject that is not a named entity,
+    reached by its words. Deterministic: tokens of `normalize_surface`, only
+    those of three letters or more count in the query, compared in Python.
+    One `coverage` row first, then one `mentions` row per matching fact,
+    ordered by its rendered text then id, with its participants' names and
+    its knowers (secrets marked, level rank descending then name).
+    Creator-only facts are included and flagged -- a creator surface only
+    (INV-01's creator regime). No token of three letters or more: the
+    `coverage` row alone."""
+    wanted = {t for t in normalize_surface(text).split() if len(t) >= _MIN_TOKEN_LENGTH}
+    matched: list[tuple[Fact, str]] = []
+    if wanted:
+        facts = db.exec(select(Fact).where(Fact.world_id == world_id)).all()
+        for fact, rendered in zip(facts, fact_texts(db, facts)):
+            if wanted <= set(normalize_surface(rendered).split()):
+                matched.append((fact, rendered))
+    matched.sort(key=lambda pair: (pair[1], pair[0].id))
+    fact_ids = [fact.id for fact, _ in matched]
+    secret_ids = creator_only_fact_ids(db, fact_ids)
+    participants: dict[str, list[str]] = {}
+    knowers: dict[str, list[tuple[Knowledge, Entity]]] = {}
+    if fact_ids:
+        for fact_id, name in db.exec(
+            select(FactParticipant.fact_id, Entity.name)
+            .join(Entity, Entity.id == FactParticipant.entity_id)
+            .where(Entity.world_id == world_id, FactParticipant.fact_id.in_(fact_ids))
+            .order_by(FactParticipant.position, Entity.name)
+        ).all():
+            participants.setdefault(fact_id, []).append(name)
+        for k, knower in db.exec(
+            select(Knowledge, Entity)
+            .join(Entity, Entity.id == Knowledge.entity_id)
+            .where(Entity.world_id == world_id, Knowledge.fact_id.in_(fact_ids))
+        ).all():
+            knowers.setdefault(k.fact_id, []).append((k, knower))
+    rows: list[dict] = [{
+        "section": "coverage",
+        "subject_name": text,
+        "counted_rows": len(matched),
+        "uncounted_rows": 0,
+    }]
+    for fact, rendered in matched:
+        holders = sorted(
+            knowers.get(fact.id, []),
+            key=lambda pair: (-knowledge_level_rank(pair[0].level), pair[1].name or ""),
+        )
+        rows.append({
+            "section": "mentions",
+            "fact_id": fact.id,
+            "content": rendered,
+            "creator_only": fact.id in secret_ids,
+            "participants": participants.get(fact.id, []),
+            "knowers": [
+                {
+                    "knower_entity_id": knower.id,
+                    "knower_name": knower.name,
+                    "level": k.level,
+                    "is_secret": k.is_secret,
+                }
+                for k, knower in holders
+            ],
+        })
+    return rows
+
+
+SELECTORS: tuple[str, ...] = (
+    "entity_dossier", "world_factions", "who_knows_about", "facts_mentioning",
+)
 
 _SELECTOR_LOOKUPS: dict[str, SelectorSpec] = {
     "entity_dossier": SelectorSpec(
@@ -311,5 +384,9 @@ _SELECTOR_LOOKUPS: dict[str, SelectorSpec] = {
     "who_knows_about": SelectorSpec(
         fn=who_knows_about, arity=2, row_cap=200,
         arg_kinds=("entity_id", "world_id"), context_sections=("coverage",),
+    ),
+    "facts_mentioning": SelectorSpec(
+        fn=facts_mentioning, arity=2, row_cap=200,
+        arg_kinds=("text", "world_id"), context_sections=("coverage",),
     ),
 }

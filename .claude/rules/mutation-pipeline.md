@@ -45,3 +45,7 @@ paths:
   (`cockpit/routes/mutations.py`) is canon-existence-based, never a
   `tick_id`-scoped history comparison, and is never extended to
   `relation_change`. [no check]
+- **INV-63** A `quest_offer_creation` is applied only with a giver, no condition still
+  waiting, and every player-visible field that repeats a secret fact the designer read
+  confirmed by the creator (`flags_confirmed`): the applier recomputes the flags
+  (`prose_guard.flags`) and writes nothing otherwise. -- enforced by `quest_designer.py`

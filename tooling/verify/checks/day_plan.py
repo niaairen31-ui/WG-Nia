@@ -138,8 +138,8 @@ R26: `_anchorable_facts` exists and its body references all three of
 `world_id`, `is_secret` and a `!=`/`is_not` comparison against
 `character.id`; `_held_facts` exists. Zero located is a FAILURE.
 (Retargeted TICKET-0097, BRIEF-0097-d: the gate names a fact, not a subject.)
-R27: `anchor_requirements` is called in `cockpit/routes/day.py` and the call
-appears in `_finalize_plan` BEFORE the first reference to
+R27: `anchor_requirements` is called in `cockpit/day_plan_finalize.py` (moved
+from `routes/day.py`, TICKET-0121) and the call appears in `_finalize_plan` BEFORE the first reference to
 `evaluate_requirements` in that function (compare `lineno`).
 R28: `emit_plan` appends `learnable_summary` with `+=` to the user
 message and `learnable_facts_summary` appears in NO seeded prompt constant in
@@ -187,6 +187,7 @@ CANON_FILE = SRC / "models" / "canon.py"
 CONFIG_FILE = SRC / "models" / "config.py"
 SCHEDULE_READS_FILE = SRC / "schedule_reads.py"
 DAY_ROUTE_FILE = SRC / "cockpit" / "routes" / "day.py"
+DAY_FINALIZE_FILE = SRC / "cockpit" / "day_plan_finalize.py"  # _finalize_plan, moved by TICKET-0121
 DAY_RECONCILE_APPLY_FILE = SRC / "cockpit" / "day_reconcile_apply.py"
 DAY_RESOLVE_FILE = SRC / "day_resolve.py"
 GOALS_AGENDAS_FILE = SRC / "writes" / "goals_agendas.py"
@@ -208,6 +209,8 @@ EXPECTED_REQUIREMENT_TYPES = (
     # replaced `quest_completed`. TICKET-0113 (BRIEF-0113-B, WG1): `attribute`
     # replaced `vital_status` at v2.23. TICKET-0114 (BRIEF-0114-E, G1): `event`.
     "item_held", "attribute", "event",
+    # TICKET-0121 (BRIEF-0121-A, E3a): fourteen.
+    "is_character",
 )
 EXPECTED_RECONCILE_VERDICTS = ("continue", "modify", "replace")
 EXPECTED_PLAN_ACTIONS = ("continue", "modify", "replace", "resume")
@@ -548,9 +551,9 @@ def check_bounds_constants() -> None:
     if missing:
         fail(f"day_plan R9: module-level constant(s) missing from day_plan.py: {sorted(missing)!r}")
 
-    route_text = _read_text(DAY_ROUTE_FILE)
+    route_text = _read_text(DAY_FINALIZE_FILE)
     if route_text is not None and "DAY_BUDGET_SLOTS" not in route_text:
-        fail(f"{_rel(DAY_ROUTE_FILE)}: does not reference DAY_BUDGET_SLOTS — bounds must not be restated as literals")
+        fail(f"{_rel(DAY_FINALIZE_FILE)}: does not reference DAY_BUDGET_SLOTS — bounds must not be restated as literals")
 
 
 def check_no_traversal_reuse() -> None:
@@ -1069,14 +1072,15 @@ def check_anchoring_readers() -> None:
 
 def check_anchor_requirements_wiring() -> None:
     """R27 (BRIEF-0078-a item 7): `anchor_requirements` is called in
-    `cockpit/routes/day.py` and the call appears in `_finalize_plan` BEFORE
+    `cockpit/day_plan_finalize.py` (moved from `routes/day.py`,
+    TICKET-0121) and the call appears in `_finalize_plan` BEFORE
     the first reference to `evaluate_requirements` in that function."""
-    tree = _parse(DAY_ROUTE_FILE)
+    tree = _parse(DAY_FINALIZE_FILE)
     if tree is None:
         return
     fn = _find_function(tree, "_finalize_plan")
     if fn is None:
-        fail(f"day_plan R27: {_rel(DAY_ROUTE_FILE)}: _finalize_plan not found")
+        fail(f"day_plan R27: {_rel(DAY_FINALIZE_FILE)}: _finalize_plan not found")
         return
     anchor_lineno = None
     evaluate_lineno = None
@@ -1087,10 +1091,10 @@ def check_anchor_requirements_wiring() -> None:
             elif node.func.id == "evaluate_requirements" and evaluate_lineno is None:
                 evaluate_lineno = node.lineno
     if anchor_lineno is None:
-        fail(f"day_plan R27: {_rel(DAY_ROUTE_FILE)}: _finalize_plan does not call anchor_requirements")
+        fail(f"day_plan R27: {_rel(DAY_FINALIZE_FILE)}: _finalize_plan does not call anchor_requirements")
         return
     if evaluate_lineno is None:
-        fail(f"day_plan R27: {_rel(DAY_ROUTE_FILE)}: _finalize_plan does not call evaluate_requirements")
+        fail(f"day_plan R27: {_rel(DAY_FINALIZE_FILE)}: _finalize_plan does not call evaluate_requirements")
         return
     if not anchor_lineno < evaluate_lineno:
         fail(

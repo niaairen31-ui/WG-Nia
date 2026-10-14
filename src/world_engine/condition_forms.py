@@ -78,10 +78,12 @@ from .skill_access import held_rank, skill_label
 # the events of one type its subject took part in, in one role or any, with
 # filters on the other roles and a place, since a window (F1);
 # `event_vocab.EVENT_FORM` names it there.
+# TICKET-0121 (BRIEF-0121-A, E3a): `is_character` -- the one who acts is this character.
 REQUIREMENT_TYPES: tuple[str, ...] = (
     "knowledge", "relation_gte", "resource", "location_reachable",
     "has_met", "faction_member", "skill_rank_gte", "quest_state",
     "has_debt_to", "no_debt_to", "item_held", "attribute", "event",
+    "is_character",
 )
 
 # What `emit_plan`'s parser accepts from the model (TICKET-0108): the four
@@ -93,6 +95,7 @@ MODEL_REQUIREMENT_TYPES: tuple[str, ...] = ("knowledge", "relation_gte", "resour
 # CHECK (C-01): which column names its target, and which need a threshold.
 ENTITY_TARGET_TYPES: tuple[str, ...] = (
     "relation_gte", "location_reachable", "has_met", "faction_member", "has_debt_to", "no_debt_to", "item_held",
+    "is_character",
 )
 KEY_TARGET_TYPES: tuple[str, ...] = ("knowledge", "resource", "skill_rank_gte", "quest_state", "attribute", "event")
 THRESHOLD_TYPES: tuple[str, ...] = ("relation_gte", "resource", "skill_rank_gte", "item_held", "event")
@@ -522,6 +525,19 @@ def _eval_event(req: RequirementSpec, character: Character, db: Session, reachab
     return evaluate_event(req, character, db, None)
 
 
+def _eval_is_character(req: RequirementSpec, character: Character, db: Session, reachable_ids) -> Verdict:
+    """The one who acts is the target character (TICKET-0121, E3a): a quest
+    offered to one character only."""
+    del reachable_ids
+    met = character.id == req.target_entity_id
+    name = _entity_name(db, req.target_entity_id)
+    reason = f"is {name}" if met else f"prerequisite not met — is not {name}"
+    return Verdict(
+        type=req.type, met=met, current=character.id, required=req.target_entity_id,
+        reason=reason, required_label=name,
+    )
+
+
 _EVALUATORS: dict[str, Callable[[RequirementSpec, Character, Session, object], Verdict]] = {
     "knowledge": _eval_knowledge,
     "relation_gte": _eval_relation_gte,
@@ -536,6 +552,7 @@ _EVALUATORS: dict[str, Callable[[RequirementSpec, Character, Session, object], V
     "item_held": _eval_item_held,
     "attribute": _eval_attribute,
     "event": _eval_event,
+    "is_character": _eval_is_character,
 }
 
 

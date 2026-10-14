@@ -29,9 +29,10 @@ from sqlmodel import Session, select
 
 from .conditions import and_path_leaves, read_condition
 from .models import (
-    Agenda, AgendaStep, Character, ConditionDraft, ConditionNode, MutationReview, MutationReviewChange,
-    ProposedMutation, Quest, Rencontre, SkillResolution, World,
+    Agenda, AgendaStep, Character, ConditionDraft, ConditionNode, Entity, MutationReview, MutationReviewChange,
+    PassPlay, ProposedMutation, Quest, QuestOffer, QuestRequest, Rencontre, SkillResolution, World,
 )
+from .models import Session as SessionRow
 from .proposal_producers import producer_label
 
 
@@ -255,6 +256,46 @@ def _needs_attention(db: Session, scope: Scope) -> tuple[list[Row], str]:
         "Approuvées sans pouvoir s'appliquer (ou en attente de réalisation) : la file « Needs attention »."
 
 
+_TRIGGERS_FR = (("route", "Déclaration aiguillée"), ("blocked", "Étape bloquée"),
+                ("dropped", "Savoir introuvable"))
+_ANSWERS_FR = (("exists", "Elle existe"), ("absent", "Elle n'existe pas"),
+               ("already", "Le lore le disait déjà"))
+
+
+def _after(at: datetime, limit: datetime) -> bool:
+    return at.replace(tzinfo=None) > limit.replace(tzinfo=None)
+
+
+def _quest_requests(db: Session, scope: Scope) -> tuple[list[Row], str]:
+    requests = db.exec(select(QuestRequest).where(
+        _in_worlds(QuestRequest.world_id, scope), *_dated(QuestRequest.created_at, scope))).all()
+    triggers = Counter(r.trigger for r in requests)
+    answers = Counter(r.existence_answer for r in requests)
+    days = db.exec(select(PassPlay.id).join(SessionRow, SessionRow.id == PassPlay.session_id).where(
+        PassPlay.agenda_id.is_not(None), _in_worlds(SessionRow.world_id, scope),
+        *_dated(PassPlay.submitted_at, scope))).all()
+    rows = [Row("Origine", label, triggers[key], len(requests)) for key, label in _TRIGGERS_FR]
+    rows.append(Row("Origine", "Journées aiguillées vers une quête", triggers["route"], len(days)))
+    rows += [Row("Existence", label, answers[key], len(requests)) for key, label in _ANSWERS_FR]
+    approved = created_after = 0
+    mutation_ids = [r.mutation_id for r in requests if r.mutation_id]
+    if mutation_ids:
+        proposals = {p.id: p for p in db.exec(select(ProposedMutation).where(
+            ProposedMutation.id.in_(mutation_ids), ProposedMutation.status == "applied")).all()}
+        for request in requests:
+            proposal = proposals.get(request.mutation_id)
+            if proposal is None:
+                continue
+            approved += 1
+            offer = db.get(QuestOffer, request.offer_id) if request.offer_id else None
+            giver = db.get(Entity, offer.giver_entity_id) if offer is not None else None
+            if giver is not None and _after(giver.created_at, proposal.proposed_at):
+                created_after += 1
+    rows.append(Row("Donneur", "Offres approuvées", approved, len(requests)))
+    rows.append(Row("Donneur", "Donneur créé après la proposition", created_after, approved))
+    return rows, "Ce que deviennent les demandes de quête nées des journées (P1, S3, D2)."
+
+
 METRICS: tuple[Metric, ...] = (
     Metric("event_reviews", "Événements proposés",
            "Combien d'événements proposés acceptes-tu tels quels ?", ("D1", "D2"), True, _event_reviews),
@@ -276,6 +317,9 @@ METRICS: tuple[Metric, ...] = (
            "Combien de gestes le lexique ne reconnaît-il pas ?", ("C3b",), True, _lexicon_gaps),
     Metric("needs_attention", "File « Needs attention »",
            "Combien de propositions approuvées attendent encore ?", (), False, _needs_attention),
+    Metric("quest_requests", "Demandes de quête",
+           "D'où viennent les demandes de quête, et que deviennent-elles ?", ("P1", "S3", "D2"), True,
+           _quest_requests),
 )
 
 

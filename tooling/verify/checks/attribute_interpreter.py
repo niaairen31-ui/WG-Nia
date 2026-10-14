@@ -42,7 +42,7 @@ AE1 -- the shape (BRIEF-0113-E, static and import). The journal's
    touches another's); `write_condition` cleans its tree with no unsaved
    attribute; the offer body carries `unsaved_attributes`; the editor sends
    them (`questOffers.svelte.js`), passes them to every condition
-   (`QuestOffers.svelte`) and the interpreter (`ConditionEditor.svelte`),
+   (`OfferEditor.svelte`, TICKET-0121) and the interpreter (`ConditionEditor.svelte`),
    whose card renders `<AttributeDefinitionForm` and sends the confirmed
    `definitions` with `inserted`.
 AE2 -- proposing (fixture, `condition_interpreter.chat` stubbed). An answer
@@ -428,7 +428,7 @@ def check_ae1() -> None:
     front = ROOT / "frontend" / "src" / "creation"
     needles = {
         "questOffers.svelte.js": ("unsaved_attributes: draft.unsavedAttributes",),
-        "QuestOffers.svelte": ("unsaved={draft.unsavedAttributes}",),
+        "OfferEditor.svelte": ("unsaved={draft.unsavedAttributes}",),
         "ConditionEditor.svelte": ("<ConditionInterpreter {cond} {role} {unsaved}", "withUnsaved(choices, unsaved)"),
         "ConditionInterpreter.svelte": ("<AttributeDefinitionForm",),
         "conditionInterpreter.svelte.js": ("decide(state, 'inserted', { definitions",),
@@ -438,9 +438,9 @@ def check_ae1() -> None:
         for needle in wanted:
             if needle not in text:
                 fail(f"AE1: {name} lacks {needle}")
-    if (front / "QuestOffers.svelte").read_text(encoding="utf-8").count("unsaved={draft.unsavedAttributes}") != 4:
+    if (front / "OfferEditor.svelte").read_text(encoding="utf-8").count("unsaved={draft.unsavedAttributes}") != 4:
         # TICKET-0114 (BRIEF-0114-E, H1): a step's failure is the fourth.
-        fail("AE1: QuestOffers.svelte does not pass the unsaved attributes to its four conditions")
+        fail("AE1: OfferEditor.svelte does not pass the unsaved attributes to its four conditions")
 
 
 # --- AE2 -------------------------------------------------------------------------

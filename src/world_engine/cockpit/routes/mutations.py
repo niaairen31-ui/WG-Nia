@@ -463,6 +463,7 @@ def _apply_mutation(mut: ProposedMutation, db: Session) -> Optional[str]:
         "agenda_creation": _mutations._mutation_apply_agenda_creation,
         "agenda_delegation": _mutations._mutation_apply_agenda_delegation,
         "skill_progress": _skill_progress.apply_skill_progress,
+        "quest_offer_creation": _mutations._mutation_apply_quest_offer_creation,
     }
     applier = appliers.get(mut.mutation_type)
     if applier is None:

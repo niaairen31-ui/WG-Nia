@@ -71,6 +71,7 @@ from .routes import npc_agent as _routes_npc_agent
 from .routes import observation as _routes_observation
 from .routes import play as _routes_play
 from .routes import prompts as _routes_prompts
+from .routes import quest_requests as _routes_quest_requests
 from .routes import quests as _routes_quests
 from .routes import regions as _routes_regions
 from .routes import room_batch as _routes_room_batch
@@ -145,6 +146,7 @@ app.include_router(_routes_lore_mentions.router)
 app.include_router(_routes_lore_choices.router)
 app.include_router(_routes_lore_write.router)
 app.include_router(_routes_quests.router)
+app.include_router(_routes_quest_requests.router)
 app.include_router(_routes_conditions.router)
 app.include_router(_routes_debts.router)
 app.include_router(_routes_attributes.router)

@@ -37,7 +37,9 @@ from ... import lore_write_read as _read
 from ... import model_exchange
 from ...db import get_session
 from ...llm_parse import LlmParseError
+from ...models import QuestRequest
 from ...ollama_client import OllamaError
+from ...writes.quest_requests import move_request
 from .. import crud as _crud
 
 router = APIRouter()
@@ -52,6 +54,9 @@ class StatementBody(BaseModel):
 class CommitBody(BaseModel):
     proposal: dict[str, Any]
     attempt_id: Optional[str] = None
+    # TICKET-0121 (BRIEF-0121-E, C-12): the quest request this write answers; it must be waiting
+    # for it (`writing_lore`), and moves back to `new` with the entry that was written.
+    quest_request_id: Optional[str] = None
 
 
 def _world_id(db: Session) -> str:
@@ -144,6 +149,13 @@ def write_commit(body: CommitBody, db: Session = Depends(get_session)) -> dict:
     # `apply_proposal` annotates the dict it validates (`_type` on each
     # entity); the journal keeps the proposal as the panel sent it.
     received = copy.deepcopy(body.proposal)
+    request = None
+    if body.quest_request_id is not None:
+        request = db.get(QuestRequest, body.quest_request_id)
+        if request is None or request.world_id != world_id or request.status != "writing_lore":
+            detail = "Cette demande de quête n'attend pas d'écriture dans Lore."
+            _refuse_commit(db, attempt, world_id, received, detail)
+            raise HTTPException(status_code=422, detail=detail)
     try:
         result = _apply.apply_proposal(db, world_id, body.proposal, _entity_creator(db))
     except _apply.ProposalError as exc:
@@ -153,6 +165,8 @@ def write_commit(body: CommitBody, db: Session = Depends(get_session)) -> dict:
         _refuse_commit(db, attempt, world_id, received, str(exc.detail))
         raise
     answer = {"entry_id": result.entry_id, "written": result.written, "skipped": result.skipped}
+    if request is not None:
+        move_request(db, request, "new", lore_entry_id=result.entry_id)
     _usage.stage(db, attempt=attempt, world_id=world_id, kind="write", step="commit",
                  outcome="ok", payload={"proposal": received, "result": answer, "error": None},
                  lore_entry_ref=result.entry_id)

@@ -13,6 +13,13 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.28** — TICKET-0121, BRIEF-0121-B: a quest request is a row.
+  `quest_request` (one row per agenda step the creator is asked to design a
+  quest for: its trigger -- a day routed to a quest, a step blocked, a
+  knowledge nobody can anchor --, the declaration, a status, the existence
+  answer, and the lore entry, proposal and offer it led to; one request per
+  step; `change_history` keeps every former state).
+  `migrate_v2_28_quest_requests.py` writes no data.
 - **v2.27** — TICKET-0115, BRIEF-0115-A: the creator's review of a
   proposal, round by round. `proposed_mutation` gains `original_payload`
   (JSON, nullable: the payload as its producer wrote it, kept the first time

@@ -90,7 +90,7 @@ from sqlmodel import Session, select
 
 from .conditions import and_path_leaves, read_condition
 from .day_events import emit_objective_events
-from .day_resolve import BLOCKED_BAND, StepOutcome, outcome_line
+from .day_resolve import BLOCKED_BAND, INQUIRY_BAND, StepOutcome, outcome_line
 from .models import Character, Fact, PassPlay, ProposedMutation
 from .prose_render import fact_text
 
@@ -316,6 +316,8 @@ def emit_mutations(
     world_id = character.world_id
     mutations: list[ProposedMutation] = []
     for outcome in outcomes:
+        if outcome.band == INQUIRY_BAND:
+            continue  # T1 (TICKET-0121): an inquiry proposes nothing.
         for emitter in _EMITTERS.values():
             mutations.extend(emitter(outcome, pass_play, character, world_id, db))
     return mutations

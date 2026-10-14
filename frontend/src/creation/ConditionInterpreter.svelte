@@ -8,18 +8,23 @@
      AttributeDefinitionForm -- confirmed with « Insérer ».
      TICKET-0114 (BRIEF-0114-G, R1): an event type or a sorte the world
      lacks comes as a card too -- use the near one, or create this one now,
-     a type retouched in EventTypeForm. */
+     a type retouched in EventTypeForm.
+     TICKET-0121 (BRIEF-0121-F, C-14): `seed`, a quest designer's answer
+     still waiting for the creator, opens it as after « Proposer »;
+     `onsettle` runs once it is inserted or discarded. */
   import AttributeDefinitionForm from './AttributeDefinitionForm.svelte';
   import EventTypeForm from './EventTypeForm.svelte';
   import { loadVocabulary, vocabState } from './eventVocab.svelte.js';
   import { serverState } from '../lib/serverState.svelte.js';
   import {
-    interpreterState, askInterpreter, pickNames, insertProposal, discardProposal, createVocab,
+    interpreterState, seededState, askInterpreter, pickNames, insertProposal, discardProposal, createVocab,
   } from './conditionInterpreter.svelte.js';
 
-  let { cond, role, unsaved = [], types = [] } = $props();
+  let { cond, role, unsaved = [], types = [], seed = null, onsettle = null } = $props();
 
-  const s = $state(interpreterState());
+  // Seeded once, at creation -- the compiler warns this captures only the
+  // initial `seed`; that is the intent: an open interpreter is never reseeded.
+  const s = $state(seed ? seededState(seed) : interpreterState());
   let proposal = $derived(s.proposal);
   let picked = $derived(proposal
     ? proposal.mentions.every((m) => s.picks[m.ref]) && s.cards.every((c) => c.pick)
@@ -114,9 +119,9 @@
             <button disabled={s.busy || !picked} onclick={() => pickNames(s, unsaved)}>Appliquer les choix</button>
           {/if}
           {#if proposal.outcome === 'proposed'}
-            <button onclick={() => insertProposal(s, cond, unsaved)}>Insérer dans l'offre</button>
+            <button onclick={() => insertProposal(s, cond, unsaved, onsettle)}>Insérer dans l'offre</button>
           {/if}
-          <button onclick={() => discardProposal(s)}>Écarter</button>
+          <button onclick={() => discardProposal(s, onsettle)}>Écarter</button>
         </div>
       </div>
     {/if}

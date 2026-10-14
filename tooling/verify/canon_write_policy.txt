@@ -53,7 +53,7 @@ src/world_engine/writes/config.py::upsert_skill_rank           skill_rank
 src/world_engine/writes/zone_promotion.py::apply_promotion     discoverable_detail
 # TICKET-0109, BRIEF-0109-A: write_holding is the one writer of item_holding -- set or move how many of an item an entity holds; apply_promotion now moves a place's items through it.
 src/world_engine/writes/items.py::write_holding                item_holding
-# TICKET-0108, BRIEF-0108-B: write_quest_offer creates or saves one quest offer -- its steps and requirements replaced whole (the write_npc_prices full-replace shape), the offer row snapshotted; creator CRUD only.
+# TICKET-0108, BRIEF-0108-B: write_quest_offer creates or saves one quest offer -- its steps and requirements replaced whole (the write_npc_prices full-replace shape), the offer row snapshotted; creator CRUD and, since TICKET-0121 (BRIEF-0121-E), the quest_offer_creation applier through cockpit/quest_offer_save.py.
 src/world_engine/writes/quests.py::write_quest_offer           quest_offer quest_offer_step
 # TICKET-0108, BRIEF-0108-B: accept_quest writes the quest row; its agenda and steps go through write_agenda/write_agenda_step, allow-listed above, and since TICKET-0111 its steps' conditions through write_condition.
 src/world_engine/writes/quests.py::accept_quest                quest

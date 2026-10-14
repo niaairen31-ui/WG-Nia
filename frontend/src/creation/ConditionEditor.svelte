@@ -8,12 +8,14 @@
      interpreter under the condition; `role` is the condition's.
      TICKET-0113 (BRIEF-0113-E, WN2): `unsaved`, the offer draft's proposed
      attributes, is listed with the rows' attributes and goes to the
-     interpreter, which adds the ones the creator confirms. */
+     interpreter, which adds the ones the creator confirms.
+     TICKET-0121 (BRIEF-0121-F): `seed` and `onsettle` go to the
+     interpreter -- a quest designer's condition still waiting. */
   import QuestRequirementRow from './QuestRequirementRow.svelte';
   import ConditionInterpreter from './ConditionInterpreter.svelte';
   import { blankRequirement, withUnsaved } from './questRequirements.js';
 
-  let { cond, choices, role, emptyLabel, addLabel, unsaved = [] } = $props();
+  let { cond, choices, role, emptyLabel, addLabel, unsaved = [], seed = null, onsettle = null } = $props();
 
   let rowChoices = $derived(withUnsaved(choices, unsaved));
 
@@ -38,7 +40,7 @@
   {/each}
   <button onclick={() => cond.list.push(blankRequirement())}>{addLabel}</button>
 {/if}
-<ConditionInterpreter {cond} {role} {unsaved} types={choices?.entity_types || []} />
+<ConditionInterpreter {cond} {role} {unsaved} {seed} {onsettle} types={choices?.entity_types || []} />
 
 <style>
   .cond-locked { border-left: 2px solid var(--border); padding: 2px 0 4px 8px; margin: 3px 0; }
