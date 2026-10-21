@@ -20237,6 +20237,39 @@ transaction, copying every row (`change_history` included); a reference
 dangling before it is listed, never deleted (AMENDMENT-0107-01). No rank
 asks a trial afterwards. Gate: `rank_trial_schema.py` TS1-TS3.
 
+## THE POINTS COME FIRST; A RANK THAT ASKS A TRIAL WAITS (TICKET-0116) -- skill_ranks.trial_required, trial_target, held_trial_target (BRIEF-0116-b, no schema change)
+
+**A1: the points come first.** A rank that asks a trial is never reached by
+points alone: the points fill to its threshold, then the rank waits for a
+quest that gives it (BRIEF-0116-C).
+
+**B1: one cascade.** Whether leaving a rank asks a trial reads exactly like
+the points needed to leave it: the skill definition's
+`trial_to_rank_<rank + 1>`, else its system's, else the world's
+`skill_rank.trial_to_next`, else no trial. `RANK_TRIAL_COLUMNS` mirrors
+`RANK_POINTS_COLUMNS` (index = rank left); `trial_required` is the one
+reader, False at Maître. `upsert_skill_rank` refuses a trial at the top
+rank and a non-boolean flag, before any write.
+
+**C1: the points stop in the one writer of points.** `write_skill_progress`
+stops a gain at the threshold of a rank that asks a trial -- `xp` equals
+the threshold, the rank stays, no history entry, `awaiting_trial=True` --
+so every caller stops by construction. The two roll paths
+(`record_roll`, `grant_step_roll`) and the point reward
+(`skill_reward_points`) skip a waiting skill the way they skip a Maître:
+no `skill_progress` mutation is written for a roll that would earn
+nothing (INV-15). The creator's own rank edit (`write_skill_rank`) passes
+over it: only player characters earn points, and the creator is never
+gated (I1).
+
+**« Ready » is defined once.** A skill is ready exactly when
+`trial_target(rank, xp, ladder, ...)` is not None -- its points reached
+the threshold of a rank that asks a trial; the value is the rank the trial
+gives. `skill_trial_target` (one row), `held_trial_target` (a character
+and a skill key, through `skill_access`'s INV-41 lookups) and the CRUD's
+`trial_ready` all read it; no other module re-derives it. Gate:
+`rank_trials.py` TB1-TB3.
+
 ---
 
 *Co-built with Claude, June 2026.*

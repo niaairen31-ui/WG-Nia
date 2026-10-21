@@ -28,6 +28,7 @@ from .writes.debt_sources import credit_contact, credit_plan
 from .quest_value import offer_value, value_dict
 from .quest_wording import term_line
 from .skill_access import skill_label
+from .skill_ranks import MAX_RANK
 from .writes.pipeline import read_latest_resolution
 from .writes.quest_settlement import skill_row, settlement_refusals, skill_reward_points
 from .writes.quest_terms import quest_terms
@@ -39,7 +40,11 @@ def _skill_note(db: Session, quest: Quest, term) -> str:
     if row is None:
         return f"apprend « {label} » (Inexpérimenté)"
     points = skill_reward_points(db, quest.world_id, row)
-    return f"+{points} point(s) en « {label} »" if points is not None else f"déjà Maître en « {label} » : rien"
+    if points is not None:
+        return f"+{points} point(s) en « {label} »"
+    if row.rank >= MAX_RANK:
+        return f"déjà Maître en « {label} » : rien"
+    return f"épreuve de rang à passer en « {label} » : rien"
 
 
 def _terms(db: Session, quest: Quest, giver_id: str, terms: list) -> list[dict]:

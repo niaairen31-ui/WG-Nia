@@ -27,7 +27,7 @@ from sqlmodel import Session, select
 
 from .models import BASE_SKILL_DOMAINS, Skill, SkillDefinition
 from .resolution import Verdict
-from .skill_ranks import DEFAULT_RANK, rank_modifier
+from .skill_ranks import DEFAULT_RANK, rank_modifier, skill_trial_target
 
 
 # The verdict band of a locked skill: no dice, no point (B1).
@@ -89,6 +89,16 @@ def held_rank(db: Session, character_id: str, skill_key: Optional[str]) -> Optio
         return row.rank if row is not None else DEFAULT_RANK
     row = _definition_row(db, character_id, skill_key) if skill_key else None
     return row.rank if row is not None else None
+
+
+def held_trial_target(db: Session, *, world_id: str, character_id: str, skill_key: Optional[str]) -> Optional[int]:
+    """The rank a character's trial in `skill_key` would give him, or None --
+    not ready, or no row (TICKET-0116, `skill_ranks.skill_trial_target`)."""
+    if skill_key in BASE_SKILL_DOMAINS:
+        row = _base_row(db, character_id, skill_key)
+    else:
+        row = _definition_row(db, character_id, skill_key) if skill_key else None
+    return skill_trial_target(db, world_id=world_id, skill=row) if row is not None else None
 
 
 def skill_label(db: Session, skill_key: Optional[str]) -> str:

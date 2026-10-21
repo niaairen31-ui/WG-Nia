@@ -52,7 +52,10 @@ from ...models import (
 )
 from ...prompt_registry import PROMPT_REGISTRY, effective_model
 from ...prompt_store import current_prompt, get_version, list_versions
-from ...skill_ranks import DEFAULT_RANK, MAX_RANK, RANK_POINTS_COLUMNS, RANKS, RankStep, points_to_next, skill_owners, world_ladder
+from ...skill_ranks import (
+    DEFAULT_RANK, MAX_RANK, RANK_POINTS_COLUMNS, RANK_TRIAL_COLUMNS, RANKS, RankStep, points_to_next, skill_owners,
+    trial_target, world_ladder,
+)
 from ...tick_normalize import _EVENT_TYPES
 from ...writes import (
     KNOWLEDGE_LEVELS,
@@ -103,6 +106,8 @@ def _skill_dict(
         "rank_label": ladder[s.rank].label,
         "xp": s.xp,
         "points_to_next": points_to_next(s.rank, ladder, system=system, definition=definition),
+        # TICKET-0116: the points wait for a rank trial (`skill_ranks.trial_target`).
+        "trial_ready": trial_target(s.rank, s.xp, ladder, system=system, definition=definition) is not None,
         "requires_master": bool(definition.requires_master) if definition else False,
         "taught_by_id": s.taught_by_id,
         "change_history": s.change_history,
@@ -111,7 +116,8 @@ def _skill_dict(
 
 
 def _rank_step_dict(step: RankStep) -> dict:
-    return {"rank": step.rank, "label": step.label, "points_to_next": step.points_to_next}
+    return {"rank": step.rank, "label": step.label, "points_to_next": step.points_to_next,
+            "trial_to_next": step.trial_to_next}
 
 
 @router.get("/skill-ranks")
@@ -125,6 +131,7 @@ class SkillRankStepBody(BaseModel):
     rank: int
     label: str
     points_to_next: Optional[int] = None
+    trial_to_next: bool = False
 
 
 class SkillRanksBody(BaseModel):
@@ -143,7 +150,7 @@ def update_skill_ranks(body: SkillRanksBody, db: DbSession = Depends(get_session
     try:
         for step in body.ranks:
             upsert_skill_rank(db, world_id=world_id, rank=step.rank, label=step.label,
-                              points_to_next=step.points_to_next)
+                              points_to_next=step.points_to_next, trial_to_next=step.trial_to_next)
     except ValueError as exc:
         db.rollback()
         raise HTTPException(422, str(exc))
@@ -334,21 +341,27 @@ def list_skill_systems(db: DbSession = Depends(get_session)) -> list[dict]:
 
 class RankPointsBody(BaseModel):
     """The five optional rank thresholds of a system or a skill (TICKET-0106,
-    BRIEF-0106-C, O1): a positive count, or None to inherit. A PUT replaces
-    all five, like every other field of its body."""
+    BRIEF-0106-C, O1): a positive count, or None to inherit, and the five
+    optional trials, None to inherit (TICKET-0116). A PUT replaces all ten,
+    like every other field of its body."""
     points_to_rank_1: Optional[int] = Field(default=None, ge=1)
     points_to_rank_2: Optional[int] = Field(default=None, ge=1)
     points_to_rank_3: Optional[int] = Field(default=None, ge=1)
     points_to_rank_4: Optional[int] = Field(default=None, ge=1)
     points_to_rank_5: Optional[int] = Field(default=None, ge=1)
+    trial_to_rank_1: Optional[bool] = None
+    trial_to_rank_2: Optional[bool] = None
+    trial_to_rank_3: Optional[bool] = None
+    trial_to_rank_4: Optional[bool] = None
+    trial_to_rank_5: Optional[bool] = None
 
 
 def _rank_points(row: Any) -> dict:
-    return {column: getattr(row, column) for column in RANK_POINTS_COLUMNS}
+    return {column: getattr(row, column) for column in RANK_POINTS_COLUMNS + RANK_TRIAL_COLUMNS}
 
 
 def _set_rank_points(row: Any, body: RankPointsBody) -> None:
-    for column in RANK_POINTS_COLUMNS:
+    for column in RANK_POINTS_COLUMNS + RANK_TRIAL_COLUMNS:
         setattr(row, column, getattr(body, column))
 
 

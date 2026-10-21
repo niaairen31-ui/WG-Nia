@@ -15,6 +15,12 @@ four former tiers keep their exact modifier (tier -1/0/1/2 became rank
 
 Reads only: this module never writes. `world_ladder` applies the engine
 defaults to a world with no `skill_rank` row, without writing them.
+
+TICKET-0116 (B1, A1, C1): whether leaving a rank asks a trial follows the
+points' cascade -- the definition's `RANK_TRIAL_COLUMNS`, then its
+system's, then the world's `skill_rank.trial_to_next`, no trial by default
+(`trial_required`). A skill is ready when its points reached the threshold
+of such a rank (`trial_target`). Reads only.
 """
 
 from __future__ import annotations
@@ -41,6 +47,8 @@ DEFAULT_POINTS_TO_NEXT: tuple[int, ...] = (5, 10, 20, 40, 80)
 TIER_TO_RANK: dict[int, int] = {-1: 0, 0: 1, 1: 2, 2: 3}
 # Index = rank left: `points_to_rank_<rank + 1>` holds the points to leave it.
 RANK_POINTS_COLUMNS: tuple[str, ...] = tuple(f"points_to_rank_{n}" for n in range(1, 6))
+# Index = rank left: `trial_to_rank_<rank + 1>` says whether leaving it asks a trial (TICKET-0116).
+RANK_TRIAL_COLUMNS: tuple[str, ...] = tuple(f"trial_to_rank_{n}" for n in range(1, 6))
 
 
 @dataclass(frozen=True)
@@ -48,6 +56,7 @@ class RankStep:
     rank: int
     label: str
     points_to_next: Optional[int]  # None for MAX_RANK only
+    trial_to_next: bool = False  # leaving this rank asks a trial (TICKET-0116, B1); never at MAX_RANK
 
 
 def rank_modifier(rank: int) -> int:
@@ -75,6 +84,7 @@ def world_ladder(db: Session, world_id: str) -> tuple[RankStep, ...]:
         steps.append(step if row is None else RankStep(
             rank=step.rank, label=row.label,
             points_to_next=row.points_to_next if step.rank < MAX_RANK else None,
+            trial_to_next=bool(row.trial_to_next) if step.rank < MAX_RANK else False,
         ))
     return tuple(steps)
 
@@ -109,3 +119,45 @@ def skill_points_to_next(db: Session, *, world_id: str, rank: int, skill_definit
     """`points_to_next` for one skill row, its owners and ladder read here."""
     system, definition = skill_owners(db, skill_definition_id)
     return points_to_next(rank, world_ladder(db, world_id), system=system, definition=definition)
+
+
+def trial_required(rank: int, ladder: tuple[RankStep, ...], *, system: Any = None, definition: Any = None) -> bool:
+    """Whether leaving `rank` asks a trial (TICKET-0116, B1): the same
+    cascade as the points -- `definition`'s `RANK_TRIAL_COLUMNS[rank]` when
+    not None, else `system`'s, else the ladder's `trial_to_next`. False at
+    MAX_RANK: the top rank has no next."""
+    if rank >= MAX_RANK:
+        return False
+    column = RANK_TRIAL_COLUMNS[rank]
+    for owner in (definition, system):
+        value = getattr(owner, column, None) if owner is not None else None
+        if value is not None:
+            return bool(value)
+    return ladder[rank].trial_to_next
+
+
+def trial_target(rank: int, xp: int, ladder: tuple[RankStep, ...], *, system: Any = None,
+                 definition: Any = None) -> Optional[int]:
+    """The rank a skill's trial would give, or None (TICKET-0116, A1, C1):
+    `rank + 1` when leaving `rank` asks a trial and `xp` reached its
+    threshold. A skill is « ready » exactly when this is not None -- the one
+    reading of « ready », every other reader calls it."""
+    needed = points_to_next(rank, ladder, system=system, definition=definition)
+    if needed is None or not trial_required(rank, ladder, system=system, definition=definition):
+        return None
+    return rank + 1 if xp >= needed else None
+
+
+def skill_trial_required(db: Session, *, world_id: str, rank: int, skill_definition_id: Optional[str]) -> bool:
+    """`trial_required` for one skill row's rank, its owners and ladder read
+    here (TICKET-0116); a base domain reads the world's ladder alone."""
+    system, definition = skill_owners(db, skill_definition_id)
+    return trial_required(rank, world_ladder(db, world_id), system=system, definition=definition)
+
+
+def skill_trial_target(db: Session, *, world_id: str, skill: Any) -> Optional[int]:
+    """`trial_target` for one `Skill` row, its owners and ladder read here
+    (TICKET-0116): not None exactly while the skill waits for a rank
+    trial."""
+    system, definition = skill_owners(db, skill.skill_definition_id)
+    return trial_target(skill.rank, skill.xp, world_ladder(db, world_id), system=system, definition=definition)

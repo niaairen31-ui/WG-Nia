@@ -513,6 +513,7 @@
 - `quest_rewards.py` — G1 check for TICKET-0109 -- objects held in quantity, quest terms, the indicative unit, and « déclarer accomplie ».
 - `quests.py` — G1 check for TICKET-0108 -- quest offers, accepted quests, and the requirement vocabulary they share with day plans.
 - `rank_trial_schema.py` — G1 check for TICKET-0116 (BRIEF-0116-A) -- v2.29 stores the rank trials.
+- `rank_trials.py` — G1 check for TICKET-0116 -- a rank that asks a trial is earned by a quest.
 - `region_npc_retirement.py` — G1 check: region NPC-machinery retirement (TICKET-0037, BRIEF-0037-d, A1).
 - `registry_model_columns.py` — G1 check: every field the creator-CRUD registry declares is a column of the model it writes (TICKET-0102, BRIEF-0102-a).
 - `relation_graph.py` — G1 check for TICKET-0023/BRIEF-0023-b, amended by TICKET-0033/BRIEF-0033-e — NPC relation ego + global graph.

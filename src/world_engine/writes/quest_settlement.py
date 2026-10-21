@@ -46,7 +46,7 @@ from ..holdings import held_quantity
 from ..ledger import get_balance
 from ..models import BASE_SKILL_DOMAINS, Agenda, Entity, Quest, QuestOffer, Skill
 from ..skill_access import held_rank, skill_label
-from ..skill_ranks import MAX_RANK, skill_points_to_next
+from ..skill_ranks import MAX_RANK, skill_points_to_next, skill_trial_target
 from .characters import write_ledger_entry, write_skill_progress, write_skill_row
 from .goals_agendas import write_agenda_status
 from .items import write_holding
@@ -77,9 +77,10 @@ def skill_row(db: Session, character_id: str, skill_key: str) -> Optional[Skill]
 
 
 def skill_reward_points(db: Session, world_id: str, row: Skill) -> Optional[int]:
-    """C-skill1: the points a skill reward gives this row, or None at Maître."""
+    """C-skill1: the points a skill reward gives this row, or None at Maître,
+    and while the skill waits for a rank trial (TICKET-0116)."""
     needed = skill_points_to_next(db, world_id=world_id, rank=row.rank, skill_definition_id=row.skill_definition_id)
-    if row.rank >= MAX_RANK or needed is None:
+    if row.rank >= MAX_RANK or needed is None or skill_trial_target(db, world_id=world_id, skill=row) is not None:
         return None
     return max(1, math.ceil(needed * SKILL_REWARD_SHARE))
 
