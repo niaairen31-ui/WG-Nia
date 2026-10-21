@@ -2,7 +2,7 @@
 id: TICKET-0116
 title: Rank trials -- a rank that asks a trial is earned by a quest, in any world
 type: feature
-status: escalated
+status: exec
 created: 2026-10-20
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: [migration, db_write]
@@ -167,3 +167,4 @@ How should TICKET-0116's verify be made green given that the only red check come
 A) Run /verify with the untracked TICKET-0124 artifacts (ticket, lot, briefs) moved outside the repository for the run and restored right after -- the verdict then reflects exactly what this branch commits; then open the PR. B) Nia removes or adjusts TICKET-0124-world-premise.md herself (e.g. until its lot starts), then /pipeline TICKET-0116 is re-run. C) An amendment to pipeline_state.py (e.g. tolerate a pending check named by a ticket whose status is intake/brief) -- a separate decision, outside this ticket.
 
 **Response:**
+E-01: A -- run /verify with the untracked TICKET-0124 artifacts moved outside the repository for the run, restore them right after, then open the PR.
