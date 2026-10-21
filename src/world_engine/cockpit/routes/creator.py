@@ -9,6 +9,7 @@ in the sibling `cockpit/routes/regions.py` (module-budget split).
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -40,6 +41,7 @@ from ...models import (
     SkillDefinition,
     User,
     World,
+    WorldLaw,
 )
 from ...writes import (
     KNOWLEDGE_LEVELS,
@@ -409,6 +411,14 @@ class WorldCreateBody(BaseModel):
     name: str
     description: str = ""
     fundamental_laws: str = ""
+    tone: str = ""
+
+
+class WorldUpdateBody(BaseModel):
+    name: str
+    description: str = ""
+    tone: str = ""
+    laws: list[str] = []
 
 
 @router.post("/api/worlds")
@@ -416,11 +426,13 @@ def create_world(body: WorldCreateBody, db: Session = Depends(get_session)) -> d
     """Generic empty-world bootstrap (BRIEF-44, B2). Creates one fresh-UUID
     `world` row and auto-activates it in the same transaction (reuses
     activate_world's deactivate-then-activate logic). The created world is
-    empty: no PC, no session, no locations, no templates, no entities."""
+    empty: no PC, no session, no locations, no templates, no entities.
+    The tone is stored stripped, empty -> NULL (TICKET-0124, BRIEF-0124-A)."""
     try:
         new_world = World(
             name=body.name,
             description=body.description,
+            tone=body.tone.strip() or None,
         )
         db.add(new_world)
         db.flush()
@@ -440,6 +452,54 @@ def create_world(body: WorldCreateBody, db: Session = Depends(get_session)) -> d
         db.rollback()
         return {"ok": False, "error": str(exc)}
     return {"ok": True, "world_id": new_world.id}
+
+
+def _world_detail(world: World, db: Session) -> dict:
+    """One world as the « Monde » page reads it (TICKET-0124, BRIEF-0124-A,
+    W1): its laws are the `world_law` texts by position."""
+    laws = db.exec(
+        select(WorldLaw.text_).where(WorldLaw.world_id == world.id).order_by(WorldLaw.position)
+    ).all()
+    return {
+        "id": world.id,
+        "name": world.name,
+        "description": world.description,
+        "tone": world.tone,
+        "laws": list(laws),
+        "is_active": world.is_active,
+    }
+
+
+@router.get("/api/worlds/{world_id}")
+def get_world(world_id: str, db: Session = Depends(get_session)) -> dict:
+    """Read one world, active or not (TICKET-0124, BRIEF-0124-A, W1)."""
+    world = db.get(World, world_id)
+    if world is None:
+        raise HTTPException(status_code=404, detail=f"World {world_id!r} not found")
+    return _world_detail(world, db)
+
+
+@router.put("/api/worlds/{world_id}")
+def update_world(world_id: str, body: WorldUpdateBody, db: Session = Depends(get_session)) -> dict:
+    """Edit one world's name, description, tone and laws, active or not
+    (TICKET-0124, BRIEF-0124-A, W1). The laws keep their full replace
+    through `write_world_laws` (W2 deferred). Never touches `is_active` or
+    `current_phase`. One commit."""
+    world = db.get(World, world_id)
+    if world is None:
+        raise HTTPException(status_code=404, detail=f"World {world_id!r} not found")
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Le nom est requis.")
+    world.name = name
+    world.description = body.description.strip() or None
+    world.tone = body.tone.strip() or None
+    world.updated_at = datetime.now(UTC)
+    db.add(world)
+    write_world_laws(db, world=world, laws=body.laws, changed_by="creator")
+    db.commit()
+    db.refresh(world)
+    return _world_detail(world, db)
 
 
 def _activate_world_core(world_id: str, db: Session) -> None:

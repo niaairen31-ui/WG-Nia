@@ -20403,6 +20403,28 @@ block names the skill and the rank from `payload.trial`, and `REVIEW_KEYS`
 carries `trial` through `proposalBody`. The applier never reads it: it
 judges the rank reward from the request. Gate: `rank_trials.py` TF1-TF4.
 
+
+## A WORLD HAS A TONE AND CAN BE EDITED (TICKET-0124) -- world.tone, GET/PUT /api/worlds/{world_id} (BRIEF-0124-a, schema v2.30)
+
+**B2: the tone is one free field.** `world.tone` (TEXT, nullable) holds
+the creator's « Ton et style »; every generator will read it through the
+world premise (brief B). It is stored stripped, empty -> NULL, on create
+(`WorldCreateBody.tone`) and on edit. A structured world bible (B3) is
+deferred.
+
+**W1: one world is read and edited.** `GET /api/worlds/{world_id}` answers
+`id, name, description, tone, laws, is_active`; `PUT` writes the name
+(stripped, empty -> 422 « Le nom est requis. »), description, tone,
+`updated_at`, and the laws through `write_world_laws` -- the existing
+full replace -- in one commit. Any world, active or not; `is_active` and
+`current_phase` are never touched. `update_world` is a fifth sanctioned
+`world` write site (`canon_write_policy.txt`). Law history (W2) is
+deferred; its condition is grep-able: the day a writer passes
+`world_law_id=` to a fact, the full replace fails on the foreign key.
+
+**D2: the laws are public.** Nothing hides a law from the players; a hidden
+law is its own ticket. Gate: `world_sheet.py` WS1-WS3.
+
 ---
 
 *Co-built with Claude, June 2026.*

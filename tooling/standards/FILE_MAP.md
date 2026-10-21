@@ -122,6 +122,7 @@
 - `migrate_v2_27_mutation_reviews.py` — Migration v2.27 — the creator's review of a proposal, round by round (TICKET-0115, BRIEF-0115-A; decisions A3, C1 and H1a of the conditions series' dashboard).
 - `migrate_v2_28_quest_requests.py` — Migration v2.28 — a quest request is a row (TICKET-0121, BRIEF-0121-B; decision L1 of the Journée quest designer).
 - `migrate_v2_29_rank_trials.py` — Migration v2.29 — a rank may ask a trial, and a trial is a quest (TICKET-0116, BRIEF-0116-A; decisions B1, D2, D2-d, F1-b).
+- `migrate_v2_30_world_tone.py` — Migration v2.30 — a world has a tone (TICKET-0124, BRIEF-0124-A; decision B2 of the world premise).
 - `observation_metrics.py` — Observation run metrics (TICKET-0051, BRIEF-0051-g, decision J2/Q).
 - `preview_npc_schedule.py` — Preview `where_is` / `who_is_at` / `unresolved_npcs` — the concrete reader for `world.current_phase` (T-A1) and the live-gate instrument for TICKET-0074, BRIEF-0074-a.
 - `preview_tick_context.py` — Preview the full-interiority briefing a world tick would send to one NPC (TICKET-0014, BRIEF-0014-a; TICKET-0015, BRIEF-0015-a adds --interval) — the concrete reader for `assemble_tick_context` in this brief, and the live-gate instrument for the T1 review.
@@ -553,6 +554,7 @@
 - `undefined_names.py` — G1 check: no undefined names under src/ (TICKET-0027 R8, BRIEF-0027-i).
 - `visit_delta.py` — Structural gate for the `visit` table (TICKET-0016, BRIEF-0016-a).
 - `world_cascade.py` — G1 check for TICKET-0096 (BRIEF-0096-A) -- the world cascade deletes every world-scoped row, or refuses before deleting anything.
+- `world_sheet.py` — G1 check for TICKET-0124 -- a world has a tone and can be edited, and the « Monde » page edits it.
 - `world_tick.py` — Structural gate for the world-tick briefing surface (TICKET-0014, BRIEF-0014-a).
 - `zone_children.py` — G1 check for TICKET-0101 (BRIEF-0101-E) — a zone's children take its neighbours.
 - `zone_graph.py` — G1 check for TICKET-0101 (BRIEF-0101-F) — the Lieux graph's three modes.

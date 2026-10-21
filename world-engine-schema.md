@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.29
+Current schema version: v2.30
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -28,6 +28,7 @@ CREATE TABLE world (
   id                    TEXT PRIMARY KEY,
   name                  TEXT NOT NULL,
   description           TEXT,
+  tone                  TEXT,                -- creator-set « Ton et style » (v2.30, TICKET-0124, B2); read by the world premise
   is_active             BOOLEAN NOT NULL DEFAULT FALSE,
                                        -- the single globally-active world (v1.54)
   current_phase         TEXT NOT NULL DEFAULT 'matin'
@@ -50,9 +51,10 @@ CREATE UNIQUE INDEX idx_world_one_active ON world(is_active) WHERE is_active = T
 Position-ordered fundamental laws (schema v1.78, TICKET-0025, BRIEF-0025-b
 — replaces `world.fundamental_laws` JSON). One row per law, in
 creation-form order. Curated config, same family as `faction_role`: no
-`change_history`. Written ONLY via `writes.write_world_laws`. No editing
-UI beyond the create form this phase — editing an existing world's laws
-is a future ticket.
+`change_history`. Written ONLY via `writes.write_world_laws`. Edited from
+the « Monde » page through `PUT /api/worlds/{world_id}` (v2.30,
+TICKET-0124, W1) -- still a full replace with no `change_history` (W2
+deferred).
 
 ```sql
 CREATE TABLE world_law (

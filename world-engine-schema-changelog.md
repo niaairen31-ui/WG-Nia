@@ -13,6 +13,10 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.30** — TICKET-0124, BRIEF-0124-A: a world has a tone. `world`
+  gains `tone` (TEXT, nullable: the creator's « Ton et style », read by
+  every generator through the world premise).
+  `migrate_v2_30_world_tone.py` writes no data.
 - **v2.29** — TICKET-0116, BRIEF-0116-A: a rank may ask a trial, and a
   trial is a quest. `skill_rank` gains `trial_to_next` (BOOLEAN, default
   0: leaving this rank asks a trial); `skill_system` and
