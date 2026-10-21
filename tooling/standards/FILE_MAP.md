@@ -253,6 +253,7 @@
 - `tick_normalize.py` — World-tick model-output normalization (TICKET-0014 onward; decomposed from `tick.py` at TICKET-0028, BRIEF-0028-a).
 - `traits.py` — Trait registry — code-source-of-truth (A1, TICKET-0045, BRIEF-0045-b).
 - `unbound_facts.py` — Facts nobody is attached to (TICKET-0097, decisions I1 and J1) — the read behind Creation's « Sujets » panel.
+- `world_premise.py` — The world premise -- what every generator is told about the world it writes for, in the regime its usage declares (TICKET-0124, BRIEF-0124-B; decisions A2, B2, C1, D2).
 - `zone_rules.py` — Zones and visitable locations (TICKET-0101) — pure reads, no write.
 
 ## src/world_engine/cockpit/
@@ -554,6 +555,7 @@
 - `undefined_names.py` — G1 check: no undefined names under src/ (TICKET-0027 R8, BRIEF-0027-i).
 - `visit_delta.py` — Structural gate for the `visit` table (TICKET-0016, BRIEF-0016-a).
 - `world_cascade.py` — G1 check for TICKET-0096 (BRIEF-0096-A) -- the world cascade deletes every world-scoped row, or refuses before deleting anything.
+- `world_premise.py` — G1 check for TICKET-0124 -- every generator that writes fiction is told the world it writes for, in its usage's regime, through one placeholder.
 - `world_sheet.py` — G1 check for TICKET-0124 -- a world has a tone and can be edited, and the « Monde » page edits it.
 - `world_tick.py` — Structural gate for the world-tick briefing surface (TICKET-0014, BRIEF-0014-a).
 - `zone_children.py` — G1 check for TICKET-0101 (BRIEF-0101-E) — a zone's children take its neighbours.

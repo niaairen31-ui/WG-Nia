@@ -373,3 +373,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 20353 | THE DESIGNER PROPOSES A RANK TRIAL, NIA CONFIRMS IT (TICKET-0116) -- quest_trial, _design_trial, the rank reward kept (BRIEF-0116-e, no schema change) | BRIEF-0116-e |  |
 | 20382 | A TRIAL IS SEEN WHERE THE CREATOR WORKS (TICKET-0116) -- COMPÉTENCES, THE FICHE, THE REQUESTS PANEL, THE REVIEW CARD (BRIEF-0116-f, no schema change) | BRIEF-0116-f |  |
 | 20407 | A WORLD HAS A TONE AND CAN BE EDITED (TICKET-0124) -- world.tone, GET/PUT /api/worlds/{world_id} (BRIEF-0124-a, schema v2.30) | BRIEF-0124-a | v2.30 |
+| 20428 | ONE WORLD PREMISE, TWO REGIMES (TICKET-0124) -- world_premise.py, PromptSpec.premise, premised_prompt (BRIEF-0124-b, no schema change) | BRIEF-0124-b |  |

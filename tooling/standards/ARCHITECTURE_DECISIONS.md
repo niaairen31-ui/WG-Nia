@@ -20425,6 +20425,38 @@ deferred; its condition is grep-able: the day a writer passes
 **D2: the laws are public.** Nothing hides a law from the players; a hidden
 law is its own ticket. Gate: `world_sheet.py` WS1-WS3.
 
+## ONE WORLD PREMISE, TWO REGIMES (TICKET-0124) -- world_premise.py, PromptSpec.premise, premised_prompt (BRIEF-0124-b, no schema change)
+
+**C1: every usage declares its regime.** `PromptSpec` gains `premise`
+(no default: every entry must declare it) and `premise_reason`, non-empty
+exactly for `none`. The 47 usages split 14 `creator` (the authoring
+generators, `quest_trial` with `quest_design`), 15 `player` (every play
+and day surface that writes fiction) and 18 `none`, each with its reason:
+`world_generation` drafts the world itself; the coherence, placement,
+selection, routing and classification usages judge, assign or pick and
+write no fiction; `lore_rows_to_prose` must add nothing to the rows;
+`condition_interpret` translates a sentence; the `day_extract_*` and
+`day_feasibility` usages are already framed by `world_frame`. A check
+holds the partition literally (`world_premise.py` WP1).
+
+**D2: the player regime is public only.** `world_premise.world_premise`
+builds one block for the active world: name, description, tone, laws.
+The `creator` regime adds the skill systems by name and, given an entity
+type, every active non-system state that type carries (a hidden one
+marked « caché du joueur »). The `player` regime never carries a skill
+system or a state; the laws are public (D2). Nothing but a name -> `""`.
+
+**P1: one placeholder, the existing version path.** The premise reaches
+a text only through `{world_premise}`, declared as a template variable
+and written through `write_prompt_version` like any other. `fill`
+replaces it (a text without it is returned untouched, no query run);
+`prompt_store.premised_prompt` returns the filled text as a frozen
+`PremisedPrompt` -- never the append-only row (INV-48) -- and
+`prompt_call.call_json` fills both texts before its `values`.
+`prompt_load` stays text-only. `missing_premise` gives the French refusal
+when a text and its regime disagree. INV-65 (`prompts.md`); gate:
+`world_premise.py` WP1-WP2.
+
 ---
 
 *Co-built with Claude, June 2026.*
