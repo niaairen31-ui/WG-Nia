@@ -25,9 +25,9 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
-from .models import BASE_SKILL_DOMAINS, Skill, SkillDefinition
+from .models import BASE_SKILL_DOMAINS, Entity, Skill, SkillDefinition
 from .resolution import Verdict
-from .skill_ranks import DEFAULT_RANK, rank_modifier, skill_trial_target
+from .skill_ranks import DEFAULT_RANK, MAX_RANK, rank_modifier, skill_trial_target
 
 
 # The verdict band of a locked skill: no dice, no point (B1).
@@ -108,6 +108,20 @@ def skill_label(db: Session, skill_key: Optional[str]) -> str:
         return str(skill_key)
     definition = db.get(SkillDefinition, skill_key) if skill_key else None
     return definition.name if definition is not None else str(skill_key)
+
+
+def skill_masters(db: Session, world_id: str, *, definition_id: Optional[str], domain: Optional[str]) -> list[dict]:
+    """The characters of the world at Maître in one skill (TICKET-0107 C1; moved here, TICKET-0116)."""
+    stmt = (
+        select(Entity)
+        .join(Skill, Skill.character_id == Entity.id)
+        .where(Entity.world_id == world_id, Skill.rank == MAX_RANK)
+    )
+    if definition_id is not None:
+        stmt = stmt.where(Skill.skill_definition_id == definition_id)
+    else:
+        stmt = stmt.where(Skill.domain == domain, Skill.skill_definition_id.is_(None))
+    return [{"id": e.id, "name": e.name} for e in db.exec(stmt.order_by(Entity.name)).all()]
 
 
 def locked_verdict(skill_name: str) -> Verdict:

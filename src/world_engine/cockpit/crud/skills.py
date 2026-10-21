@@ -52,8 +52,9 @@ from ...models import (
 )
 from ...prompt_registry import PROMPT_REGISTRY, effective_model
 from ...prompt_store import current_prompt, get_version, list_versions
+from ...skill_access import skill_masters
 from ...skill_ranks import (
-    DEFAULT_RANK, MAX_RANK, RANK_POINTS_COLUMNS, RANK_TRIAL_COLUMNS, RANKS, RankStep, points_to_next, skill_owners,
+    DEFAULT_RANK, RANK_POINTS_COLUMNS, RANK_TRIAL_COLUMNS, RANKS, RankStep, points_to_next, skill_owners,
     trial_target, world_ladder,
 )
 from ...tick_normalize import _EVENT_TYPES
@@ -176,20 +177,6 @@ def list_skill_player_characters(
     return [{"id": e.id, "name": e.name} for e, _ in rows]
 
 
-def _masters(db: DbSession, world_id: str, *, definition_id: Optional[str], domain: Optional[str]) -> list[dict]:
-    """The characters of the world at Maître in one skill (C1)."""
-    stmt = (
-        select(Entity)
-        .join(Skill, Skill.character_id == Entity.id)
-        .where(Entity.world_id == world_id, Skill.rank == MAX_RANK)
-    )
-    if definition_id is not None:
-        stmt = stmt.where(Skill.skill_definition_id == definition_id)
-    else:
-        stmt = stmt.where(Skill.domain == domain, Skill.skill_definition_id.is_(None))
-    return [{"id": e.id, "name": e.name} for e in db.exec(stmt.order_by(Entity.name)).all()]
-
-
 @router.get("/skills/learnable")
 def list_learnable_skills(character_id: str = Query(...), db: DbSession = Depends(get_session)) -> list[dict]:
     """The skills a character does not hold and may be given (TICKET-0107):
@@ -209,7 +196,7 @@ def list_learnable_skills(character_id: str = Query(...), db: DbSession = Depend
         for domain in SKILL_DOMAINS:
             if domain not in held_domains:
                 out.append({"domain": domain, "skill_definition_id": None, "name": domain, "requires_master": False,
-                            "masters": _masters(db, entity.world_id, definition_id=None, domain=domain)})
+                            "masters": skill_masters(db, entity.world_id, definition_id=None, domain=domain)})
     for definition in db.exec(select(SkillDefinition).where(SkillDefinition.world_id == entity.world_id)
                               .order_by(SkillDefinition.name)).all():
         if definition.id in held_definitions:
@@ -218,7 +205,7 @@ def list_learnable_skills(character_id: str = Query(...), db: DbSession = Depend
             continue
         out.append({"domain": definition.base_domain, "skill_definition_id": definition.id, "name": definition.name,
                     "requires_master": definition.requires_master,
-                    "masters": _masters(db, entity.world_id, definition_id=definition.id, domain=None)})
+                    "masters": skill_masters(db, entity.world_id, definition_id=definition.id, domain=None)})
     return out
 
 
@@ -245,7 +232,7 @@ def grant_skill(body: SkillGrantBody, db: DbSession = Depends(get_session)) -> d
         if definition is None or definition.world_id != world_id:
             raise HTTPException(422, "skill_definition_id must be a skill of the active world")
     if body.taught_by_id is not None:
-        masters = _masters(db, world_id, definition_id=body.skill_definition_id, domain=body.domain)
+        masters = skill_masters(db, world_id, definition_id=body.skill_definition_id, domain=body.domain)
         if body.taught_by_id == body.character_id or body.taught_by_id not in {m["id"] for m in masters}:
             raise HTTPException(422, "taught_by_id must be another character at Maître in this skill")
     held = select(Skill).where(Skill.character_id == body.character_id)
