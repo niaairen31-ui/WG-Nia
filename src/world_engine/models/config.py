@@ -253,4 +253,7 @@ class SkillRank(SQLModel, table=True):
     rank: int
     label: str
     points_to_next: Optional[int] = None
+    # TICKET-0116 (BRIEF-0116-A, B1): leaving this rank asks a trial -- a quest
+    # whose reward is the next rank. False by default: no world asks one.
+    trial_to_next: bool = Field(default=False, sa_column_kwargs={"server_default": text("0")})
     updated_at: datetime = _created_ts()

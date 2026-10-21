@@ -117,14 +117,16 @@ QUEST_TERM_CURRENCIES: tuple[str, ...] = ("money", "item", "relation", "fact", "
 
 # The shape CHECK both term tables carry, byte for byte: an amount for the
 # three counted currencies, a target for the three named ones.
+# TICKET-0116 (BRIEF-0116-A, D2): a rank is a reward only, naming a skill and the rank it gives.
 QUEST_TERM_SHAPE_CHECK = (
     "(currency NOT IN ('money','item','relation') OR (amount IS NOT NULL AND amount >= 1)) "
     "AND (currency <> 'item' OR item_id IS NOT NULL) "
     "AND (currency <> 'fact' OR fact_id IS NOT NULL) "
-    "AND (currency <> 'skill' OR skill_key IS NOT NULL)"
+    "AND (currency <> 'skill' OR skill_key IS NOT NULL) "
+    "AND (currency <> 'rank' OR (direction = 'reward' AND skill_key IS NOT NULL AND amount BETWEEN 1 AND 5))"
 )
 QUEST_TERM_DIRECTION_CHECK = "direction IN ('cost','reward')"
-QUEST_TERM_CURRENCY_CHECK = "currency IN ('money','item','relation','fact','skill')"
+QUEST_TERM_CURRENCY_CHECK = "currency IN ('money','item','relation','fact','skill','rank')"
 
 
 # -----------------------------------------------------------------------------

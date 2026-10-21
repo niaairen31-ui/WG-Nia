@@ -8,7 +8,8 @@ never a vacuous pass (known_reachability.py rule).
 Four assertions:
   1. `skill_system` exists with exactly the columns `id, world_id, name,
      description, created_at, updated_at` and, since v2.15 (TICKET-0106),
-     `points_to_rank_1` .. `points_to_rank_5` — no extras.
+     `points_to_rank_1` .. `points_to_rank_5` and, since v2.29 (TICKET-0116),
+     `trial_to_rank_1` .. `trial_to_rank_5` — no extras.
   2. `skill_definition.system_id` exists and is nullable.
   3. `BASE_SKILL_DOMAINS` has exactly four members.
   4. `ck_skill_definition_base_domain`'s constraint text still names exactly
@@ -32,6 +33,9 @@ EXPECTED_SKILL_SYSTEM_COLUMNS = {
     # TICKET-0106 (BRIEF-0106-A, v2.15): the system's rank thresholds.
     "points_to_rank_1", "points_to_rank_2", "points_to_rank_3",
     "points_to_rank_4", "points_to_rank_5",
+    # TICKET-0116 (BRIEF-0116-A, v2.29): whether reaching each rank asks a trial.
+    "trial_to_rank_1", "trial_to_rank_2", "trial_to_rank_3",
+    "trial_to_rank_4", "trial_to_rank_5",
 }
 EXPECTED_BASE_DOMAINS = {"physical", "agility", "perception", "composure"}
 

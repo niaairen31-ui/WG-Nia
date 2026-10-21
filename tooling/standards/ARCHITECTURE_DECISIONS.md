@@ -20197,6 +20197,46 @@ Nothing here reaches a model or a player surface (INV-01): the panel
 shows the creator what she asked about. Gate: `quest_request_panel.py`
 RP1-RP4.
 
+## A RANK MAY ASK A TRIAL, A TRIAL IS A QUEST (TICKET-0116) -- THE STORAGE OF v2.29 (BRIEF-0116-a, schema v2.29)
+
+B1: whether leaving a rank asks a trial follows the cascade of the points,
+per rank. The world's ladder says it (`skill_rank.trial_to_next`, NOT NULL,
+default 0), a skill system overrides it for its skills and a skill
+definition for itself (`trial_to_rank_1` .. `trial_to_rank_5`, nullable:
+NULL inherits), the most specific non-null value winning -- the exact shape
+of `points_to_next` / `points_to_rank_<n>`, so one reader (BRIEF-0116-B)
+resolves both. A world that says nothing asks no trial, everywhere.
+
+**D2, D2-d: a sixth currency in the existing term tables.** A trial is an
+ordinary quest offer whose reward is « the next rank in this skill »: a
+`rank` term, `skill_key` the skill and `amount` the rank it gives (1-5).
+It lives in `quest_offer_term` and `quest_term`, both rebuilt so their
+CHECKs admit it -- the two tables keep the same CHECK texts byte for byte.
+The shape CHECK makes a rank a reward only: never a cost. `debt_term` is
+not touched -- a rank is never owed (D2-a), and its own shape CHECK keeps
+its own literal.
+
+**F1-b: a trial request has no day.** A player character becoming ready
+for a rank that asks a trial opens a `quest_request` of the trigger
+`trial`; it is born of a skill, not of an agenda step, so `pass_play_id`
+and `agenda_step_id` become nullable, `skill_key` and `target_rank` are
+added, and `ck_quest_request_origin` ties each trigger to its columns: a
+trial names a skill and a rank and no step; a step request names a step
+and no skill. One request per step still holds (`idx_quest_request_step`,
+unique, NULLs distinct); `idx_quest_request_trial` (world, skill, rank)
+is not unique -- a failed trial may be asked again (H1).
+
+**No CHECK on `skill_rank`.** A trial at rank 5 means nothing (no rank
+follows), but `skill_progression.py` A1 pins `skill_rank`'s CHECK set; the
+writer refuses it (BRIEF-0116-B), as it refuses the other shapes the
+database does not hold.
+
+**The migration writes no data.** `migrate_v2_29_rank_trials.py` adds the
+eleven columns by `ADD COLUMN` and rebuilds the three tables in one raw
+transaction, copying every row (`change_history` included); a reference
+dangling before it is listed, never deleted (AMENDMENT-0107-01). No rank
+asks a trial afterwards. Gate: `rank_trial_schema.py` TS1-TS3.
+
 ---
 
 *Co-built with Claude, June 2026.*

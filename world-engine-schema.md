@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.28
+Current schema version: v2.29
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -1329,6 +1329,12 @@ aside). A proposal's fate -- approved or rejected -- is that
 it). `change_history` holds every former state, never rendered in any UI
 surface.
 
+A `trial` request (v2.29, TICKET-0116) is born of a player character's skill
+ready for a rank that asks a trial -- no day, no step (`pass_play_id`,
+`agenda_step_id` NULL), its `skill_key` (a base domain or a skill definition
+id) and `target_rank` instead; `ck_quest_request_origin` ties each trigger
+to its columns.
+
 Written only by `writes/quest_requests.py`, which never commits. Non-canon;
 deleted with its world (`delete_world_cascade`).
 
@@ -1337,8 +1343,8 @@ CREATE TABLE quest_request (
   id                  TEXT PRIMARY KEY NOT NULL,
   world_id            TEXT NOT NULL REFERENCES world(id),
   character_id        TEXT NOT NULL REFERENCES entity(id),
-  pass_play_id        TEXT NOT NULL REFERENCES pass_play(id),
-  agenda_step_id      TEXT NOT NULL REFERENCES agenda_step(id),
+  pass_play_id        TEXT REFERENCES pass_play(id),      -- NULL for a trial (v2.29)
+  agenda_step_id      TEXT REFERENCES agenda_step(id),    -- NULL for a trial (v2.29)
   trigger             TEXT NOT NULL,
   declaration         TEXT NOT NULL,
   subject             TEXT,
@@ -1350,18 +1356,26 @@ CREATE TABLE quest_request (
   mutation_id         TEXT REFERENCES proposed_mutation(id),
   offer_id            TEXT REFERENCES quest_offer(id),
   note                TEXT,
+  skill_key           TEXT,                               -- a trial's skill (v2.29)
+  target_rank         INTEGER,                            -- the rank a trial waits for (v2.29)
   created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   change_history      JSON NOT NULL DEFAULT '[]',
   CONSTRAINT ck_quest_request_trigger CHECK (
-    trigger IN ('route','blocked','dropped')),
+    trigger IN ('route','blocked','dropped','trial')),
   CONSTRAINT ck_quest_request_status CHECK (
     status IN ('new','asking','writing_lore','proposed','covered','dropped')),
   CONSTRAINT ck_quest_request_answer CHECK (
-    existence_answer IS NULL OR existence_answer IN ('exists','absent','already'))
+    existence_answer IS NULL OR existence_answer IN ('exists','absent','already')),
+  CONSTRAINT ck_quest_request_origin CHECK (
+    (trigger = 'trial' AND skill_key IS NOT NULL AND target_rank BETWEEN 1 AND 5
+     AND pass_play_id IS NULL AND agenda_step_id IS NULL)
+    OR (trigger <> 'trial' AND skill_key IS NULL AND target_rank IS NULL
+     AND pass_play_id IS NOT NULL AND agenda_step_id IS NOT NULL))
 );
 CREATE INDEX idx_quest_request_world ON quest_request(world_id, created_at);
 CREATE UNIQUE INDEX idx_quest_request_step ON quest_request(agenda_step_id);
+CREATE INDEX idx_quest_request_trial ON quest_request(world_id, skill_key, target_rank);
 ```
 
 -----
@@ -2042,6 +2056,11 @@ CREATE TABLE skill_system (
   points_to_rank_3  INTEGER,           -- world's default (skill_rank)
   points_to_rank_4  INTEGER,
   points_to_rank_5  INTEGER,
+  trial_to_rank_1  BOOLEAN,            -- reaching rank n asks a trial (v2.29); NULL = inherited
+  trial_to_rank_2  BOOLEAN,
+  trial_to_rank_3  BOOLEAN,
+  trial_to_rank_4  BOOLEAN,
+  trial_to_rank_5  BOOLEAN,
   created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT ck_skill_system_rank_points CHECK (
@@ -2084,6 +2103,11 @@ CREATE TABLE skill_definition (
   points_to_rank_3  INTEGER,           -- then the world's (skill_rank)
   points_to_rank_4  INTEGER,
   points_to_rank_5  INTEGER,
+  trial_to_rank_1  BOOLEAN,            -- reaching rank n asks a trial (v2.29); NULL = inherited
+  trial_to_rank_2  BOOLEAN,
+  trial_to_rank_3  BOOLEAN,
+  trial_to_rank_4  BOOLEAN,
+  trial_to_rank_5  BOOLEAN,
   requires_master   BOOLEAN NOT NULL DEFAULT 0,  -- learned only from a master (v2.16)
   created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -2174,7 +2198,10 @@ each of the six ranks and the default points a skill needs to leave it.
 At most one row per (world, rank); a missing row reads the engine default
 (`skill_ranks.DEFAULT_RANK_LABELS`, `DEFAULT_POINTS_TO_NEXT`: 5, 10, 20, 40,
 80). A skill system's or a skill definition's `points_to_rank_<n>` overrides
-it, the most specific value winning.
+it, the most specific value winning. `trial_to_next` (v2.29, TICKET-0116)
+says that leaving the rank asks a trial; a skill system's or definition's
+`trial_to_rank_<n>` overrides it, the most specific value winning, and a
+world asks no trial by default.
 
 ```sql
 CREATE TABLE skill_rank (
@@ -2183,6 +2210,7 @@ CREATE TABLE skill_rank (
   rank            INTEGER NOT NULL CHECK (rank BETWEEN 0 AND 5),
   label           TEXT NOT NULL,
   points_to_next  INTEGER,              -- NULL only for rank 5
+  trial_to_next   BOOLEAN NOT NULL DEFAULT 0,  -- leaving this rank asks a trial (v2.29)
   updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT ck_skill_rank_points CHECK (
     (rank = 5 AND points_to_next IS NULL) OR (rank < 5 AND points_to_next >= 1))
@@ -2785,12 +2813,15 @@ CREATE INDEX idx_quest_offer ON quest(offer_id);
 
 A cost or a reward of an offer (v2.18, TICKET-0109, B1). `direction`:
 `cost` (what the character gives to settle the quest) or `reward` (what he
-receives). `currency`: `money`, `item`, `relation`, `fact`, `skill`.
+receives). `currency`: `money`, `item`, `relation`, `fact`, `skill`, `rank`
+(v2.29).
 `counterparty_entity_id` NULL = the offer's giver. `amount`: coins, items,
 or relation points; `item_id`, `fact_id`, `skill_key` (a base domain or a
 skill definition id) name the target; `level` is the knowledge level a fact
-reward gives (NULL = `knows`). Replaced whole with the offer's steps on
-save. Written only by `writes.write_quest_offer`.
+reward gives (NULL = `knows`). A `rank` term (v2.29, TICKET-0116) is a
+reward only -- `skill_key` names the skill, `amount` the rank it gives
+(1-5). Replaced whole with the offer's steps on save. Written only by
+`writes.write_quest_offer`.
 
 ```sql
 CREATE TABLE quest_offer_term (
@@ -2799,7 +2830,7 @@ CREATE TABLE quest_offer_term (
   offer_id                TEXT NOT NULL REFERENCES quest_offer(id),
   term_order              INTEGER NOT NULL,
   direction               TEXT NOT NULL CHECK (direction IN ('cost','reward')),
-  currency                TEXT NOT NULL CHECK (currency IN ('money','item','relation','fact','skill')),
+  currency                TEXT NOT NULL CHECK (currency IN ('money','item','relation','fact','skill','rank')),
   counterparty_entity_id  TEXT REFERENCES entity(id),
   item_id                 TEXT REFERENCES item(id),
   fact_id                 TEXT REFERENCES fact(id),
@@ -2811,6 +2842,7 @@ CREATE TABLE quest_offer_term (
     AND (currency <> 'item' OR item_id IS NOT NULL)
     AND (currency <> 'fact' OR fact_id IS NOT NULL)
     AND (currency <> 'skill' OR skill_key IS NOT NULL)
+    AND (currency <> 'rank' OR (direction = 'reward' AND skill_key IS NOT NULL AND amount BETWEEN 1 AND 5))
   )
 );
 CREATE INDEX idx_quest_offer_term_offer ON quest_offer_term(offer_id);

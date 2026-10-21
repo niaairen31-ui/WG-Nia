@@ -10,7 +10,7 @@ A1 -- schema (BRIEF-0106-A, v2.15). `skill` declares `rank` (default
    no `tier`; `skill_system` and `skill_definition` each declare the five
    nullable `points_to_rank_1..5` and a `ck_*_rank_points` CHECK;
    `skill_rank` declares exactly `id, world_id, rank, label, points_to_next,
-   updated_at`, the CHECKs `ck_skill_rank_rank`, `ck_skill_rank_points` and
+   trial_to_next (v2.29), updated_at`, the CHECKs `ck_skill_rank_rank`, `ck_skill_rank_points` and
    the UNIQUE index `idx_skill_rank_world_rank (world_id, rank)`.
    `skill_ranks` carries six ranks, the modifiers (-1, 0, 1, 2, 2, 3), the
    labels Inexpérimenté .. Maître, the default points (5, 10, 20, 40, 80),
@@ -198,7 +198,7 @@ def check_a1() -> None:
         if any(f"{c} >= 1" not in text for c in skill_ranks.RANK_POINTS_COLUMNS):
             fail(f"A1: {model.__tablename__} {name} is {text!r}")
     ladder = SkillRank.__table__
-    if {c.name for c in ladder.columns} != {"id", "world_id", "rank", "label", "points_to_next", "updated_at"}:
+    if {c.name for c in ladder.columns} != {"id", "world_id", "rank", "label", "points_to_next", "trial_to_next", "updated_at"}:
         fail(f"A1: skill_rank columns are {sorted(c.name for c in ladder.columns)}")
     if set(_checks_of(ladder)) != {"ck_skill_rank_rank", "ck_skill_rank_points"}:
         fail(f"A1: skill_rank CHECKs are {_checks_of(ladder)}")
