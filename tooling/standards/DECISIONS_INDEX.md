@@ -367,3 +367,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 20161 | A QUEST REQUEST IS WORKED FROM THE REVIEW QUEUE, ITS LORE FROM THE LORE PANEL (TICKET-0121) -- QuestRequests.svelte (BRIEF-0121-g, no schema change) | BRIEF-0121-g |  |
 | 20200 | A RANK MAY ASK A TRIAL, A TRIAL IS A QUEST (TICKET-0116) -- THE STORAGE OF v2.29 (BRIEF-0116-a, schema v2.29) | BRIEF-0116-a | v2.29, v2.29 |
 | 20240 | THE POINTS COME FIRST; A RANK THAT ASKS A TRIAL WAITS (TICKET-0116) -- skill_ranks.trial_required, trial_target, held_trial_target (BRIEF-0116-b, no schema change) | BRIEF-0116-b |  |
+| 20273 | A RANK IS A REWARD THE READY CHARACTER RECEIVES (TICKET-0116) -- THE rank CURRENCY, THE TRIAL GATE, INV-64 (BRIEF-0116-c, no schema change) | BRIEF-0116-c |  |

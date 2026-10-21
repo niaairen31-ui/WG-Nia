@@ -2,7 +2,7 @@
 contract C-02).
 
 A term is a cost (what the character gives to settle the quest) or a reward
-(what he receives), in one of five currencies. `clean_term` validates one
+(what he receives), in one of six currencies. `clean_term` validates one
 and returns the exact columns a term row takes; `write_offer_terms` replaces
 an offer's terms whole (with its steps, `write_quest_offer`);
 `copy_terms_to_quest` gives an accepted quest its own copy (B1);
@@ -12,7 +12,8 @@ The counterparty is the term's own entity, else the offer's giver; for a
 relation, a fact or a skill it must be a character (a faction feels
 nothing, knows nothing, learns nothing). A skill COST is teaching it
 (C-teach1), so it must be a skill definition: every character already holds
-the four base domains. None of these functions commits.
+the four base domains. A `rank` (TICKET-0116) is a reward only: the skill
+and the rank it gives, no counterparty. None of these functions commits.
 """
 
 from __future__ import annotations
@@ -43,6 +44,8 @@ from .knowledge import KNOWLEDGE_LEVELS
 PERSONAL_CURRENCIES: tuple[str, ...] = ("relation", "fact", "skill")
 # The currencies counted by `amount`.
 COUNTED_CURRENCIES: tuple[str, ...] = ("money", "item", "relation")
+# The currencies a term may only give (TICKET-0116, D2-a): a rank comes from a trial.
+REWARD_ONLY_CURRENCIES: tuple[str, ...] = ("rank",)
 # The largest relation term: an intensity moves within 1-100.
 MAX_RELATION_AMOUNT = 99
 # The knowledge levels a fact reward may give (never `unaware`).
@@ -115,6 +118,24 @@ def _clean_amount(where: str, term: TermSpec) -> Optional[int]:
     return amount
 
 
+def _clean_rank(db: Session, world_id: str, where: str, term: TermSpec) -> dict:
+    """A `rank` term (TICKET-0116, C-05): a reward naming a skill of the
+    world and the rank it gives, 1 to 5, and no counterparty."""
+    if term.direction == "cost":
+        raise ValueError(f"{where}: a rank is a reward only -- a rank trial gives it")
+    if term.counterparty_entity_id:
+        raise ValueError(f"{where}: a rank reward names no counterparty")
+    definition = db.get(SkillDefinition, term.skill_key) if term.skill_key else None
+    is_definition = definition is not None and definition.world_id == world_id
+    if not is_definition and term.skill_key not in BASE_SKILL_DOMAINS:
+        raise ValueError(f"{where}: {term.skill_key!r} is not a skill of this world")
+    amount = term.amount
+    if not isinstance(amount, int) or isinstance(amount, bool) or not 1 <= amount <= 5:
+        raise ValueError(f"{where}: a rank reward names the rank it gives, 1 to 5")
+    return {"direction": "reward", "currency": "rank", "counterparty_entity_id": None, "item_id": None,
+            "fact_id": None, "skill_key": term.skill_key, "amount": amount, "level": None}
+
+
 def clean_term(db: Session, world_id: str, giver_entity_id: str, index: int, term: TermSpec) -> dict:
     """Validate one term against the offer's giver; the row's columns, or
     `ValueError` (C-02's refusals)."""
@@ -123,6 +144,8 @@ def clean_term(db: Session, world_id: str, giver_entity_id: str, index: int, ter
         raise ValueError(f"{where}: direction must be one of {QUEST_TERM_DIRECTIONS}")
     if term.currency not in QUEST_TERM_CURRENCIES:
         raise ValueError(f"{where}: currency must be one of {QUEST_TERM_CURRENCIES}")
+    if term.currency == "rank":
+        return _clean_rank(db, world_id, where, term)
     counterparty = term.counterparty_entity_id or None
     if counterparty is not None and _entity_of(db, world_id, counterparty, ("character", "faction")) is None:
         raise ValueError(f"{where}: the counterparty is not an active character or faction of this world")

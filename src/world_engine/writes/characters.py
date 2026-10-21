@@ -8,7 +8,8 @@ none of these three functions were baselined.
   appending the previous rank and points to `change_history` first
   (history is sacred on this path too) and restarting its points at 0
   (U2). The sole write shape for a creator's rank edit (TICKET-0106,
-  BRIEF-0106-A; formerly `write_skill_tier`).
+  BRIEF-0106-A; formerly `write_skill_tier`) and for a rank trial settled
+  (`quest_settlement._rank_reward`, TICKET-0116).
 - `write_skill_row(...)`                : create one `skill` row for a
   character -- an NPC's skill, a carrure, a skill learned (TICKET-0107,
   BRIEF-0107-A). The sole creator of a row outside the PC seed and the
@@ -72,8 +73,9 @@ def write_skill_rank(
 ) -> Skill:
     """Set a `skill` row's rank. Caller adds the row to the session.
 
-    The sole write shape for a creator's rank edit (`cockpit/crud/skills.py`'s
-    `update_skill_rank` is its only caller). Appends the previous rank and
+    Two callers: `cockpit/crud/skills.py`'s `update_skill_rank` (the
+    creator's edit) and `writes/quest_settlement._rank_reward` (a rank trial
+    settled, TICKET-0116). Appends the previous rank and
     points to `change_history` first (history is sacred), then sets `rank`,
     restarts `xp` at 0 (U2: points count within a rank) and bumps
     `updated_at`. The caller decides whether to call this at all — a

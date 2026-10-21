@@ -36,7 +36,7 @@ from ..ledger import get_balance
 from ..models import Agenda, Character, Debt, Entity, Quest, QuestOffer
 from .debts import DebtTermSpec, PreparedDebt, is_active_member, prepare_debt, write_debt
 from .quest_settlement import apply_term, closed_refusal, cost_checks, finish_settlement, in_order
-from .quest_terms import TermSpec, clean_terms, quest_terms
+from .quest_terms import REWARD_ONLY_CURRENCIES, TermSpec, clean_terms, quest_terms
 
 SERVICE_LEDGER_SOURCE = "service"
 CHANGED_BY_SERVICE = "service"
@@ -48,7 +48,8 @@ def request_service(
     terms: list[TermSpec], owed: list[DebtTermSpec], reason: Optional[str], is_secret: bool,
 ) -> Debt:
     """S2 (C-05): `ValueError` before any write; else the service's terms
-    applied (costs, then rewards) and the debt written. Returns the debt."""
+    applied (costs, then rewards) and the debt written. Returns the debt.
+    A `rank` is never a service (D2-a)."""
     world_id = character.world_id
     provider = db.get(Entity, provider_id) if provider_id else None
     if (provider is None or provider.world_id != world_id or provider.type != "character"
@@ -60,6 +61,8 @@ def request_service(
             raise ValueError("request_service: the provider is not an active member of that faction")
         creditor, contact = on_behalf_of_id, provider.id
     rows = [TermSpec(**columns) for columns in clean_terms(db, world_id, provider.id, terms)]
+    if any(row.currency in REWARD_ONLY_CURRENCIES for row in rows):
+        raise ValueError("request_service: a rank is given by a rank trial, never by a service")
     unpaid = [reason_ for _kind, reason_ in cost_checks(db, character.id, rows, provider.id)]
     if unpaid:
         raise ValueError("; ".join(unpaid))

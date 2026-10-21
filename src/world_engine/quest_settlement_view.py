@@ -17,6 +17,8 @@ names one.
 
 from __future__ import annotations
 
+from typing import Optional
+
 from sqlmodel import Session, select
 
 from .debt_reads import debt_term_line
@@ -27,8 +29,8 @@ from .quest_reads import QUEST_STATE_LABELS, _steps_view, faction_members
 from .writes.debt_sources import credit_contact, credit_plan
 from .quest_value import offer_value, value_dict
 from .quest_wording import term_line
-from .skill_access import skill_label
-from .skill_ranks import MAX_RANK
+from .skill_access import held_trial_target, skill_label
+from .skill_ranks import MAX_RANK, world_ladder
 from .writes.pipeline import read_latest_resolution
 from .writes.quest_settlement import skill_row, settlement_refusals, skill_reward_points
 from .writes.quest_terms import quest_terms
@@ -47,10 +49,28 @@ def _skill_note(db: Session, quest: Quest, term) -> str:
     return f"épreuve de rang à passer en « {label} » : rien"
 
 
+def _rank_note(db: Session, quest: Quest, term) -> str:
+    """A rank reward (TICKET-0116, C-05): given only when ready for it."""
+    ready = held_trial_target(db, world_id=quest.world_id, character_id=quest.character_id,
+                              skill_key=term.skill_key)
+    if ready != term.amount:
+        return "sans effet : la compétence n'est pas prête pour ce rang"
+    label = world_ladder(db, quest.world_id)[term.amount].label
+    return f"passe à « {label} » en « {skill_label(db, term.skill_key)} »"
+
+
+def _note(db: Session, quest: Quest, term) -> Optional[str]:
+    if term.direction != "reward":
+        return None
+    if term.currency == "skill":
+        return _skill_note(db, quest, term)
+    return _rank_note(db, quest, term) if term.currency == "rank" else None
+
+
 def _terms(db: Session, quest: Quest, giver_id: str, terms: list) -> list[dict]:
     view = []
     for term in terms:
-        note = _skill_note(db, quest, term) if term.currency == "skill" and term.direction == "reward" else None
+        note = _note(db, quest, term)
         view.append({"direction": term.direction, "line": term_line(db, term, giver_id), "note": note})
     return view
 

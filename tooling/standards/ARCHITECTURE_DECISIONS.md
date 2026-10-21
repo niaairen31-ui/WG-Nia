@@ -20270,6 +20270,45 @@ and a skill key, through `skill_access`'s INV-41 lookups) and the CRUD's
 `trial_ready` all read it; no other module re-derives it. Gate:
 `rank_trials.py` TB1-TB3.
 
+## A RANK IS A REWARD THE READY CHARACTER RECEIVES (TICKET-0116) -- THE rank CURRENCY, THE TRIAL GATE, INV-64 (BRIEF-0116-c, no schema change)
+
+**D2: the trial's reward is a sixth currency.** A rank trial is an ordinary
+quest offer whose reward holds a `rank` term -- a skill and the rank it
+gives -- so the offer editor, the quest's own copy of its terms and
+« déclarer accomplie » serve a trial unchanged. `QUEST_TERM_CURRENCIES`
+gains `rank`; `questTerms.js` mirrors it on one more `CURRENCY_FORMS` line
+of the exact RD1 shape.
+
+**D2-a: a reward only, never a service, never owed.** `clean_term` sends a
+`rank` term to `_clean_rank`, which refuses a cost, a counterparty, a
+skill that is not a base domain or a definition of the world, and a rank
+outside 1-5. `REWARD_ONLY_CURRENCIES` names it; the editor hides it on a
+cost and offers no counterparty for it. `request_service` refuses a
+`rank` term before any write: a rank is given by a trial, never bought.
+A debt can never owe one -- `debt_term` keeps its own CHECK literal.
+
+**D2-b/c: given only to who is ready for exactly that rank.** At
+settlement, `apply_term`'s `rank` branch (`_rank_reward`) moves the
+character's row to the rank when `held_trial_target` equals it, through
+`write_skill_rank` (points 0, one history entry `quest_settlement`);
+otherwise it writes nothing, and « déclarer accomplie » says so ahead
+(« sans effet »). `write_skill_rank` is thus the one mover of a rank
+besides the points: the creator's edit and a settled trial.
+
+**The gate is one judge.** `acceptance_refusal` refuses an offer holding a
+`rank` term to a character not ready for exactly that rank, after L1 and
+before the eligibility; `available_offers` and `accept_quest` both read
+it, so a trial is listed and taken only by who may pass it. It is a
+refusal sentence naming the skill and the rank, never a condition leaf
+the creator could remove (D3), and it shows nothing of another
+character (INV-62).
+
+**A rank is worth nothing in the indicative unit.** `term_value` gives a
+`rank` term 0: a trial is not a trade, and the creator's band says nothing
+about it. The model never proposes a rank term by itself
+(`quest_designer._term` drops it with `RANK_TERM_FR`); its trial path is
+BRIEF-0116-E's. Gate: `rank_trials.py` TC1-TC4 (INV-64).
+
 ---
 
 *Co-built with Claude, June 2026.*

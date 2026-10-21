@@ -112,8 +112,8 @@ class Quest(SQLModel, table=True):
 # character gives to settle the quest, and what he receives.
 QUEST_TERM_DIRECTIONS: tuple[str, ...] = ("cost", "reward")
 
-# The five currencies of a quest (the series' D table).
-QUEST_TERM_CURRENCIES: tuple[str, ...] = ("money", "item", "relation", "fact", "skill")
+# The six currencies of a quest (the series' D table; `rank`, TICKET-0116 D2: the trial's reward).
+QUEST_TERM_CURRENCIES: tuple[str, ...] = ("money", "item", "relation", "fact", "skill", "rank")
 
 # The shape CHECK both term tables carry, byte for byte: an amount for the
 # three counted currencies, a target for the three named ones.

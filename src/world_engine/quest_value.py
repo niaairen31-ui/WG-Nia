@@ -3,7 +3,8 @@ contract C-03). Reads only.
 
 Every term is worth some units: money 1 a coin, a relation point 1, a fact
 5, a skill 20 (learned, taught, or a reward of points) -- a world changes
-any of them in `quest_economy`; an item is worth its own `value` a piece.
+any of them in `quest_economy`; an item is worth its own `value` a piece;
+a rank (TICKET-0116) is worth nothing: a trial is not a trade.
 `offer_value` adds the costs and the rewards and says whether the reward
 lies in the world's band (by default 100 % to 150 % of the cost). The unit
 is a display for the creator, never a currency: nothing converts it.
@@ -61,6 +62,8 @@ def term_value(db: Session, term, rates: dict[str, int]) -> int:
         return rates["rate_fact"]
     if term.currency == "skill":
         return rates["rate_skill"]
+    if term.currency == "rank":
+        return 0
     item = db.get(Item, term.item_id) if term.item_id else None
     return (term.amount or 0) * (item.value if item is not None else 0)
 

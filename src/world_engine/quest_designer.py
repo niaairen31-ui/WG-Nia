@@ -49,6 +49,7 @@ EXISTENCE_FR = {
     "already": "La créatrice dit que le lore le contient déjà : {name}.",
 }
 NO_STEP_FR = "Le modèle n'a proposé aucune étape."
+RANK_TERM_FR = "Un rang ne se donne que par une épreuve de rang : le terme a été abandonné."
 
 
 @dataclass
@@ -228,6 +229,8 @@ def _term(db: Session, world_id: str, ctx, raw: Any) -> tuple[Optional[dict], Op
     elif currency == "skill":
         term["skill_key"], term["level"] = ctx.lists["s"].resolve(target), level
         resolved = term["skill_key"] is not None
+    elif currency == "rank":
+        return None, RANK_TERM_FR
     else:
         return None, f"Une monnaie inconnue ({currency}) : le terme a été abandonné."
     if resolved:
