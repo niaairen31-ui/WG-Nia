@@ -2,14 +2,14 @@
 id: TICKET-0116
 title: Rank trials -- a rank that asks a trial is earned by a quest, in any world
 type: feature
-status: exec
+status: live-gate
 created: 2026-10-20
 model_lane: { intake: opus, recon: opus, exec: sonnet, verify: sonnet }
 danger_class: [migration, db_write]
 blast_radius: large
 lot_id: LOT-0116-rank-trials.md
 brief_ids: [A, B, C, D, E, F]
-current_brief: F
+current_brief:
 schema_version_touched: v2.29
 retry_count: 1
 slug: rank-trials
