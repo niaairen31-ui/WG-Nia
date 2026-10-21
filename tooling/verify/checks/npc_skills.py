@@ -21,7 +21,9 @@ A2 -- migration `scripts/migrate_v2_16_npc_skills.py`, on a v2.15-shaped
       tier 2 NPC one at rank 3; the tier 0 NPC and the player get none; the
       NPC that held a row keeps it at rank 4, alone; `physical_tier` is
       gone, both new columns exist (the definition's `requires_master` 0),
-      the three tables have the models' columns, `PRAGMA
+      the three tables have the models' columns (columns added after v2.16
+      -- `_LATER_COLUMNS` -- are left out of the comparison and added before
+      A3), `PRAGMA
       foreign_key_check` is empty on those three tables, and `schema_meta`
       is the code's version -- with a `session` row pointing to a missing
       world in the database, which the migration lists and does not stop on
@@ -174,6 +176,28 @@ def _shape(conn, table: str) -> list[tuple]:
     return sorted((r[1], r[2], r[3], r[4]) for r in conn.execute(f"PRAGMA table_info({table})"))
 
 
+# Columns the models gained after v2.16, by a later migration: a database
+# migrated to v2.16 lacks them. A2b leaves them out of the models' shape, and
+# `_catch_up` adds them before the later rules write into the migrated file.
+# TICKET-0116 (BRIEF-0116-A, v2.29): whether reaching a rank asks a trial.
+_LATER_COLUMNS: dict[str, tuple[str, ...]] = {
+    "skill_definition": tuple(f"trial_to_rank_{n}" for n in range(1, 6)),
+}
+
+
+def _without_later(shapes: dict) -> dict:
+    return {t: [c for c in cols if c[0] not in _LATER_COLUMNS.get(t, ())] for t, cols in shapes.items()}
+
+
+def _catch_up(db_path: str) -> None:
+    with sqlite3.connect(db_path) as conn:
+        for table, columns in _LATER_COLUMNS.items():
+            present = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+            for column in columns:
+                if column not in present:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} BOOLEAN")
+
+
 def _seed_v215(db_path: str) -> dict:
     from sqlmodel import Session
 
@@ -259,8 +283,8 @@ def check_a2(db_path: str) -> None:
                    (ids["held"], "physical", 4, None)])
     if after["skills"] != want:
         fail(f"A2b: skill rows are {after['skills']}, want {want}")
-    if after["shapes"] != ids["model_shapes"]:
-        fail(f"A2b: shapes {after['shapes']} differ from the models {ids['model_shapes']}")
+    if after["shapes"] != _without_later(ids["model_shapes"]):
+        fail(f"A2b: shapes {after['shapes']} differ from the models {_without_later(ids['model_shapes'])}")
     with sqlite3.connect(db_path) as conn:
         flag = conn.execute("SELECT requires_master FROM skill_definition WHERE id = 'def'").fetchone()
     if flag != (0,) or after["fk"]:
@@ -593,6 +617,7 @@ def main() -> int:
     db_path = _fresh_db()
     check_a1()
     check_a2(db_path)
+    _catch_up(db_path)
     from world_engine.db import create_db_and_tables, engine
     create_db_and_tables()
     check_a3(engine)

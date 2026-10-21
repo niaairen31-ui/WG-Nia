@@ -13,6 +13,21 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.29** — TICKET-0116, BRIEF-0116-A: a rank may ask a trial, and a
+  trial is a quest. `skill_rank` gains `trial_to_next` (BOOLEAN, default
+  0: leaving this rank asks a trial); `skill_system` and
+  `skill_definition` gain `trial_to_rank_1` .. `trial_to_rank_5`
+  (nullable: NULL inherits, the most specific value winning).
+  `quest_offer_term` and `quest_term` are rebuilt, their CHECKs admitting
+  a sixth currency, `rank` -- a reward only, naming a skill and the rank
+  it gives (1-5). `quest_request` is rebuilt: its day and step become
+  optional; the trigger `trial` (a player character's skill ready for a
+  rank that asks a trial) carries `skill_key` and `target_rank`;
+  `ck_quest_request_origin` ties each trigger to its columns;
+  `idx_quest_request_trial` indexes (world, skill, rank).
+  `migrate_v2_29_rank_trials.py` writes no data: every row is kept, and
+  no rank asks a trial.
+
 - **v2.28** — TICKET-0121, BRIEF-0121-B: a quest request is a row.
   `quest_request` (one row per agenda step the creator is asked to design a
   quest for: its trigger -- a day routed to a quest, a step blocked, a

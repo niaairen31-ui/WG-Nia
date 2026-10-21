@@ -129,7 +129,10 @@
   // TICKET-0106 (BRIEF-0106-D): the points earned within the rank, out of
   // the points needed to leave it (null at the top rank).
   function pointsLine(s) {
-    return s.points_to_next == null ? `${s.xp} pt · rang maximal` : `${s.xp} / ${s.points_to_next} pts`;
+    if (s.points_to_next == null) return `${s.xp} pt · rang maximal`;
+    const line = `${s.xp} / ${s.points_to_next} pts`;
+    // TICKET-0116 (F1-c): the points wait for a rank trial.
+    return s.trial_ready ? `${line} · épreuve de rang à passer` : line;
   }
 
   async function grant(entry) {

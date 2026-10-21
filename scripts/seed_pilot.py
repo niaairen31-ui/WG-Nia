@@ -2485,6 +2485,83 @@ QUEST_DESIGNER_PROMPT_HEADS = (
     ),
 )
 
+# ----- prompt template: a rank trial's offer (TICKET-0116, BRIEF-0116-E) -----
+# usage "quest_trial": the offer of a rank trial -- the design's answer
+# shape, user template and condition language (the same slice of
+# CONDITION_INTERPRET_SYSTEM_PROMPT), under a preamble of its own. Called
+# by quest_designer._design_call for a request whose trigger is `trial`.
+QUEST_TRIAL_PREAMBLE = """\
+Tu conçois une épreuve de rang pour un jeu de rôle. Un personnage joueur a \
+assez pratiqué une compétence pour passer au rang suivant, mais dans ce monde \
+ce rang se mérite : il faut une épreuve, c'est-à-dire une quête qui montre \
+qu'il en est digne. On te donne la compétence, le rang visé, et tout ce que \
+le lore du monde en dit -- y compris des secrets que le joueur ignore et que \
+seules quelques personnes connaissent.
+
+TON TRAVAIL. "outcome" vaut toujours "offer" : tu proposes l'épreuve.
+
+L'ÉPREUVE. Elle met la compétence à l'épreuve, à la mesure du rang visé, \
+selon ce que le lore dit de cette compétence et de ceux qui la maîtrisent : \
+une œuvre à réussir, un adversaire, un maître à convaincre, un lieu ou un \
+objet à atteindre, un serment à tenir. Chaque étape a :
+- "objective" : ce que le personnage fait, en une phrase, vu du joueur. \
+Un objectif, le titre et le résumé nomment l'action ; le contenu d'un fait \
+secret ou réservé à la créatrice reste dans les conditions, par son code ;
+- "cost" : de 1 à 4, les moments de journée qu'elle demande ;
+- "domain" : null, ou "physical", "agility", "perception", "composure" quand \
+elle demande un jet ;
+- "prerequisite" (ce qu'il faut pour la tenter), "completion" (quand son \
+objectif est atteint), "failure" (quand elle a échoué) : chacune null ou une \
+condition (voir CONDITIONS).
+"eligibility" : à qui l'offre est proposée ; null le plus souvent (seul un \
+personnage prêt pour ce rang la reçoit, et la créatrice ajoute la rencontre \
+du donneur).
+"title" et "summary" : ce que le joueur lira de l'offre.
+"givers" : jusqu'à trois noms de personnages ou de factions du monde qui \
+pourraient la donner -- d'abord un maître de cette compétence quand le lore \
+en nomme un, puis les plus plausibles.
+"terms" : ce que l'épreuve coûte et rapporte en plus du rang, chacun \
+{"direction": "cost" | "reward", "currency": "money" | "item" | "relation" | \
+"fact" | "skill", "target": un nom d'objet ou de personnage, un code de fait \
+"f3" ou de compétence "s1", ou null pour la monnaie, "amount": un entier pour \
+la monnaie, l'objet ou la relation, sinon null, "level": null}. Le rang \
+lui-même est ajouté par le moteur : ne le mets pas dans "terms".
+"notes" : ce que tu veux signaler à la créatrice -- notamment un fait du \
+lore que personne ne sait encore.
+
+CONDITIONS. Chaque condition est un objet {"phrase": la condition en une \
+phrase française, "condition": l'arbre, "define": [], "define_events": [], \
+"define_sortes": [], "unsupported": []} ; l'arbre et les trois listes \
+"define" suivent le langage ci-dessous. Une feuille sur le personnage a \
+"subject": "doer".
+
+
+"""
+
+
+def _quest_trial_system_prompt() -> str:
+    language = CONDITION_INTERPRET_SYSTEM_PROMPT
+    start = language.index("FEUILLES.")
+    end = language.index("CONDITION ACTUELLE.")
+    return QUEST_TRIAL_PREAMBLE + language[start:end] + QUEST_DESIGN_POSTAMBLE
+
+
+QUEST_TRIAL_SYSTEM_PROMPT = _quest_trial_system_prompt()
+
+QUEST_TRIAL_PROMPT_HEADS = (
+    dict(
+        id="pt-quest-trial",
+        name="Concepteur de quêtes — l'épreuve de rang",
+        usage="quest_trial",
+        world_id=None,
+        system_prompt=QUEST_TRIAL_SYSTEM_PROMPT,
+        user_template=QUEST_DESIGN_USER_TEMPLATE,
+        variables=["character_name", "declaration", "subject", "existence", "lore", "forms", "entity_types",
+                   "entities", "facts", "offers", "skills", "attributes", "event_types", "sortes", "errors"],
+        destination="local",
+    ),
+)
+
 
 # ----- day chain prompt text (TICKET-0075; hoisted to module level, TICKET-0076) -----
 # ----- prompt template: day plan emission (TICKET-0075, BRIEF-0075-b) ---
@@ -3513,6 +3590,8 @@ def seed(session: Session) -> None:
     for entry in CONDITION_INTERPRET_PROMPT_HEADS:
         upsert_prompt_template(session, **entry)
     for entry in QUEST_DESIGNER_PROMPT_HEADS:  # TICKET-0121 (BRIEF-0121-E)
+        upsert_prompt_template(session, **entry)
+    for entry in QUEST_TRIAL_PROMPT_HEADS:  # TICKET-0116 (BRIEF-0116-E)
         upsert_prompt_template(session, **entry)
 
     # ----- prompt template: world tick — off-screen NPC advancement ----------

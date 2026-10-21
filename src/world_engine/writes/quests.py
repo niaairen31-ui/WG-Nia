@@ -9,8 +9,8 @@ contract C-03).
   born `paused` through `write_agenda`, its steps (the first `active`, the
   creator-agenda precedent) and their conditions -- prerequisite and, since
   BRIEF-0111-D, completion (M1) -- copied from the offer,
-  the `quest` row, and its own copy of the offer's terms (TICKET-0109, B1). Eligibility and L1 are judged HERE, so no caller can
-  skip them.
+  the `quest` row, and its own copy of the offer's terms (TICKET-0109, B1). Eligibility, L1 and the trial gate are judged
+  HERE, so no caller can skip them.
 - `abandon_quest(...)`     : N1, the quest's agenda to `abandoned` through
   `write_agenda_status`; nothing is deleted.
 
@@ -43,6 +43,8 @@ from ..models import (
     QuestOffer,
     QuestOfferStep,
 )
+from ..skill_access import held_trial_target, skill_label
+from ..skill_ranks import world_ladder
 from .debts import is_active_member
 from .conditions import clean_condition, delete_offer_conditions, write_condition
 from .goals_agendas import write_agenda, write_agenda_status, write_agenda_step
@@ -177,10 +179,24 @@ def offer_bindings(offer: QuestOffer, character: Character) -> Bindings:
     return Bindings(doer=character, giver_id=offer.giver_entity_id, contact_id=offer.contact_entity_id)
 
 
+def _trial_refusal(db: Session, offer: QuestOffer, character: Character) -> Optional[str]:
+    """C-06: an offer holding a `rank` term is for a character ready for exactly that rank."""
+    for term in offer_terms(db, offer.id):
+        if term.currency != "rank":
+            continue
+        if held_trial_target(db, world_id=offer.world_id, character_id=character.id,
+                             skill_key=term.skill_key) != term.amount:
+            label = world_ladder(db, offer.world_id)[term.amount].label
+            return (f"cette épreuve est réservée à qui est prêt à passer « {label} » "
+                    f"en « {skill_label(db, term.skill_key)} »")
+    return None
+
+
 def acceptance_refusal(db: Session, offer: QuestOffer, character: Character) -> Optional[str]:
     """Why `character` cannot take `offer` now, or None (C-04): a closed
-    offer, an unmet eligibility requirement, or L1 -- a non-repeatable offer
-    already taken, a repeatable one still open."""
+    offer, L1 -- a non-repeatable offer already taken, a repeatable one still
+    open --, a rank trial the character is not ready for (TICKET-0116,
+    C-06), or an unmet eligibility requirement."""
     if offer.status != "open":
         return "cette quête n'est plus proposée"
     taken = db.exec(
@@ -191,6 +207,9 @@ def acceptance_refusal(db: Session, offer: QuestOffer, character: Character) -> 
         return "quête déjà acceptée"
     if any(status in OPEN_QUEST_STATUSES for status in taken):
         return "quête déjà en cours"
+    trial = _trial_refusal(db, offer, character)
+    if trial is not None:
+        return trial
     eligibility = evaluate(read_condition(db, role="eligibility", quest_offer_id=offer.id),
                            offer_bindings(offer, character), db)
     if eligibility is not None and not eligibility.met:

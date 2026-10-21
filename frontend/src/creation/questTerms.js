@@ -1,10 +1,11 @@
-/* TICKET-0109 (BRIEF-0109-D). The five currencies of a quest term as the
+/* TICKET-0109 (BRIEF-0109-D). The six currencies of a quest term as the
    offer editor shows them: a French label, the picker its target comes from
    (a key of GET /api/quest-offers/choices, or none), whether it counts an
    amount, and whether its counterparty must be a character. Mirrors
    `models.QUEST_TERM_CURRENCIES`, `writes.quest_terms.COUNTED_CURRENCIES`
    and `PERSONAL_CURRENCIES` across the network boundary -- kept equal by
-   `quest_rewards.py` (RD1). */
+   `quest_rewards.py` (RD1). `REWARD_ONLY_CURRENCIES` mirrors
+   `writes.quest_terms.REWARD_ONLY_CURRENCIES` (TICKET-0116). */
 
 export const TERM_DIRECTIONS = { cost: 'Coût', reward: 'Récompense' };
 
@@ -14,7 +15,10 @@ export const CURRENCY_FORMS = {
   relation: { label: 'Relation', list: null, counted: true, personal: true },
   fact: { label: 'Fait', list: 'facts', counted: false, personal: true },
   skill: { label: 'Compétence', list: 'skills', counted: false, personal: true },
+  rank: { label: 'Rang (épreuve)', list: 'skills', counted: false, personal: false },
 };
+
+export const REWARD_ONLY_CURRENCIES = ['rank'];
 
 export function blankTerm(direction) {
   return { direction, currency: 'money', counterparty_entity_id: '', item_id: '', fact_id: '',
@@ -38,11 +42,12 @@ export function termBody(term) {
   return {
     direction: term.direction,
     currency: term.currency,
-    counterparty_entity_id: term.counterparty_entity_id || null,
+    counterparty_entity_id: REWARD_ONLY_CURRENCIES.includes(term.currency) ? null : (term.counterparty_entity_id || null),
     item_id: term.currency === 'item' ? (term.item_id || null) : null,
     fact_id: term.currency === 'fact' ? (term.fact_id || null) : null,
-    skill_key: term.currency === 'skill' ? (term.skill_key || null) : null,
-    amount: form.counted ? (term.amount === '' || term.amount === null ? null : Number(term.amount)) : null,
+    skill_key: term.currency === 'skill' || term.currency === 'rank' ? (term.skill_key || null) : null,
+    amount: form.counted || term.currency === 'rank'
+      ? (term.amount === '' || term.amount === null ? null : Number(term.amount)) : null,
     level: term.currency === 'fact' && term.direction === 'reward' ? (term.level || null) : null,
   };
 }

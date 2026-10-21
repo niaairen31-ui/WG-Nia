@@ -607,6 +607,12 @@ class SkillSystem(SQLModel, table=True):
     points_to_rank_3: Optional[int] = None
     points_to_rank_4: Optional[int] = None
     points_to_rank_5: Optional[int] = None
+    # Whether reaching rank n asks a trial (v2.29, TICKET-0116, B1); NULL inherits.
+    trial_to_rank_1: Optional[bool] = None
+    trial_to_rank_2: Optional[bool] = None
+    trial_to_rank_3: Optional[bool] = None
+    trial_to_rank_4: Optional[bool] = None
+    trial_to_rank_5: Optional[bool] = None
     created_at: datetime = _created_ts()
     updated_at: datetime = _created_ts()
 
@@ -651,6 +657,12 @@ class SkillDefinition(SQLModel, table=True):
     points_to_rank_3: Optional[int] = None
     points_to_rank_4: Optional[int] = None
     points_to_rank_5: Optional[int] = None
+    # Whether reaching rank n asks a trial (v2.29, TICKET-0116, B1); NULL inherits.
+    trial_to_rank_1: Optional[bool] = None
+    trial_to_rank_2: Optional[bool] = None
+    trial_to_rank_3: Optional[bool] = None
+    trial_to_rank_4: Optional[bool] = None
+    trial_to_rank_5: Optional[bool] = None
     # Learned only from a master (v2.16, TICKET-0107, A2): a player
     # character holds no row for it until taught, and cannot roll it.
     requires_master: bool = Field(default=False, sa_column_kwargs={"server_default": text("0")})

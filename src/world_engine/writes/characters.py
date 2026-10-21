@@ -8,13 +8,15 @@ none of these three functions were baselined.
   appending the previous rank and points to `change_history` first
   (history is sacred on this path too) and restarting its points at 0
   (U2). The sole write shape for a creator's rank edit (TICKET-0106,
-  BRIEF-0106-A; formerly `write_skill_tier`).
+  BRIEF-0106-A; formerly `write_skill_tier`) and for a rank trial settled
+  (`quest_settlement._rank_reward`, TICKET-0116).
 - `write_skill_row(...)`                : create one `skill` row for a
   character -- an NPC's skill, a carrure, a skill learned (TICKET-0107,
   BRIEF-0107-A). The sole creator of a row outside the PC seed and the
   catalogue backfill.
 - `write_skill_progress(...)`           : add points to a `skill` row and
-  move its rank when a threshold is crossed (TICKET-0106, BRIEF-0106-B).
+  move its rank when a threshold is crossed (TICKET-0106, BRIEF-0106-B)
+  -- or stops at a threshold whose rank asks a trial (TICKET-0116).
   The sole write shape for points; called by the `skill_progress` applier
   and the day step's roll, both inside `_apply_mutation`.
 - `write_ledger_entry(...)`             : pure INSERT into the append-only
@@ -34,7 +36,8 @@ from sqlalchemy.orm import attributes as sa_attrs
 from sqlmodel import Session, select
 
 from ..models import BASE_SKILL_DOMAINS, Character, Ledger, Skill, SkillDefinition
-from ..skill_ranks import MAX_RANK, RANKS, skill_points_to_next
+from ..skill_ranks import MAX_RANK, RANKS, skill_points_to_next, skill_trial_required
+from .quest_requests import open_trial_request
 
 
 def write_character_location(
@@ -71,8 +74,9 @@ def write_skill_rank(
 ) -> Skill:
     """Set a `skill` row's rank. Caller adds the row to the session.
 
-    The sole write shape for a creator's rank edit (`cockpit/crud/skills.py`'s
-    `update_skill_rank` is its only caller). Appends the previous rank and
+    Two callers: `cockpit/crud/skills.py`'s `update_skill_rank` (the
+    creator's edit) and `writes/quest_settlement._rank_reward` (a rank trial
+    settled, TICKET-0116). Appends the previous rank and
     points to `change_history` first (history is sacred), then sets `rank`,
     restarts `xp` at 0 (U2: points count within a rank) and bumps
     `updated_at`. The caller decides whether to call this at all — a
@@ -148,6 +152,8 @@ class SkillProgress:
     rank: int
     xp: int
     points_to_next: Optional[int]  # None at MAX_RANK
+    # C1 (TICKET-0116): the points wait at a threshold whose rank asks a trial
+    awaiting_trial: bool = False
 
 
 def write_skill_progress(
@@ -169,6 +175,11 @@ def write_skill_progress(
     so -1 exactly undoes a +1 that ranked up; at rank 0 `xp` stops at 0.
     `change_history` gets the previous rank and points only when the rank
     moves -- a point alone is audited by the mutation that carried it.
+    Waiting (C1): when the rank asks a trial (`skill_ranks.skill_trial_required`),
+    a gain that reaches the threshold leaves `xp` at the threshold and the
+    rank where it is -- the trial moves it (`write_skill_rank`).
+    The gain that makes the row ready opens the rank trial's request
+    (`writes.quest_requests.open_trial_request`, TICKET-0116 F1-a).
     `ValueError` on zero points or an unknown row, before any write.
     """
     if not isinstance(points, int) or isinstance(points, bool) or points == 0:
@@ -183,12 +194,22 @@ def write_skill_progress(
     rank_before, xp_before = skill.rank, skill.xp
     rank, xp = rank_before, xp_before + points
     needed = threshold(rank)
-    if points > 0 and needed is not None and xp >= needed:
+    # C1 (TICKET-0116, BRIEF-0116-B): a rank that asks a trial is never
+    # reached by points -- they stop at its threshold and the rank waits.
+    awaiting = (points > 0 and needed is not None and xp >= needed
+                and skill_trial_required(db, world_id=world_id, rank=rank,
+                                         skill_definition_id=skill.skill_definition_id))
+    if awaiting:
+        xp = needed if xp_before < needed else xp_before
+    elif points > 0 and needed is not None and xp >= needed:
         rank, xp = rank + 1, 0
     elif xp < 0 and rank > 0:
         rank -= 1
         xp = max(0, (threshold(rank) or 1) + xp)
     xp = max(0, xp)
+    if awaiting and xp_before < needed:
+        open_trial_request(db, world_id=world_id, character_id=skill.character_id,
+                           skill_key=skill.skill_definition_id or skill.domain, target_rank=rank + 1)
 
     if rank != rank_before:
         history = list(skill.change_history or [])
@@ -207,6 +228,7 @@ def write_skill_progress(
     return SkillProgress(
         rank_before=rank_before, rank=rank, xp=xp,
         points_to_next=None if rank >= MAX_RANK else threshold(rank),
+        awaiting_trial=awaiting,
     )
 
 

@@ -20,14 +20,18 @@
      rank thresholds (blank = inherited, the inherited value as placeholder);
      the 'ranks' record edits the world's six rank names and default points.
 
+     TICKET-0116 (BRIEF-0116-F): each threshold has its trial (inherited,
+     « Épreuve », « Sans épreuve »); the ladder ticks the ranks whose next
+     asks one.
+
      No scoped <style> block: like every other Creation island, classes
      come from frontend/public/creation.css / shared.css. */
   import { creationState } from './state.svelte.js';
   import { creationRefreshList } from './tabs.js';
   import Modal from './Modal.svelte';
   import {
-    competencesState, COMPETENCES_DOMAINS, NO_SYSTEM_LABEL, RANK_POINT_KEYS, generateDraft,
-    discardDraft, deleteSkill, deleteSystem, closeCompetenceSheet, inheritedPoints,
+    competencesState, COMPETENCES_DOMAINS, NO_SYSTEM_LABEL, RANK_POINT_KEYS, RANK_TRIAL_KEYS, generateDraft,
+    discardDraft, deleteSkill, deleteSystem, closeCompetenceSheet, inheritedPoints, inheritedTrial,
   } from './competences.svelte.js';
 
   const rec = $derived(creationState.sheetDetail);
@@ -89,7 +93,7 @@
 {#snippet thresholds()}
   <div class="field-section">
     <div style="font-size:12px; color:var(--muted); margin-bottom:4px">
-      Points pour atteindre chaque rang — vide : hérité (valeur grisée).
+      Points pour atteindre chaque rang — vide : hérité (valeur grisée). Une épreuve : le rang se mérite par une quête.
     </div>
     <div class="field-grid">
       {#each RANK_POINT_KEYS as key, i (key)}
@@ -98,6 +102,16 @@
           <input id="competence-f-{key}" type="number" min="1" step="1"
             placeholder={String(inheritedPoints(rec, i + 1) ?? '')} value={rec[key] ?? ''}
             oninput={(e) => { creationState.sheetDetail[key] = e.currentTarget.value === '' ? null : e.currentTarget.value; }}>
+        </div>
+        <div class="field-row">
+          <label for="competence-f-{RANK_TRIAL_KEYS[i]}">Épreuve vers {competencesState.ranks[i + 1]?.label ?? `rang ${i + 1}`}</label>
+          <select id="competence-f-{RANK_TRIAL_KEYS[i]}"
+            value={rec[RANK_TRIAL_KEYS[i]] == null ? '' : String(rec[RANK_TRIAL_KEYS[i]])}
+            onchange={(e) => { creationState.sheetDetail[RANK_TRIAL_KEYS[i]] = e.currentTarget.value === '' ? null : e.currentTarget.value === 'true'; }}>
+            <option value="">hérité ({inheritedTrial(rec, i + 1) ? 'oui' : 'non'})</option>
+            <option value="true">Épreuve</option>
+            <option value="false">Sans épreuve</option>
+          </select>
         </div>
       {/each}
     </div>
@@ -109,6 +123,7 @@
     <div style="font-size:12px; color:var(--muted); margin-bottom:6px">
       Le nom de chaque rang dans ce monde et les points qu'il faut pour le quitter.
       Un système ou une compétence peut remplacer ces points sur sa propre fiche.
+      Cocher « Épreuve » : le rang suivant se mérite par une quête ; un système ou une compétence peut en décider autrement sur sa fiche.
     </div>
     <div class="field-grid">
       {#each rec.steps as step, i (step.rank)}
@@ -123,6 +138,12 @@
               bind:value={creationState.sheetDetail.steps[i].points_to_next}>
           {/if}
         </div>
+        {#if step.rank < 5}
+          <div class="field-row checkbox">
+            <input id="rank-f-trial-{step.rank}" type="checkbox" bind:checked={creationState.sheetDetail.steps[i].trial_to_next}>
+            <label for="rank-f-trial-{step.rank}">Épreuve pour passer au rang suivant</label>
+          </div>
+        {/if}
       {/each}
     </div>
   </div>

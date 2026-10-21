@@ -23,6 +23,9 @@ Per currency (the series' D table):
   rise, at least 1 (a rise resets the points to 0: the surplus is not
   carried, `write_skill_progress`); at Maître, nothing; not held -> the row
   at Inexpérimenté, taught by the counterparty when he is at Maître in it.
+- rank, reward (TICKET-0116, D2-b/c): a character ready for exactly that
+  rank rises to it (`write_skill_rank`, points 0); otherwise nothing --
+  « sans effet ».
 
 TICKET-0110 (BRIEF-0110-B): the checks and the application of one term are
 public and take the world and the character rather than a quest --
@@ -45,9 +48,9 @@ from ..fact_refs import find_held
 from ..holdings import held_quantity
 from ..ledger import get_balance
 from ..models import BASE_SKILL_DOMAINS, Agenda, Entity, Quest, QuestOffer, Skill
-from ..skill_access import held_rank, skill_label
-from ..skill_ranks import MAX_RANK, skill_points_to_next
-from .characters import write_ledger_entry, write_skill_progress, write_skill_row
+from ..skill_access import held_rank, held_trial_target, skill_label
+from ..skill_ranks import MAX_RANK, skill_points_to_next, skill_trial_target
+from .characters import write_ledger_entry, write_skill_progress, write_skill_rank, write_skill_row
 from .goals_agendas import write_agenda_status
 from .items import write_holding
 from .knowledge import write_knowledge
@@ -77,9 +80,10 @@ def skill_row(db: Session, character_id: str, skill_key: str) -> Optional[Skill]
 
 
 def skill_reward_points(db: Session, world_id: str, row: Skill) -> Optional[int]:
-    """C-skill1: the points a skill reward gives this row, or None at Maître."""
+    """C-skill1: the points a skill reward gives this row, or None at Maître,
+    and while the skill waits for a rank trial (TICKET-0116)."""
     needed = skill_points_to_next(db, world_id=world_id, rank=row.rank, skill_definition_id=row.skill_definition_id)
-    if row.rank >= MAX_RANK or needed is None:
+    if row.rank >= MAX_RANK or needed is None or skill_trial_target(db, world_id=world_id, skill=row) is not None:
         return None
     return max(1, math.ceil(needed * SKILL_REWARD_SHARE))
 
@@ -177,6 +181,14 @@ def _skill_reward(db: Session, world_id: str, character_id: str, teacher: str, s
         write_skill_progress(db, skill_id=row.id, world_id=world_id, points=points, changed_by=CHANGED_BY)
 
 
+def _rank_reward(db: Session, world_id: str, character_id: str, skill_key: str, rank: int) -> None:
+    """D2-c: the rank, only to a character ready for exactly it; else nothing."""
+    row = skill_row(db, character_id, skill_key)
+    if row is not None and held_trial_target(db, world_id=world_id, character_id=character_id,
+                                             skill_key=skill_key) == rank:
+        write_skill_rank(db, skill_id=row.id, rank=rank, changed_by=CHANGED_BY)
+
+
 def apply_term(db: Session, *, world_id: str, character_id: str, term, giver_id: str, reason: str,
                source_type: str = "quest", amount: Optional[int] = None) -> None:
     """Apply one term between the character and its counterparty (else the
@@ -195,6 +207,8 @@ def apply_term(db: Session, *, world_id: str, character_id: str, term, giver_id:
                        type="other", value=-term.amount if cost else term.amount, changed_by=CHANGED_BY)
     elif term.currency == "fact":
         _fact(db, other if cost else character, term.fact_id, None if cost else term.level)
+    elif term.currency == "rank":
+        _rank_reward(db, world_id, character_id, term.skill_key, term.amount)
     elif cost:
         write_skill_row(db, character_id=other, rank=LEARNED_RANK, skill_definition_id=term.skill_key,
                         taught_by_id=character)

@@ -183,7 +183,7 @@ function draftBody(draft) {
 }
 
 const REVIEW_KEYS = ['request_id', 'character_id', 'subject', 'giver_suggestions', 'notes', 'consulted_fact_ids',
-                     'secret_fact_ids', 'flags'];
+                     'secret_fact_ids', 'flags', 'trial'];
 
 /** The payload the review card approves: the offer as edited (`draftBody`),
     the proposal's review keys as the designer wrote them, the conditions

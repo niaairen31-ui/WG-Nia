@@ -540,6 +540,7 @@ def upsert_skill_rank(
     rank: int,
     label: str,
     points_to_next: Optional[int],
+    trial_to_next: bool = False,
 ) -> SkillRank:
     """Upsert the `skill_rank` row of one (world, rank). Caller commits.
 
@@ -547,7 +548,13 @@ def upsert_skill_rank(
     positive integer below MAX_RANK and None at MAX_RANK (the table's own
     CHECK, raised here as `ValueError` before any write). Fetch-or-create:
     never a DELETE (TICKET-0106, BRIEF-0106-C).
+    `trial_to_next`: leaving this rank asks a trial (TICKET-0116, B1); never
+    at the top rank.
     """
+    if not isinstance(trial_to_next, bool):
+        raise ValueError(f"upsert_skill_rank: trial_to_next must be a boolean, got {trial_to_next!r}")
+    if rank == MAX_RANK and trial_to_next:
+        raise ValueError("upsert_skill_rank: the top rank has no trial")
     if rank not in RANKS:
         raise ValueError(f"upsert_skill_rank: rank {rank!r} is not one of {RANKS}")
     label = (label or "").strip()
@@ -560,10 +567,12 @@ def upsert_skill_rank(
         raise ValueError(f"upsert_skill_rank: points_to_next must be an integer >= 1, got {points_to_next!r}")
     row = db.exec(select(SkillRank).where(SkillRank.world_id == world_id, SkillRank.rank == rank)).first()
     if row is None:
-        row = SkillRank(world_id=world_id, rank=rank, label=label, points_to_next=points_to_next)
+        row = SkillRank(world_id=world_id, rank=rank, label=label, points_to_next=points_to_next,
+                        trial_to_next=trial_to_next)
     else:
         row.label = label
         row.points_to_next = points_to_next
+        row.trial_to_next = trial_to_next
         row.updated_at = datetime.now(UTC)
     db.add(row)
     return row

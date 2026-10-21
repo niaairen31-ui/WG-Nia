@@ -4,7 +4,7 @@ BRIEF-0121-B's rules (L1 of the Journée quest designer): the storage and
 writer of v2.28, and the dashboard's way to watch D2, S3 and P1.
 
 QR1 -- storage (import). `quest_request` carries exactly its contract's
-   columns, CHECK names and index names; the code's schema version is v2.28
+   columns, CHECK names and index names (v2.29: the trial columns); the code's schema version is v2.28
    or later; the migration `scripts/migrate_v2_28_quest_requests.py` exists
    and refuses below v2.27 (`_PREVIOUS_VERSION == "v2.27"`).
 QR2 -- `open_request` refuses an unknown trigger, an empty declaration and a
@@ -19,7 +19,7 @@ QR4 -- the CHECKs hold: a raw INSERT with `status='done'`, one with
 QR5 -- `inquiry_step_ids` returns the steps of `route` and `dropped`
    requests of that agenda only: a `blocked` one and another agenda's are
    absent.
-QR6 -- `compute_metrics` over a fixture (one request of each trigger, one
+QR6 -- `compute_metrics` over a fixture (one request of each step trigger (no trial), one
    answered `already`, one proposal `applied` whose offer's giver was
    created after it): the `quest_requests` rows equal a literal expected
    list; a world with none gives the same labels at 0.
@@ -45,14 +45,17 @@ FAILURES: list[str] = []
 
 COLUMNS = ("id", "world_id", "character_id", "pass_play_id", "agenda_step_id", "trigger", "declaration",
            "subject", "status", "existence_answer", "creator_text", "existing_entity_id", "lore_entry_id",
-           "mutation_id", "offer_id", "note", "created_at", "updated_at", "change_history")
-CHECKS = ("ck_quest_request_answer", "ck_quest_request_status", "ck_quest_request_trigger")
-INDEXES = ("idx_quest_request_step", "idx_quest_request_world")
+           "mutation_id", "offer_id", "note", "skill_key", "target_rank", "created_at", "updated_at",
+           "change_history")
+CHECKS = ("ck_quest_request_answer", "ck_quest_request_origin", "ck_quest_request_status",
+          "ck_quest_request_trigger")
+INDEXES = ("idx_quest_request_step", "idx_quest_request_trial", "idx_quest_request_world")
 
 EXPECTED_ROWS = [
     ("Origine", "Déclaration aiguillée", 1, 3),
     ("Origine", "Étape bloquée", 1, 3),
     ("Origine", "Savoir introuvable", 1, 3),
+    ("Origine", "Épreuve de rang", 0, 3),
     ("Origine", "Journées aiguillées vers une quête", 1, 2),
     ("Existence", "Elle existe", 0, 3),
     ("Existence", "Elle n'existe pas", 1, 3),

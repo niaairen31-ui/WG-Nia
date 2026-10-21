@@ -20197,6 +20197,212 @@ Nothing here reaches a model or a player surface (INV-01): the panel
 shows the creator what she asked about. Gate: `quest_request_panel.py`
 RP1-RP4.
 
+## A RANK MAY ASK A TRIAL, A TRIAL IS A QUEST (TICKET-0116) -- THE STORAGE OF v2.29 (BRIEF-0116-a, schema v2.29)
+
+B1: whether leaving a rank asks a trial follows the cascade of the points,
+per rank. The world's ladder says it (`skill_rank.trial_to_next`, NOT NULL,
+default 0), a skill system overrides it for its skills and a skill
+definition for itself (`trial_to_rank_1` .. `trial_to_rank_5`, nullable:
+NULL inherits), the most specific non-null value winning -- the exact shape
+of `points_to_next` / `points_to_rank_<n>`, so one reader (BRIEF-0116-B)
+resolves both. A world that says nothing asks no trial, everywhere.
+
+**D2, D2-d: a sixth currency in the existing term tables.** A trial is an
+ordinary quest offer whose reward is « the next rank in this skill »: a
+`rank` term, `skill_key` the skill and `amount` the rank it gives (1-5).
+It lives in `quest_offer_term` and `quest_term`, both rebuilt so their
+CHECKs admit it -- the two tables keep the same CHECK texts byte for byte.
+The shape CHECK makes a rank a reward only: never a cost. `debt_term` is
+not touched -- a rank is never owed (D2-a), and its own shape CHECK keeps
+its own literal.
+
+**F1-b: a trial request has no day.** A player character becoming ready
+for a rank that asks a trial opens a `quest_request` of the trigger
+`trial`; it is born of a skill, not of an agenda step, so `pass_play_id`
+and `agenda_step_id` become nullable, `skill_key` and `target_rank` are
+added, and `ck_quest_request_origin` ties each trigger to its columns: a
+trial names a skill and a rank and no step; a step request names a step
+and no skill. One request per step still holds (`idx_quest_request_step`,
+unique, NULLs distinct); `idx_quest_request_trial` (world, skill, rank)
+is not unique -- a failed trial may be asked again (H1).
+
+**No CHECK on `skill_rank`.** A trial at rank 5 means nothing (no rank
+follows), but `skill_progression.py` A1 pins `skill_rank`'s CHECK set; the
+writer refuses it (BRIEF-0116-B), as it refuses the other shapes the
+database does not hold.
+
+**The migration writes no data.** `migrate_v2_29_rank_trials.py` adds the
+eleven columns by `ADD COLUMN` and rebuilds the three tables in one raw
+transaction, copying every row (`change_history` included); a reference
+dangling before it is listed, never deleted (AMENDMENT-0107-01). No rank
+asks a trial afterwards. Gate: `rank_trial_schema.py` TS1-TS3.
+
+## THE POINTS COME FIRST; A RANK THAT ASKS A TRIAL WAITS (TICKET-0116) -- skill_ranks.trial_required, trial_target, held_trial_target (BRIEF-0116-b, no schema change)
+
+**A1: the points come first.** A rank that asks a trial is never reached by
+points alone: the points fill to its threshold, then the rank waits for a
+quest that gives it (BRIEF-0116-C).
+
+**B1: one cascade.** Whether leaving a rank asks a trial reads exactly like
+the points needed to leave it: the skill definition's
+`trial_to_rank_<rank + 1>`, else its system's, else the world's
+`skill_rank.trial_to_next`, else no trial. `RANK_TRIAL_COLUMNS` mirrors
+`RANK_POINTS_COLUMNS` (index = rank left); `trial_required` is the one
+reader, False at Maître. `upsert_skill_rank` refuses a trial at the top
+rank and a non-boolean flag, before any write.
+
+**C1: the points stop in the one writer of points.** `write_skill_progress`
+stops a gain at the threshold of a rank that asks a trial -- `xp` equals
+the threshold, the rank stays, no history entry, `awaiting_trial=True` --
+so every caller stops by construction. The two roll paths
+(`record_roll`, `grant_step_roll`) and the point reward
+(`skill_reward_points`) skip a waiting skill the way they skip a Maître:
+no `skill_progress` mutation is written for a roll that would earn
+nothing (INV-15). The creator's own rank edit (`write_skill_rank`) passes
+over it: only player characters earn points, and the creator is never
+gated (I1).
+
+**« Ready » is defined once.** A skill is ready exactly when
+`trial_target(rank, xp, ladder, ...)` is not None -- its points reached
+the threshold of a rank that asks a trial; the value is the rank the trial
+gives. `skill_trial_target` (one row), `held_trial_target` (a character
+and a skill key, through `skill_access`'s INV-41 lookups) and the CRUD's
+`trial_ready` all read it; no other module re-derives it. Gate:
+`rank_trials.py` TB1-TB3.
+
+## A RANK IS A REWARD THE READY CHARACTER RECEIVES (TICKET-0116) -- THE rank CURRENCY, THE TRIAL GATE, INV-64 (BRIEF-0116-c, no schema change)
+
+**D2: the trial's reward is a sixth currency.** A rank trial is an ordinary
+quest offer whose reward holds a `rank` term -- a skill and the rank it
+gives -- so the offer editor, the quest's own copy of its terms and
+« déclarer accomplie » serve a trial unchanged. `QUEST_TERM_CURRENCIES`
+gains `rank`; `questTerms.js` mirrors it on one more `CURRENCY_FORMS` line
+of the exact RD1 shape.
+
+**D2-a: a reward only, never a service, never owed.** `clean_term` sends a
+`rank` term to `_clean_rank`, which refuses a cost, a counterparty, a
+skill that is not a base domain or a definition of the world, and a rank
+outside 1-5. `REWARD_ONLY_CURRENCIES` names it; the editor hides it on a
+cost and offers no counterparty for it. `request_service` refuses a
+`rank` term before any write: a rank is given by a trial, never bought.
+A debt can never owe one -- `debt_term` keeps its own CHECK literal.
+
+**D2-b/c: given only to who is ready for exactly that rank.** At
+settlement, `apply_term`'s `rank` branch (`_rank_reward`) moves the
+character's row to the rank when `held_trial_target` equals it, through
+`write_skill_rank` (points 0, one history entry `quest_settlement`);
+otherwise it writes nothing, and « déclarer accomplie » says so ahead
+(« sans effet »). `write_skill_rank` is thus the one mover of a rank
+besides the points: the creator's edit and a settled trial.
+
+**The gate is one judge.** `acceptance_refusal` refuses an offer holding a
+`rank` term to a character not ready for exactly that rank, after L1 and
+before the eligibility; `available_offers` and `accept_quest` both read
+it, so a trial is listed and taken only by who may pass it. It is a
+refusal sentence naming the skill and the rank, never a condition leaf
+the creator could remove (D3), and it shows nothing of another
+character (INV-62).
+
+**A rank is worth nothing in the indicative unit.** `term_value` gives a
+`rank` term 0: a trial is not a trade, and the creator's band says nothing
+about it. The model never proposes a rank term by itself
+(`quest_designer._term` drops it with `RANK_TERM_FR`); its trial path is
+BRIEF-0116-E's. Gate: `rank_trials.py` TC1-TC4 (INV-64).
+
+## A SKILL READY FOR ITS TRIAL ASKS THE CREATOR FOR ONE (TICKET-0116) -- open_trial_request (BRIEF-0116-d, no schema change)
+
+**F1: the creator does not write trials, she reviews them.** A trial is
+designed from a request (BRIEF-0116-E), and this step opens that request:
+a `quest_request` with trigger `trial`, the skill and the rank it waits
+for, no day and no step.
+
+**F1-a: one request per skill and rank in the world.** Not per
+character: the trial is one quest any ready character may take. A
+request stays in hand while it is « live » -- `new`, or `proposed` while
+its proposal is `proposed` or `approved` -- and the next readiness returns
+it unchanged. A request set aside (`dropped`), covered, or whose proposal
+was applied or rejected is no longer live: the next readiness opens a new
+one. None opens for a non-player character, and none while an open offer
+already gives that rank (`covering_trial_offer`): the trial exists, the
+ready character takes it.
+
+**Opened where the points stop.** `write_skill_progress` calls
+`open_trial_request` on the gain that makes the row ready (the points
+reach a waiting threshold from below), so every path that gains points
+-- a roll, a step's roll, a skill reward -- opens it and none can forget.
+A gain on a row already waiting opens nothing. The writer adds and
+flushes; the caller owns the commit (INV-18). The request is a pipeline
+row, never a mutation: INV-15 is untouched. `open_request` refuses a
+`trial` trigger, so a step request never takes this shape.
+
+**A request with no day.** `request_dict` reads the day only when the
+request has one (`day_number` None for a trial), so the creator's panel
+lists a trial request as it is. The « Demandes de quête » metric gains
+the row « Épreuve de rang ». Gate: `rank_trials.py` TD1-TD2.
+
+## WHO MASTERS A SKILL IS READ IN ONE PLACE (TICKET-0116) -- skill_access.skill_masters (BRIEF-0116-e, no schema change)
+
+**A pure move.** `cockpit/crud/skills.py::_masters` -- the world's
+characters at Maître in one skill, by definition or by base domain --
+moves to `skill_access.skill_masters`, its body unchanged; the crud's
+three callers (the learnable list, its masters, the grant's teacher
+check) call it there. The quest designer is its second reader (R6: no
+copy), so the query lives beside the other skill reads, not in a route
+module.
+
+## THE DESIGNER PROPOSES A RANK TRIAL, NIA CONFIRMS IT (TICKET-0116) -- quest_trial, _design_trial, the rank reward kept (BRIEF-0116-e, no schema change)
+
+**F1: « Concevoir » on a trial request.** A trial needs no subject call
+and no existence question -- the skill exists. An open offer that already
+gives the rank covers the request (`covering_trial_offer`, no model
+call). Otherwise `_design_trial` reads the lore of the skill (its label,
+then its system's name) and of its masters, and makes one `quest_trial`
+call: the design's answer shape and user template under a preamble of its
+own, whose only outcome is `offer`.
+
+**G1: masters are lore, never a requirement.** The masters' facts enter
+the gathering and the prompt asks for a master first among the givers;
+none is required, and the creator chooses the giver.
+
+**The rank reward is the code's.** The model never writes a `rank` term
+(`_term` drops one with `RANK_TERM_FR`); `_trial_payload` appends the
+reward `rank` (skill, target rank) last, makes the offer repeatable (H1:
+one trial for every character ready), and adds the `trial` key the card
+reads. The proposal is sourced `quest_request`: a trial has no day.
+
+**The applier keeps the reward.** `apply_offer_proposal` refuses, right
+after its request check, a trial whose approved terms lost that reward
+(« Cette épreuve doit garder sa récompense de rang. »), writing nothing.
+INV-63's refusals are unchanged.
+
+**One offer path.** `_offer` -- steps, settled conditions, one retry,
+notes, payload, proposal -- is shared by both paths, extracted unchanged
+from `_design`. Gate: `rank_trials.py` TE1-TE3.
+
+## A TRIAL IS SEEN WHERE THE CREATOR WORKS (TICKET-0116) -- COMPÉTENCES, THE FICHE, THE REQUESTS PANEL, THE REVIEW CARD (BRIEF-0116-f, no schema change)
+
+**B1: a trial is edited where the points are.** The `thresholds` snippet a
+skill and a system fiche share gains one select per rank (`trial_to_rank_<n>`:
+inherited, « Épreuve », « Sans épreuve »); the inherited value is read from
+the system, then the world's ladder (`inheritedTrial`). « Rangs du monde »
+ticks, below the top rank, the ranks whose next asks a trial
+(`trial_to_next`). No new tab or island.
+
+**F1-c: the fiche says the points wait, never the request.** A player
+skill whose points stopped at a trial threshold reads « épreuve de rang à
+passer » on the creator's fiche (`trial_ready`). No player surface shows a
+trial request; Journée lists the trial only once its offer is confirmed.
+
+**The card names its source.** A proposal sourced `quest_request` (a
+trial has no day) shows an « ÉPREUVE » badge beside « TICK » and
+« JOURNÉE »; the requests panel labels the `trial` trigger « épreuve de
+rang ».
+
+**The `trial` key survives the card's edits -- display only.** The quest
+block names the skill and the rank from `payload.trial`, and `REVIEW_KEYS`
+carries `trial` through `proposalBody`. The applier never reads it: it
+judges the rank reward from the request. Gate: `rank_trials.py` TF1-TF4.
+
 ---
 
 *Co-built with Claude, June 2026.*

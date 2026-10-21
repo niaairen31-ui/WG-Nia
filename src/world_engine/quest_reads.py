@@ -41,6 +41,7 @@ from .models import (
 from .prose_render import fact_texts
 from .quest_value import offer_value, value_dict, world_rates
 from .quest_wording import term_dict, term_line
+from .skill_ranks import world_ladder
 from .writes.quest_terms import FACT_REWARD_LEVELS, offer_terms, quest_terms
 from .writes.quests import QUEST_GIVER_TYPES, acceptance_refusal
 
@@ -135,7 +136,8 @@ def editor_choices(world_id: str, db: Session) -> dict:
     offers; items with their value, the fact reward levels and the world's
     rates (TICKET-0109); each faction's members (TICKET-0110, X1); the
     values a form compares to (TICKET-0111); the world's attributes and its
-    active entities (TICKET-0113)."""
+    active entities (TICKET-0113); the world's ranks above Inexpérimenté
+    (TICKET-0116)."""
     facts = db.exec(select(Fact).where(Fact.world_id == world_id)).all()
     definitions = db.exec(select(SkillDefinition).where(SkillDefinition.world_id == world_id)).all()
     characters = _named(db, world_id, "character")
@@ -174,6 +176,8 @@ def editor_choices(world_id: str, db: Session) -> dict:
                                     "accepts_sorte": r.accepts_sorte} for r in v.active_roles()]}
                         for v in world_event_types(db, world_id)],
         "sortes": [{"id": s.id, "name": s.name} for s in world_sortes(db, world_id)],
+        # TICKET-0116 (BRIEF-0116-C): the ranks a rank reward may give.
+        "ranks": [{"rank": s.rank, "label": s.label} for s in world_ladder(db, world_id) if s.rank >= 1],
     }
 
 

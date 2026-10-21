@@ -52,7 +52,11 @@ from ...models import (
 )
 from ...prompt_registry import PROMPT_REGISTRY, effective_model
 from ...prompt_store import current_prompt, get_version, list_versions
-from ...skill_ranks import DEFAULT_RANK, MAX_RANK, RANK_POINTS_COLUMNS, RANKS, RankStep, points_to_next, skill_owners, world_ladder
+from ...skill_access import skill_masters
+from ...skill_ranks import (
+    DEFAULT_RANK, RANK_POINTS_COLUMNS, RANK_TRIAL_COLUMNS, RANKS, RankStep, points_to_next, skill_owners,
+    trial_target, world_ladder,
+)
 from ...tick_normalize import _EVENT_TYPES
 from ...writes import (
     KNOWLEDGE_LEVELS,
@@ -103,6 +107,8 @@ def _skill_dict(
         "rank_label": ladder[s.rank].label,
         "xp": s.xp,
         "points_to_next": points_to_next(s.rank, ladder, system=system, definition=definition),
+        # TICKET-0116: the points wait for a rank trial (`skill_ranks.trial_target`).
+        "trial_ready": trial_target(s.rank, s.xp, ladder, system=system, definition=definition) is not None,
         "requires_master": bool(definition.requires_master) if definition else False,
         "taught_by_id": s.taught_by_id,
         "change_history": s.change_history,
@@ -111,7 +117,8 @@ def _skill_dict(
 
 
 def _rank_step_dict(step: RankStep) -> dict:
-    return {"rank": step.rank, "label": step.label, "points_to_next": step.points_to_next}
+    return {"rank": step.rank, "label": step.label, "points_to_next": step.points_to_next,
+            "trial_to_next": step.trial_to_next}
 
 
 @router.get("/skill-ranks")
@@ -125,6 +132,7 @@ class SkillRankStepBody(BaseModel):
     rank: int
     label: str
     points_to_next: Optional[int] = None
+    trial_to_next: bool = False
 
 
 class SkillRanksBody(BaseModel):
@@ -143,7 +151,7 @@ def update_skill_ranks(body: SkillRanksBody, db: DbSession = Depends(get_session
     try:
         for step in body.ranks:
             upsert_skill_rank(db, world_id=world_id, rank=step.rank, label=step.label,
-                              points_to_next=step.points_to_next)
+                              points_to_next=step.points_to_next, trial_to_next=step.trial_to_next)
     except ValueError as exc:
         db.rollback()
         raise HTTPException(422, str(exc))
@@ -169,20 +177,6 @@ def list_skill_player_characters(
     return [{"id": e.id, "name": e.name} for e, _ in rows]
 
 
-def _masters(db: DbSession, world_id: str, *, definition_id: Optional[str], domain: Optional[str]) -> list[dict]:
-    """The characters of the world at Maître in one skill (C1)."""
-    stmt = (
-        select(Entity)
-        .join(Skill, Skill.character_id == Entity.id)
-        .where(Entity.world_id == world_id, Skill.rank == MAX_RANK)
-    )
-    if definition_id is not None:
-        stmt = stmt.where(Skill.skill_definition_id == definition_id)
-    else:
-        stmt = stmt.where(Skill.domain == domain, Skill.skill_definition_id.is_(None))
-    return [{"id": e.id, "name": e.name} for e in db.exec(stmt.order_by(Entity.name)).all()]
-
-
 @router.get("/skills/learnable")
 def list_learnable_skills(character_id: str = Query(...), db: DbSession = Depends(get_session)) -> list[dict]:
     """The skills a character does not hold and may be given (TICKET-0107):
@@ -202,7 +196,7 @@ def list_learnable_skills(character_id: str = Query(...), db: DbSession = Depend
         for domain in SKILL_DOMAINS:
             if domain not in held_domains:
                 out.append({"domain": domain, "skill_definition_id": None, "name": domain, "requires_master": False,
-                            "masters": _masters(db, entity.world_id, definition_id=None, domain=domain)})
+                            "masters": skill_masters(db, entity.world_id, definition_id=None, domain=domain)})
     for definition in db.exec(select(SkillDefinition).where(SkillDefinition.world_id == entity.world_id)
                               .order_by(SkillDefinition.name)).all():
         if definition.id in held_definitions:
@@ -211,7 +205,7 @@ def list_learnable_skills(character_id: str = Query(...), db: DbSession = Depend
             continue
         out.append({"domain": definition.base_domain, "skill_definition_id": definition.id, "name": definition.name,
                     "requires_master": definition.requires_master,
-                    "masters": _masters(db, entity.world_id, definition_id=definition.id, domain=None)})
+                    "masters": skill_masters(db, entity.world_id, definition_id=definition.id, domain=None)})
     return out
 
 
@@ -238,7 +232,7 @@ def grant_skill(body: SkillGrantBody, db: DbSession = Depends(get_session)) -> d
         if definition is None or definition.world_id != world_id:
             raise HTTPException(422, "skill_definition_id must be a skill of the active world")
     if body.taught_by_id is not None:
-        masters = _masters(db, world_id, definition_id=body.skill_definition_id, domain=body.domain)
+        masters = skill_masters(db, world_id, definition_id=body.skill_definition_id, domain=body.domain)
         if body.taught_by_id == body.character_id or body.taught_by_id not in {m["id"] for m in masters}:
             raise HTTPException(422, "taught_by_id must be another character at Maître in this skill")
     held = select(Skill).where(Skill.character_id == body.character_id)
@@ -334,21 +328,27 @@ def list_skill_systems(db: DbSession = Depends(get_session)) -> list[dict]:
 
 class RankPointsBody(BaseModel):
     """The five optional rank thresholds of a system or a skill (TICKET-0106,
-    BRIEF-0106-C, O1): a positive count, or None to inherit. A PUT replaces
-    all five, like every other field of its body."""
+    BRIEF-0106-C, O1): a positive count, or None to inherit, and the five
+    optional trials, None to inherit (TICKET-0116). A PUT replaces all ten,
+    like every other field of its body."""
     points_to_rank_1: Optional[int] = Field(default=None, ge=1)
     points_to_rank_2: Optional[int] = Field(default=None, ge=1)
     points_to_rank_3: Optional[int] = Field(default=None, ge=1)
     points_to_rank_4: Optional[int] = Field(default=None, ge=1)
     points_to_rank_5: Optional[int] = Field(default=None, ge=1)
+    trial_to_rank_1: Optional[bool] = None
+    trial_to_rank_2: Optional[bool] = None
+    trial_to_rank_3: Optional[bool] = None
+    trial_to_rank_4: Optional[bool] = None
+    trial_to_rank_5: Optional[bool] = None
 
 
 def _rank_points(row: Any) -> dict:
-    return {column: getattr(row, column) for column in RANK_POINTS_COLUMNS}
+    return {column: getattr(row, column) for column in RANK_POINTS_COLUMNS + RANK_TRIAL_COLUMNS}
 
 
 def _set_rank_points(row: Any, body: RankPointsBody) -> None:
-    for column in RANK_POINTS_COLUMNS:
+    for column in RANK_POINTS_COLUMNS + RANK_TRIAL_COLUMNS:
         setattr(row, column, getattr(body, column))
 
 

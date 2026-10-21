@@ -34,6 +34,7 @@
 - `apply_ticket_0113_condition_prompt.py` — One-shot, idempotent delivery of the TICKET-0113 condition interpreter's prompt update onto the live DB (BRIEF-0113-D): the model reads the world's attributes -- the `a` list, a new variable `attributes` -- and writes an `attribute` leaf.
 - `apply_ticket_0114_analysis_prompt.py` — One-shot, idempotent delivery of the TICKET-0114 conversation analysis prompt update onto the live DB (BRIEF-0114-H): the analyzer reads the world's event types -- the `t` list, a new variable `event_types` -- and its sortes (`sortes`), names an event's type by code and its participants by role, and may propose a type (I2).
 - `apply_ticket_0114_condition_prompt.py` — One-shot, idempotent delivery of the TICKET-0114 condition interpreter's prompt update onto the live DB (BRIEF-0114-F): the model reads the world's event types -- the `t` list, a new variable `event_types` -- and its sortes (`sortes`), and writes an `event` leaf.
+- `apply_ticket_0116_trial_prompt.py` — One-shot, idempotent delivery of the TICKET-0116 rank trial's prompt head (quest_trial) onto the live DB (BRIEF-0116-E).
 - `apply_ticket_0119_lore_prompt.py` — One-shot, idempotent delivery of the TICKET-0119 Lore proposal prompt update onto the live DB (BRIEF-0119-G, U1): the lore writing call reads the world's event types -- the `t` list, a new variable `event_types` -- and its sortes (`sortes`), and may return events, or a type the world lacks.
 - `apply_ticket_0119_tick_prompt.py` — One-shot, idempotent delivery of the TICKET-0119 world tick events prompt update onto the live DB (BRIEF-0119-E): the scope-level tick reads the world's event types -- the `t` list, a new variable `event_types` -- and its sortes (`sortes`), and names an event's type by code and its participants by role and name; it proposes no new type (A1).
 - `apply_ticket_0121_designer_prompts.py` — One-shot, idempotent delivery of the TICKET-0121 quest designer's prompt heads (quest_subject, quest_design) onto the live DB (BRIEF-0121-E).
@@ -120,6 +121,7 @@
 - `migrate_v2_26_event_effects.py` — Migration v2.26 — what an event does to the state of the world (TICKET-0119, BRIEF-0119-A; decisions M-c, C1, D3, E1 and U1 of the conditions series).
 - `migrate_v2_27_mutation_reviews.py` — Migration v2.27 — the creator's review of a proposal, round by round (TICKET-0115, BRIEF-0115-A; decisions A3, C1 and H1a of the conditions series' dashboard).
 - `migrate_v2_28_quest_requests.py` — Migration v2.28 — a quest request is a row (TICKET-0121, BRIEF-0121-B; decision L1 of the Journée quest designer).
+- `migrate_v2_29_rank_trials.py` — Migration v2.29 — a rank may ask a trial, and a trial is a quest (TICKET-0116, BRIEF-0116-A; decisions B1, D2, D2-d, F1-b).
 - `observation_metrics.py` — Observation run metrics (TICKET-0051, BRIEF-0051-g, decision J2/Q).
 - `preview_npc_schedule.py` — Preview `where_is` / `who_is_at` / `unresolved_npcs` — the concrete reader for `world.current_phase` (T-A1) and the live-gate instrument for TICKET-0074, BRIEF-0074-a.
 - `preview_tick_context.py` — Preview the full-interiority briefing a world tick would send to one NPC (TICKET-0014, BRIEF-0014-a; TICKET-0015, BRIEF-0015-a adds --interval) — the concrete reader for `assemble_tick_context` in this brief, and the live-gate instrument for the T1 review.
@@ -226,7 +228,7 @@
 - `quest_designer.py` — The quest designer (TICKET-0121, BRIEF-0121-E; decisions C1, D1, F1, G1, H2, V1).
 - `quest_lore.py` — The lore a quest designer is shown before it designs: what canon already holds on the request's subject.
 - `quest_reads.py` — Quest offers and quests: what the two surfaces read (TICKET-0108, BRIEF-0108-B, contract C-04).
-- `quest_requests.py` — The quest request's reads (TICKET-0121, BRIEF-0121-B, L1): which steps of an agenda are inquiry steps, by the requests that opened them, and the request as the creator's panel lists it (BRIEF-0121-E).
+- `quest_requests.py` — The quest request's reads (TICKET-0121, BRIEF-0121-B, L1): which steps of an agenda are inquiry steps, by the requests that opened them, and the request as the creator's panel lists it (BRIEF-0121-E), and a rank trial's reads: the open offer that already gives the rank, the request's subject and declaration (TICKET-0116).
 - `quest_settlement_view.py` — What « déclarer accomplie » shows before Nia decides (TICKET-0109, BRIEF-0109-C, G1, contract C-06).
 - `quest_value.py` — The indicative unit of a quest (TICKET-0109, BRIEF-0109-B, C1/E1, contract C-03).
 - `quest_wording.py` — How a quest term reads, in French (TICKET-0109, BRIEF-0109-B, C-04).
@@ -511,6 +513,8 @@
 - `quest_review_card.py` — G1 check: a proposed quest is reviewed in the offer editor (TICKET-0121, BRIEF-0121-F, C-14).
 - `quest_rewards.py` — G1 check for TICKET-0109 -- objects held in quantity, quest terms, the indicative unit, and « déclarer accomplie ».
 - `quests.py` — G1 check for TICKET-0108 -- quest offers, accepted quests, and the requirement vocabulary they share with day plans.
+- `rank_trial_schema.py` — G1 check for TICKET-0116 (BRIEF-0116-A) -- v2.29 stores the rank trials.
+- `rank_trials.py` — G1 check for TICKET-0116 -- a rank that asks a trial is earned by a quest.
 - `region_npc_retirement.py` — G1 check: region NPC-machinery retirement (TICKET-0037, BRIEF-0037-d, A1).
 - `registry_model_columns.py` — G1 check: every field the creator-CRUD registry declares is a column of the model it writes (TICKET-0102, BRIEF-0102-a).
 - `relation_graph.py` — G1 check for TICKET-0023/BRIEF-0023-b, amended by TICKET-0033/BRIEF-0033-e — NPC relation ego + global graph.

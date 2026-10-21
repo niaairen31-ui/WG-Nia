@@ -2,6 +2,9 @@
 paths:
   - "src/world_engine/skill*.py"
   - "src/world_engine/cockpit/crud/skills.py"
+  - "src/world_engine/writes/characters.py"
+  - "src/world_engine/writes/quest_settlement.py"
+  - "src/world_engine/writes/quests.py"
 ---
 
 # Skills and skill definitions
@@ -39,3 +42,10 @@ paths:
   `unmatched` `skill_resolution.surface_form` rows for the active world; the
   two arbiter-failure sentinels (`__arbiter_error__`, `__arbiter_empty__`)
   are excluded from `gaps` and reported in `arbiter_failures`. [no check]
+- **INV-64** A rank that asks a trial is never reached by points: `write_skill_progress`
+  stops them at its threshold (`skill_ranks.trial_required`) and the rank waits. Only a
+  `rank` reward settled for a character ready for exactly that rank
+  (`skill_access.held_trial_target`), or the creator's own edit, moves it, both through
+  `write_skill_rank`. A `rank` term is a reward only, never a service; an offer holding
+  one is listed and accepted only by a character ready for it (`acceptance_refusal`).
+  -- enforced by `rank_trials.py`

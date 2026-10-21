@@ -1,0 +1,22 @@
+{
+  "ticket": "TICKET-0116-rank-trials",
+  "when": "2026-10-21T20:47:09.163538+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "rank_trial_schema.py",
+      "status": "PASS",
+      "msg": "PASS: rank_trial_schema -- v2.29 lets a rank ask a trial, admits a rank reward in both term tables, a trial request with no day, and migrates from v2.28 only, keeping every row"
+    },
+    {
+      "check": "rank_trials.py",
+      "status": "PASS",
+      "msg": "PASS: rank_trials -- whether leaving a rank asks a trial follows the points' cascade, a skill is ready when its points reached such a threshold, the points stop there and the rolls and the point reward skip a waiting skill, the creator's CRUD carries the flags, a rank is a reward only, offered to and given only to the character ready for it, a ready player skill asks the creator for its trial, once per skill and rank, the designer proposes that trial with the rank reward the code adds and the applier keeps, and the skills tab, the fiche, the requests panel and the review card show it"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u00e2\u20ac\u201d 176 check(s) discovered, 176 executed, 176 passed"
+    }
+  ]
+}

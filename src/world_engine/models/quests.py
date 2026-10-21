@@ -112,19 +112,21 @@ class Quest(SQLModel, table=True):
 # character gives to settle the quest, and what he receives.
 QUEST_TERM_DIRECTIONS: tuple[str, ...] = ("cost", "reward")
 
-# The five currencies of a quest (the series' D table).
-QUEST_TERM_CURRENCIES: tuple[str, ...] = ("money", "item", "relation", "fact", "skill")
+# The six currencies of a quest (the series' D table; `rank`, TICKET-0116 D2: the trial's reward).
+QUEST_TERM_CURRENCIES: tuple[str, ...] = ("money", "item", "relation", "fact", "skill", "rank")
 
 # The shape CHECK both term tables carry, byte for byte: an amount for the
 # three counted currencies, a target for the three named ones.
+# TICKET-0116 (BRIEF-0116-A, D2): a rank is a reward only, naming a skill and the rank it gives.
 QUEST_TERM_SHAPE_CHECK = (
     "(currency NOT IN ('money','item','relation') OR (amount IS NOT NULL AND amount >= 1)) "
     "AND (currency <> 'item' OR item_id IS NOT NULL) "
     "AND (currency <> 'fact' OR fact_id IS NOT NULL) "
-    "AND (currency <> 'skill' OR skill_key IS NOT NULL)"
+    "AND (currency <> 'skill' OR skill_key IS NOT NULL) "
+    "AND (currency <> 'rank' OR (direction = 'reward' AND skill_key IS NOT NULL AND amount BETWEEN 1 AND 5))"
 )
 QUEST_TERM_DIRECTION_CHECK = "direction IN ('cost','reward')"
-QUEST_TERM_CURRENCY_CHECK = "currency IN ('money','item','relation','fact','skill')"
+QUEST_TERM_CURRENCY_CHECK = "currency IN ('money','item','relation','fact','skill','rank')"
 
 
 # -----------------------------------------------------------------------------

@@ -17,7 +17,8 @@ Two carriers, both inside `_apply_mutation` (Q1):
   destroys nothing, touches no relation or knowledge, recorded `applied`
   and visible in the review cockpit). The point goes to the row that was
   rolled (S1): the custom skill when the arbiter named one. A skill at
-  Maître earns nothing more: no mutation is written. A failure here is
+  Maître earns nothing more -- nor does a skill whose points wait for a
+  rank trial (TICKET-0116, C1): no mutation is written. A failure here is
   logged and swallowed -- a point must never break a turn. The result rides
   on the verdict event as `progress` (Y1b: Play is sealed, its client does
   not show it yet).
@@ -38,7 +39,7 @@ from sqlmodel import Session, select
 
 from ..db import engine
 from ..models import AgendaStep, ProposedMutation, Skill, SkillDefinition, World
-from ..skill_ranks import MAX_RANK, skill_points_to_next, world_ladder
+from ..skill_ranks import MAX_RANK, skill_points_to_next, skill_trial_target, world_ladder
 from ..writes import write_skill_progress
 
 _log = logging.getLogger(__name__)
@@ -80,13 +81,15 @@ def record_roll(*, world_id: str, conversation_id: str, skill_id: Optional[str],
     """One auto-applied `skill_progress` for a Play roll. Returns the skill's
     new state (`skill`, `rank`, `rank_label`, `ranked_up`, `xp`,
     `points_to_next`), or None when nothing was earned: no row rolled, a
-    Maître, an apply refused, or any error (logged)."""
+    Maître, a skill waiting for a rank trial, an apply refused, or any error (logged)."""
     if skill_id is None:
         return None
     try:
         with Session(engine) as db:
             skill = db.get(Skill, skill_id)
             if skill is None or skill.rank >= MAX_RANK or db.get(World, world_id) is None:
+                return None
+            if skill_trial_target(db, world_id=world_id, skill=skill) is not None:
                 return None
             rank_before = skill.rank
             mut = ProposedMutation(
@@ -113,7 +116,7 @@ def grant_step_roll(db: Session, *, step: AgendaStep, owner_id: str, world_id: s
     """The point of an approved day step's roll: the owner's base skill row
     for `step.domain` (`skill_definition_id IS NULL`). Nothing when the step
     had no roll (no domain), the owner has no such row (a faction, an NPC),
-    or the skill is at Maître."""
+    or the skill is at Maître or waits for a rank trial (TICKET-0116)."""
     if step.domain is None:
         return
     skill = db.exec(
@@ -123,7 +126,7 @@ def grant_step_roll(db: Session, *, step: AgendaStep, owner_id: str, world_id: s
             Skill.skill_definition_id.is_(None),
         )
     ).first()
-    if skill is None or skill.rank >= MAX_RANK:
+    if skill is None or skill.rank >= MAX_RANK or skill_trial_target(db, world_id=world_id, skill=skill) is not None:
         return
     write_skill_progress(db, skill_id=skill.id, world_id=world_id, points=ROLL_POINTS,
                          changed_by=f"mutation:{mutation_id}")

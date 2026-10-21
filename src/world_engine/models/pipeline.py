@@ -584,7 +584,8 @@ class ConditionDraft(SQLModel, table=True):
 # written into the lore, proposed, set aside. A status is one of
 # `QUEST_REQUEST_STATUSES`; a proposal's fate is its
 # `proposed_mutation.status`, never a second column. One request per step
-# (unique `agenda_step_id`). Written only by `writes/quest_requests.py`,
+# (unique `agenda_step_id`). A `trial` request (v2.29, TICKET-0116) has no
+# day and no step. Written only by `writes/quest_requests.py`,
 # which never commits; `change_history` keeps every former state and is
 # never rendered in any UI surface. Non-canon; deleted with its world.
 # -----------------------------------------------------------------------------
@@ -593,8 +594,9 @@ class QuestRequest(SQLModel, table=True):
     __table_args__ = (
         Index("idx_quest_request_world", "world_id", "created_at"),
         Index("idx_quest_request_step", "agenda_step_id", unique=True),
+        Index("idx_quest_request_trial", "world_id", "skill_key", "target_rank"),
         CheckConstraint(
-            "trigger IN ('route','blocked','dropped')", name="ck_quest_request_trigger",
+            "trigger IN ('route','blocked','dropped','trial')", name="ck_quest_request_trigger",
         ),
         CheckConstraint(
             "status IN ('new','asking','writing_lore','proposed','covered','dropped')",
@@ -604,13 +606,20 @@ class QuestRequest(SQLModel, table=True):
             "existence_answer IS NULL OR existence_answer IN ('exists','absent','already')",
             name="ck_quest_request_answer",
         ),
+        CheckConstraint(
+            "(trigger = 'trial' AND skill_key IS NOT NULL AND target_rank BETWEEN 1 AND 5 "
+            "AND pass_play_id IS NULL AND agenda_step_id IS NULL) "
+            "OR (trigger <> 'trial' AND skill_key IS NULL AND target_rank IS NULL "
+            "AND pass_play_id IS NOT NULL AND agenda_step_id IS NOT NULL)",
+            name="ck_quest_request_origin",
+        ),
     )
 
     id: str = Field(default_factory=_uuid, primary_key=True)
     world_id: str = Field(foreign_key="world.id", nullable=False)
     character_id: str = Field(foreign_key="entity.id", nullable=False)
-    pass_play_id: str = Field(foreign_key="pass_play.id", nullable=False)
-    agenda_step_id: str = Field(foreign_key="agenda_step.id", nullable=False)
+    pass_play_id: Optional[str] = Field(default=None, foreign_key="pass_play.id")
+    agenda_step_id: Optional[str] = Field(default=None, foreign_key="agenda_step.id")
     trigger: str
     declaration: str
     subject: Optional[str] = None
@@ -622,6 +631,11 @@ class QuestRequest(SQLModel, table=True):
     mutation_id: Optional[str] = Field(default=None, foreign_key="proposed_mutation.id")
     offer_id: Optional[str] = Field(default=None, foreign_key="quest_offer.id")
     note: Optional[str] = None
+    # TICKET-0116 (BRIEF-0116-A, F1-b): a trial request names the skill (a base
+    # domain or a skill definition id) and the rank it waits for; a step
+    # request names neither.
+    skill_key: Optional[str] = None
+    target_rank: Optional[int] = None
     created_at: datetime = _created_ts()
     updated_at: datetime = _created_ts()
     change_history: Any = Field(

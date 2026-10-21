@@ -257,7 +257,7 @@ def _needs_attention(db: Session, scope: Scope) -> tuple[list[Row], str]:
 
 
 _TRIGGERS_FR = (("route", "Déclaration aiguillée"), ("blocked", "Étape bloquée"),
-                ("dropped", "Savoir introuvable"))
+                ("dropped", "Savoir introuvable"), ("trial", "Épreuve de rang"))
 _ANSWERS_FR = (("exists", "Elle existe"), ("absent", "Elle n'existe pas"),
                ("already", "Le lore le disait déjà"))
 
@@ -293,7 +293,7 @@ def _quest_requests(db: Session, scope: Scope) -> tuple[list[Row], str]:
                 created_after += 1
     rows.append(Row("Donneur", "Offres approuvées", approved, len(requests)))
     rows.append(Row("Donneur", "Donneur créé après la proposition", created_after, approved))
-    return rows, "Ce que deviennent les demandes de quête nées des journées (P1, S3, D2)."
+    return rows, "Ce que deviennent les demandes de quête nées des journées et des épreuves de rang (P1, S3, D2)."
 
 
 METRICS: tuple[Metric, ...] = (

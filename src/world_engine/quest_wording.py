@@ -4,8 +4,9 @@ Reads only.
 One line per term, from the character's side: « Donner 10 × Fourrure de
 loup à Garde », « Recevoir 30 pièces de Garde », « La relation de Garde
 envers vous monte de 5 », « Apprendre « Le passage secret » de Garde »,
-« Enseigner « Herboristerie » à Garde ». The counterparty is the term's own
-entity, else the offer's giver.
+« Enseigner « Herboristerie » à Garde », « Passer au rang « Expert » en
+« Forge » (épreuve) ». The counterparty is the term's own entity, else the
+offer's giver.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from sqlmodel import Session
 from .models import Entity, Fact
 from .prose_render import fact_text
 from .skill_access import skill_label
+from .skill_ranks import world_ladder
 
 
 def counterparty_id(term, giver_entity_id: str) -> str:
@@ -26,6 +28,14 @@ def counterparty_id(term, giver_entity_id: str) -> str:
 def _name(db: Session, entity_id: Optional[str]) -> str:
     entity = db.get(Entity, entity_id) if entity_id else None
     return entity.name if entity is not None else "?"
+
+
+def _rank_line(db: Session, term) -> str:
+    """A rank reward (TICKET-0116, C-05): the skill and the rank it gives."""
+    world_id, rank = getattr(term, "world_id", None), term.amount
+    ranked = world_id and isinstance(rank, int) and not isinstance(rank, bool) and 1 <= rank <= 5
+    label = world_ladder(db, world_id)[rank].label if ranked else str(rank)
+    return f"Passer au rang « {label} » en « {skill_label(db, term.skill_key)} » (épreuve)"
 
 
 def term_line(db: Session, term, giver_entity_id: str) -> str:
@@ -44,6 +54,8 @@ def term_line(db: Session, term, giver_entity_id: str) -> str:
         fact = db.get(Fact, term.fact_id) if term.fact_id else None
         text = fact_text(db, fact) if fact is not None else "?"
         return f"Transmettre « {text} » à {who}" if cost else f"Apprendre « {text} » de {who}"
+    if term.currency == "rank":
+        return _rank_line(db, term)
     label = skill_label(db, term.skill_key)
     return f"Enseigner « {label} » à {who}" if cost else f"Progresser en « {label} » (enseigné par {who})"
 

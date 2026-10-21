@@ -1,6 +1,6 @@
 <script>
   /* TICKET-0121 (BRIEF-0121-G, L1, N1, C-14). « Demandes de quête »: every
-     request the days opened, above the review queue -- a child of
+     request the days and the rank trials opened, above the review queue -- a child of
      Queue.svelte, never a Création island of its own (INV-50). Each row
      offers what its status allows (C-02's case table, the server
      deciding): « Concevoir », the existence question, « Écrire dans
@@ -14,7 +14,7 @@
   } from './questRequests.svelte.js';
 
   const TRIGGER_LABEL = Object.freeze({
-    route: 'déclaration', blocked: 'étape bloquée', dropped: 'savoir introuvable',
+    route: 'déclaration', blocked: 'étape bloquée', dropped: 'savoir introuvable', trial: 'épreuve de rang',
   });
   const STATUS_LABEL = Object.freeze({
     new: 'à concevoir', asking: "question d'existence", writing_lore: 'à écrire dans Lore',
