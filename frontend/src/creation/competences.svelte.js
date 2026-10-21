@@ -31,14 +31,18 @@
    specific value wins -- skill, then system, then world.
 
    TICKET-0107 (BRIEF-0107-C, A2): a skill record carries `requires_master`
-   (« Exige un maître »): no player holds it until taught. */
+   (« Exige un maître »): no player holds it until taught.
+
+   TICKET-0116 (BRIEF-0116-F): a skill, a system and each rank of the ladder
+   say whether reaching a rank asks a trial (`RANK_TRIAL_KEYS`,
+   `trial_to_next`). */
 import { serverState } from '../lib/serverState.svelte.js';
 
 export const competencesState = $state({
   draft: [],   // proposed rows awaiting Save: {key, name, base_domain, system_id, description}
   rows: [],    // existing world-scoped skill_definition rows
   systems: [], // existing world-scoped skill_system rows
-  ranks: [],   // the world's ladder: {rank, label, points_to_next}, index = rank
+  ranks: [],   // the world's ladder: {rank, label, points_to_next, trial_to_next}, index = rank
   gaps: [],    // distinct unmatched surface forms, most frequent first
   arbiterFailures: { error: 0, empty: 0 },
   gapsError: '',
@@ -76,6 +80,34 @@ export function inheritedPoints(record, n) {
   return step ? step.points_to_next : null;
 }
 
+// TICKET-0116 (BRIEF-0116-F, B1): `trial_to_rank_<n>` says whether reaching
+// rank n asks a trial -- true, false, or null to inherit (skill, system, world).
+export const RANK_TRIAL_KEYS = [1, 2, 3, 4, 5].map((n) => `trial_to_rank_${n}`);
+
+function rankTrials(row) {
+  const trials = {};
+  for (const key of RANK_TRIAL_KEYS) trials[key] = row?.[key] ?? null;
+  return trials;
+}
+
+/** The trial a blank select inherits (B1): for a skill, its system's;
+ *  then the world's ladder. `n` is the rank reached (1-5). */
+export function inheritedTrial(record, n) {
+  const key = RANK_TRIAL_KEYS[n - 1];
+  if (record.kind === 'skill' && record.system_id) {
+    const sys = competencesState.systems.find((s) => s.id === record.system_id);
+    if (sys && sys[key] != null) return !!sys[key];
+  }
+  const step = competencesState.ranks[n - 1];
+  return step ? !!step.trial_to_next : false;
+}
+
+function trialsBody(record) {
+  const trials = {};
+  for (const key of RANK_TRIAL_KEYS) trials[key] = record[key] === null || record[key] === undefined ? null : !!record[key];
+  return trials;
+}
+
 let nextDraftKey = 1;
 
 async function api(path, options) {
@@ -91,7 +123,7 @@ export function skillRecord(row) {
   return {
     kind: 'skill', persisted: true, id: row.id, draftKey: null,
     name: row.name, base_domain: row.base_domain, system_id: row.system_id ?? null,
-    description: row.description ?? '', requires_master: !!row.requires_master, ...rankPoints(row),
+    description: row.description ?? '', requires_master: !!row.requires_master, ...rankPoints(row), ...rankTrials(row),
   };
 }
 
@@ -99,7 +131,7 @@ export function systemRecord(sys) {
   return {
     kind: 'system', persisted: true, id: sys.id,
     name: sys.name, description: sys.description ?? '', skill_count: sys.skill_count ?? 0,
-    ...rankPoints(sys),
+    ...rankPoints(sys), ...rankTrials(sys),
   };
 }
 
@@ -114,7 +146,7 @@ export function draftRecord(d) {
   return {
     kind: 'skill', persisted: false, id: `draft:${d.key}`, draftKey: d.key,
     name: d.name ?? '', base_domain: d.base_domain ?? '', system_id: d.system_id ?? null,
-    description: d.description ?? '', requires_master: false, ...rankPoints(null),
+    description: d.description ?? '', requires_master: false, ...rankPoints(null), ...rankTrials(null),
   };
 }
 
@@ -128,12 +160,12 @@ export function assistantRecord() {
 export function blankRecord(kind) {
   if (kind === 'system') {
     return {
-      kind: 'system', persisted: false, id: null, name: '', description: '', skill_count: 0, ...rankPoints(null),
+      kind: 'system', persisted: false, id: null, name: '', description: '', skill_count: 0, ...rankPoints(null), ...rankTrials(null),
     };
   }
   return {
     kind: 'skill', persisted: false, id: null, draftKey: null,
-    name: '', base_domain: 'physical', system_id: null, description: '', requires_master: false, ...rankPoints(null),
+    name: '', base_domain: 'physical', system_id: null, description: '', requires_master: false, ...rankPoints(null), ...rankTrials(null),
   };
 }
 
@@ -259,7 +291,7 @@ async function saveSkill(record) {
   if (!COMPETENCES_DOMAINS.includes(record.base_domain)) throw new Error('Domaine de base requis.');
   const body = JSON.stringify({
     name, base_domain: record.base_domain, system_id: record.system_id || null,
-    description: record.description || '', requires_master: !!record.requires_master, ...pointsBody(record),
+    description: record.description || '', requires_master: !!record.requires_master, ...pointsBody(record), ...trialsBody(record),
   });
   const saved = record.persisted
     ? await api(`/api/skill-definitions/${record.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
@@ -270,7 +302,7 @@ async function saveSkill(record) {
 
 async function saveSystem(record) {
   const name = requireName(record);
-  const body = JSON.stringify({ name, description: record.description || null, ...pointsBody(record) });
+  const body = JSON.stringify({ name, description: record.description || null, ...pointsBody(record), ...trialsBody(record) });
   const saved = record.persisted
     ? await api(`/api/skill-systems/${record.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
     : await api('/api/skill-systems', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
@@ -281,7 +313,10 @@ async function saveRanks(record) {
   const ranks = record.steps.map((step) => {
     const label = (step.label || '').trim();
     if (!label) throw new Error('Chaque rang a un nom.');
-    return { rank: step.rank, label, points_to_next: step.rank < 5 ? pointsValue(step.points_to_next) : null };
+    return {
+      rank: step.rank, label, points_to_next: step.rank < 5 ? pointsValue(step.points_to_next) : null,
+      trial_to_next: step.rank < 5 ? !!step.trial_to_next : false,
+    };
   });
   if (ranks.some((step) => step.rank < 5 && step.points_to_next === null)) {
     throw new Error('Chaque rang sauf le dernier demande un nombre de points.');

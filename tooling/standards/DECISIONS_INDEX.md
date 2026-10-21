@@ -371,3 +371,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 20312 | A SKILL READY FOR ITS TRIAL ASKS THE CREATOR FOR ONE (TICKET-0116) -- open_trial_request (BRIEF-0116-d, no schema change) | BRIEF-0116-d |  |
 | 20343 | WHO MASTERS A SKILL IS READ IN ONE PLACE (TICKET-0116) -- skill_access.skill_masters (BRIEF-0116-e, no schema change) | BRIEF-0116-e |  |
 | 20353 | THE DESIGNER PROPOSES A RANK TRIAL, NIA CONFIRMS IT (TICKET-0116) -- quest_trial, _design_trial, the rank reward kept (BRIEF-0116-e, no schema change) | BRIEF-0116-e |  |
+| 20382 | A TRIAL IS SEEN WHERE THE CREATOR WORKS (TICKET-0116) -- COMPÉTENCES, THE FICHE, THE REQUESTS PANEL, THE REVIEW CARD (BRIEF-0116-f, no schema change) | BRIEF-0116-f |  |

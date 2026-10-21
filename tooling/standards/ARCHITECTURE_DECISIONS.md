@@ -20379,6 +20379,30 @@ INV-63's refusals are unchanged.
 notes, payload, proposal -- is shared by both paths, extracted unchanged
 from `_design`. Gate: `rank_trials.py` TE1-TE3.
 
+## A TRIAL IS SEEN WHERE THE CREATOR WORKS (TICKET-0116) -- COMPÉTENCES, THE FICHE, THE REQUESTS PANEL, THE REVIEW CARD (BRIEF-0116-f, no schema change)
+
+**B1: a trial is edited where the points are.** The `thresholds` snippet a
+skill and a system fiche share gains one select per rank (`trial_to_rank_<n>`:
+inherited, « Épreuve », « Sans épreuve »); the inherited value is read from
+the system, then the world's ladder (`inheritedTrial`). « Rangs du monde »
+ticks, below the top rank, the ranks whose next asks a trial
+(`trial_to_next`). No new tab or island.
+
+**F1-c: the fiche says the points wait, never the request.** A player
+skill whose points stopped at a trial threshold reads « épreuve de rang à
+passer » on the creator's fiche (`trial_ready`). No player surface shows a
+trial request; Journée lists the trial only once its offer is confirmed.
+
+**The card names its source.** A proposal sourced `quest_request` (a
+trial has no day) shows an « ÉPREUVE » badge beside « TICK » and
+« JOURNÉE »; the requests panel labels the `trial` trigger « épreuve de
+rang ».
+
+**The `trial` key survives the card's edits -- display only.** The quest
+block names the skill and the rank from `payload.trial`, and `REVIEW_KEYS`
+carries `trial` through `proposalBody`. The applier never reads it: it
+judges the rank reward from the request. Gate: `rank_trials.py` TF1-TF4.
+
 ---
 
 *Co-built with Claude, June 2026.*

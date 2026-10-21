@@ -137,6 +137,25 @@ TE3 -- static. `PROMPT_REGISTRY["quest_trial"]` is `authoring`, on
    `QUEST_TRIAL_PROMPT_HEADS`; `cockpit/crud/skills.py` defines no `_masters`
    and calls `skill_masters(` three times.
 
+BRIEF-0116-F's rules (B1, F1-c: where Nia sees a trial -- static; a missing
+file or a pattern found zero times fails):
+
+TF1 -- `competences.svelte.js` exports `RANK_TRIAL_KEYS` and `inheritedTrial`,
+   defines `trialsBody`, holds `...trialsBody(record)` exactly twice and
+   `...pointsBody(record)` exactly twice, and `saveRanks` names `trial_to_next`.
+TF2 -- `CompetencesSheet.svelte` names `RANK_TRIAL_KEYS`, `inheritedTrial(`,
+   « Sans épreuve », « Épreuve pour passer au rang suivant », `trial_to_next`,
+   and `{@render thresholds()}` exactly twice.
+TF3 -- `PjSkillFiche.svelte` names `s.trial_ready` and « épreuve de rang à
+   passer »; `QuestRequests.svelte`'s `TRIGGER_LABEL` holds
+   `trial: 'épreuve de rang'`; `QueueCard.svelte` names
+   `mutation.source_type === 'quest_request'`, « ÉPREUVE » and
+   `questPayload.trial`; `questOffers.svelte.js`'s `REVIEW_KEYS` holds
+   `'trial'`; `frontend/public/shared.css` defines `.b-trial` once.
+TF4 -- the built bundle (`src/world_engine/cockpit/static/assets/*.js`)
+   carries « Épreuve pour passer au rang suivant », « épreuve de rang à
+   passer » and « ÉPREUVE ».
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that collects nothing fails.
 """
@@ -1002,6 +1021,97 @@ def check_te3() -> None:
              f"calls skill_masters( {crud.count('skill_masters(')} time(s)")
 
 
+# --- TF1 to TF4 (BRIEF-0116-F) -------------------------------------------------------
+
+CREATION = ROOT / "frontend" / "src" / "creation"
+
+
+def _read(rule: str, path: pathlib.Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError as exc:
+        fail(f"{rule}: cannot read {path}: {exc}")
+        return None
+
+
+def _function_body(text: str, name: str) -> str:
+    start = text.find(f"function {name}(")
+    if start < 0:
+        return ""
+    end = text.find("\n}\n", start)
+    return text[start:end if end >= 0 else len(text)]
+
+
+def check_tf1() -> None:
+    state = _read("TF1", CREATION / "competences.svelte.js")
+    if state is None:
+        return
+    for needle in ("export const RANK_TRIAL_KEYS", "export function inheritedTrial(", "function trialsBody("):
+        if needle not in state:
+            fail(f"TF1: competences.svelte.js lacks {needle!r}")
+    for needle in ("...trialsBody(record)", "...pointsBody(record)"):
+        if state.count(needle) != 2:
+            fail(f"TF1: competences.svelte.js holds {needle!r} {state.count(needle)} time(s), not 2")
+    if "trial_to_next" not in _function_body(state, "saveRanks"):
+        fail("TF1: saveRanks does not name trial_to_next")
+
+
+def check_tf2() -> None:
+    sheet = _read("TF2", CREATION / "CompetencesSheet.svelte")
+    if sheet is None:
+        return
+    for needle in ("RANK_TRIAL_KEYS", "inheritedTrial(", "Sans épreuve",
+                   "Épreuve pour passer au rang suivant", "trial_to_next"):
+        if needle not in sheet:
+            fail(f"TF2: CompetencesSheet.svelte lacks {needle!r}")
+    if sheet.count("{@render thresholds()}") != 2:
+        fail(f"TF2: {{@render thresholds()}} rendered {sheet.count('{@render thresholds()}')} time(s), not 2")
+
+
+TF3_NEEDLES = (
+    ("PjSkillFiche.svelte", "s.trial_ready"),
+    ("PjSkillFiche.svelte", "épreuve de rang à passer"),
+    ("QuestRequests.svelte", "trial: 'épreuve de rang'"),
+    ("QueueCard.svelte", "mutation.source_type === 'quest_request'"),
+    ("QueueCard.svelte", "ÉPREUVE"),
+    ("QueueCard.svelte", "questPayload.trial"),
+)
+
+
+def check_tf3() -> None:
+    texts = {}
+    for name in {name for name, _ in TF3_NEEDLES} | {"questOffers.svelte.js"}:
+        texts[name] = _read("TF3", CREATION / name)
+        if texts[name] is None:
+            return
+    for name, needle in TF3_NEEDLES:
+        if needle not in texts[name]:
+            fail(f"TF3: {name} lacks {needle!r}")
+    if "TRIGGER_LABEL" not in texts["QuestRequests.svelte"]:
+        fail("TF3: QuestRequests.svelte has no TRIGGER_LABEL")
+    offers = texts["questOffers.svelte.js"]
+    start = offers.find("const REVIEW_KEYS = [")
+    keys = offers[start:offers.find("];", start)] if start >= 0 else ""
+    if "'trial'" not in keys:
+        fail("TF3: questOffers.svelte.js's REVIEW_KEYS lacks 'trial'")
+    css = _read("TF3", ROOT / "frontend" / "public" / "shared.css")
+    if css is not None:
+        defined = sum(1 for line in css.splitlines() if line.lstrip().startswith(".b-trial "))
+        if defined != 1:
+            fail(f"TF3: shared.css defines .b-trial {defined} time(s), not 1")
+
+
+def check_tf4() -> None:
+    bundles = list((ROOT / "src" / "world_engine" / "cockpit" / "static" / "assets").glob("*.js"))
+    if not bundles:
+        fail("TF4: no built bundle under cockpit/static/assets")
+        return
+    text = "".join(b.read_text(encoding="utf-8") for b in bundles)
+    for needle in ("Épreuve pour passer au rang suivant", "épreuve de rang à passer", "ÉPREUVE"):
+        if needle not in text:
+            fail(f"TF4: the built bundle does not carry {needle!r} -- rebuild the frontend")
+
+
 def main() -> int:
     _fresh_db()
     from world_engine.db import create_db_and_tables, engine
@@ -1024,6 +1134,10 @@ def main() -> int:
         session.commit()
     check_te1_te2(engine)
     check_te3()
+    check_tf1()
+    check_tf2()
+    check_tf3()
+    check_tf4()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -1033,7 +1147,8 @@ def main() -> int:
           "the rolls and the point reward skip a waiting skill, the creator's CRUD carries the flags, "
           "a rank is a reward only, offered to and given only to the character ready for it, "
           "a ready player skill asks the creator for its trial, once per skill and rank, "
-          "and the designer proposes that trial with the rank reward the code adds and the applier keeps")
+          "the designer proposes that trial with the rank reward the code adds and the applier keeps, "
+          "and the skills tab, the fiche, the requests panel and the review card show it")
     return 0
 
 

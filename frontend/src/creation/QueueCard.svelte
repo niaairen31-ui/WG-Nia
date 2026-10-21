@@ -61,7 +61,9 @@
      creator may remove, its target following the giver; « Quête unique »
      (`is_character` -> the requesting character); the passages that
      repeat a secret, confirmed only by the creator's own tick
-     (`flags_confirmed`, INV-63). « Approve » sends `proposalBody`. */
+     (`flags_confirmed`, INV-63). « Approve » sends `proposalBody`. A rank
+     trial (TICKET-0116) names its skill and rank; its rank reward is in the
+     terms, kept by the applier. */
   const quest = mutation.mutation_type === 'quest_offer_creation' && mutation.status === 'proposed';
   const questPayload = quest ? mutation.payload : null;
   const seeds = {};
@@ -305,6 +307,9 @@
     {#if mutation.source_type === 'pass_play'}
       <span class="badge b-pass-play" title="pass_play {mutation.pass_play_id}">JOURNÉE{dayInfo ? ` · Jour ${dayInfo.dayNumber}` : ''}</span>
     {/if}
+    {#if mutation.source_type === 'quest_request'}
+      <span class="badge b-trial" title="épreuve de rang">ÉPREUVE</span>
+    {/if}
     {#if mutation.payload && mutation.payload.secret_derived === true}
       <span class="badge b-secret-derived">dérivé d'un secret</span>
     {/if}
@@ -392,6 +397,9 @@
     <div class="card-fields" style="margin-bottom:8px;">
       {#if questError}<div class="r-err">✗ {questError}</div>{/if}
       {#if questDraft}
+        {#if questPayload.trial}
+          <div class="q-line">Épreuve de rang : « {questPayload.trial.skill_label} » vers {questPayload.trial.rank_label}</div>
+        {/if}
         <label class="q-line">Donneur
           <select value={questDraft.giver_entity_id} onchange={(e) => pickGiver(e.target.value)}>
             <option value="">— à choisir</option>
