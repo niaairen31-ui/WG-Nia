@@ -71,6 +71,29 @@ TC4 -- static. `QUEST_TERM_CURRENCIES[-1] == "rank"`; `questTerms.js` holds
    `.claude/rules/skills.md` holds INV-64 ending « -- enforced by
    `rank_trials.py` » and the three new `paths:`.
 
+BRIEF-0116-D's rules (F1, F1-a, C-07: a skill ready for its trial asks the
+creator for one):
+
+TD1 -- the opening (fixture: a world whose rank 1 asks a trial; player
+   characters P, Q, R, S; an NPC N; each with a base `agility` row at rank 1,
+   9 points). N `+1` -> no request (first, so no live request masks it);
+   `write_skill_progress(P, +1)` -> exactly one `quest_request`:
+   trigger `trial`, `skill_key` `agility`, `target_rank` 2, status `new`,
+   `pass_play_id` and `agenda_step_id` None, `declaration` « P a assez
+   pratiqué « agility » pour passer de Initié à Apprenti : ce rang demande une
+   épreuve. », `subject` « Épreuve de rang : « agility » vers Apprenti »; P
+   `+1` again -> still one; Q `+1` -> still one, the same
+   row (live). That request moved to `dropped`: R `+1` -> a second request,
+   `new`. An open offer whose reward is `rank` agility 2 written through
+   `write_quest_offer`: S `+1` -> no new request; `covering_trial_offer(db,
+   world, "agility", 2)` is that offer; `(…, "agility", 3)` and
+   `(…, "perception", 2)` are None.
+TD2 -- the edges. `open_request(trigger="trial", ...)` raises C-07's message;
+   `open_trial_request` raises on `target_rank` 6 and on an empty
+   `skill_key`; `request_dict` of a trial request gives `day_number` None and
+   `trigger` `trial` without raising or warning; `compute_metrics` over the fixture holds
+   the row (« Origine », « Épreuve de rang », 2, 2).
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that collects nothing fails.
 """
@@ -80,6 +103,7 @@ import os
 import pathlib
 import sys
 import tempfile
+import warnings
 from types import SimpleNamespace
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
@@ -549,6 +573,129 @@ def check_tc4() -> None:
         fail("TC4: the built bundle does not carry « Rang (épreuve) » -- rebuild the frontend")
 
 
+# --- TD1 / TD2 -------------------------------------------------------------------
+
+def _trial_requests(session, world_id: str) -> list:
+    from sqlmodel import select
+
+    from world_engine.models import QuestRequest
+
+    return list(session.exec(select(QuestRequest).where(QuestRequest.world_id == world_id)
+                             .order_by(QuestRequest.created_at, QuestRequest.id)).all())
+
+
+def check_td1_td2(engine) -> None:
+    from sqlmodel import Session, select
+
+    from world_engine.models import Character, Entity, Skill
+    from world_engine.writes import upsert_skill_rank, write_skill_progress
+
+    with Session(engine) as session:
+        ids = _world(session, "Trials TD")
+        world = ids["world"]
+        upsert_skill_rank(session, world_id=world, rank=1, label="Initié", points_to_next=10, trial_to_next=True)
+        who = {name: _player(session, world, name, (("agility", 1, 9),)) for name in "PQRS"}
+        npc = Entity(world_id=world, type="character", name="N")
+        session.add(npc)
+        session.flush()
+        session.add(Character(id=npc.id, world_id=world, character_type="npc"))
+        session.add(Skill(character_id=npc.id, domain="agility", rank=1, xp=9))
+        session.commit()
+        who["N"] = npc.id
+
+        def gain(name: str) -> list:
+            row = session.exec(select(Skill).where(Skill.character_id == who[name], Skill.domain == "agility")).one()
+            write_skill_progress(session, skill_id=row.id, world_id=world, points=1, changed_by="check")
+            session.commit()
+            return _trial_requests(session, world)
+
+        _td1_opening(session, ids, gain)
+        _td2_edges(session, ids, who)
+
+
+def _td1_opening(session, ids: dict, gain) -> None:
+    from world_engine.day_plan import PlanStep
+    from world_engine.models import QuestRequest
+    from world_engine.quest_requests import covering_trial_offer
+    from world_engine.writes import TermSpec, write_quest_offer
+    from world_engine.writes.quest_requests import move_request
+
+    world = ids["world"]
+    # N first: behind P's live request, an NPC's opening would be masked.
+    if gain("N"):
+        fail("TD1: the NPC N opened a trial request")
+    got = gain("P")
+    want =("trial", "agility", 2, "new", None, None,
+            "P a assez pratiqué « agility » pour passer de Initié à Apprenti : ce rang demande une épreuve.",
+            "Épreuve de rang : « agility » vers Apprenti")
+    shape = [(r.trigger, r.skill_key, r.target_rank, r.status, r.pass_play_id, r.agenda_step_id, r.declaration,
+              r.subject) for r in got]
+    if shape != [want]:
+        fail(f"TD1: P's readiness opened {shape}")
+        return
+    first = got[0].id
+    for name in ("P", "Q"):
+        now = [r.id for r in gain(name)]
+        if now != [first]:
+            fail(f"TD1: {name} +1 left the requests {now}, want the one live request")
+    move_request(session, session.get(QuestRequest, first), "dropped")
+    session.commit()
+    got = gain("R")
+    if len(got) != 2 or got[-1].id == first or got[-1].status != "new":
+        fail(f"TD1: R after a dropped request left {[(r.id == first, r.status) for r in got]}")
+    offer = write_quest_offer(
+        session, world_id=world, offer=None, giver_entity_id=ids["pc"], title="L'épreuve du gué",
+        summary=None, repeatable=False, status="open", eligibility=None,
+        steps=[PlanStep(objective="Franchir le gué", cost=1, domain=None)],
+        terms=[TermSpec(direction="reward", currency="rank", skill_key="agility", amount=2)])
+    session.commit()
+    if len(gain("S")) != 2:
+        fail("TD1: S opened a request while an open offer gives the rank")
+    found = covering_trial_offer(session, world, "agility", 2)
+    if found is None or found.id != offer.id:
+        fail(f"TD1: covering_trial_offer(agility, 2) gave {found}")
+    for key, rank in (("agility", 3), ("perception", 2)):
+        if covering_trial_offer(session, world, key, rank) is not None:
+            fail(f"TD1: covering_trial_offer({key}, {rank}) found an offer")
+
+
+def _td2_edges(session, ids: dict, who: dict) -> None:
+    from world_engine.dashboard_metrics import Scope, compute_metrics
+    from world_engine.quest_requests import request_dict
+    from world_engine.writes.quest_requests import open_request, open_trial_request
+
+    world = ids["world"]
+    try:
+        open_request(session, world_id=world, character_id=who["P"], pass_play_id="x", trigger="trial",
+                     declaration="d", agenda_step_id="x")
+        fail("TD2: open_request accepted a trial")
+    except ValueError as exc:
+        if str(exc) != "quest_request: a trial request opens through open_trial_request":
+            fail(f"TD2: open_request refused a trial with {exc!s}")
+    for key, rank in (("agility", 6), ("", 2)):
+        try:
+            open_trial_request(session, world_id=world, character_id=who["P"], skill_key=key, target_rank=rank)
+            fail(f"TD2: open_trial_request accepted ({key!r}, {rank})")
+        except ValueError:
+            pass
+    session.rollback()
+    requests = _trial_requests(session, world)
+    try:
+        # A get by a NULL key only warns today (SAWarning) and may raise tomorrow: either fails.
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            shown = request_dict(requests[0], session) if requests else None
+        if shown is None or (shown["day_number"], shown["trigger"]) != (None, "trial"):
+            fail(f"TD2: request_dict of a trial request gave {shown}")
+    except Exception as exc:  # noqa: BLE001 -- the rule is « without raising »
+        fail(f"TD2: request_dict of a trial request raised {exc!r}")
+    out = compute_metrics(session, Scope(world_ids=(world,)))
+    metric = next((m for m in out if m["key"] == "quest_requests"), None)
+    rows = [(r["group"], r["label"], r["value"], r["of"]) for r in (metric or {}).get("rows", [])]
+    if ("Origine", "Épreuve de rang", 2, 2) not in rows:
+        fail(f"TD2: the quest_requests metric rows are {rows}")
+
+
 def main() -> int:
     _fresh_db()
     from world_engine.db import create_db_and_tables, engine
@@ -559,6 +706,7 @@ def main() -> int:
     check_tc1(engine)
     check_tc2_tc3(engine)
     check_tc4()
+    check_td1_td2(engine)
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -566,7 +714,8 @@ def main() -> int:
     print("PASS: rank_trials -- whether leaving a rank asks a trial follows the points' cascade, "
           "a skill is ready when its points reached such a threshold, the points stop there and "
           "the rolls and the point reward skip a waiting skill, the creator's CRUD carries the flags, "
-          "and a rank is a reward only, offered to and given only to the character ready for it")
+          "a rank is a reward only, offered to and given only to the character ready for it, "
+          "and a ready player skill asks the creator for its trial, once per skill and rank")
     return 0
 
 

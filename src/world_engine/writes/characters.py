@@ -37,6 +37,7 @@ from sqlmodel import Session, select
 
 from ..models import BASE_SKILL_DOMAINS, Character, Ledger, Skill, SkillDefinition
 from ..skill_ranks import MAX_RANK, RANKS, skill_points_to_next, skill_trial_required
+from .quest_requests import open_trial_request
 
 
 def write_character_location(
@@ -177,6 +178,8 @@ def write_skill_progress(
     Waiting (C1): when the rank asks a trial (`skill_ranks.skill_trial_required`),
     a gain that reaches the threshold leaves `xp` at the threshold and the
     rank where it is -- the trial moves it (`write_skill_rank`).
+    The gain that makes the row ready opens the rank trial's request
+    (`writes.quest_requests.open_trial_request`, TICKET-0116 F1-a).
     `ValueError` on zero points or an unknown row, before any write.
     """
     if not isinstance(points, int) or isinstance(points, bool) or points == 0:
@@ -204,6 +207,9 @@ def write_skill_progress(
         rank -= 1
         xp = max(0, (threshold(rank) or 1) + xp)
     xp = max(0, xp)
+    if awaiting and xp_before < needed:
+        open_trial_request(db, world_id=world_id, character_id=skill.character_id,
+                           skill_key=skill.skill_definition_id or skill.domain, target_rank=rank + 1)
 
     if rank != rank_before:
         history = list(skill.change_history or [])

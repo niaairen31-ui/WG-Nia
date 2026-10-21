@@ -20309,6 +20309,37 @@ about it. The model never proposes a rank term by itself
 (`quest_designer._term` drops it with `RANK_TERM_FR`); its trial path is
 BRIEF-0116-E's. Gate: `rank_trials.py` TC1-TC4 (INV-64).
 
+## A SKILL READY FOR ITS TRIAL ASKS THE CREATOR FOR ONE (TICKET-0116) -- open_trial_request (BRIEF-0116-d, no schema change)
+
+**F1: the creator does not write trials, she reviews them.** A trial is
+designed from a request (BRIEF-0116-E), and this step opens that request:
+a `quest_request` with trigger `trial`, the skill and the rank it waits
+for, no day and no step.
+
+**F1-a: one request per skill and rank in the world.** Not per
+character: the trial is one quest any ready character may take. A
+request stays in hand while it is « live » -- `new`, or `proposed` while
+its proposal is `proposed` or `approved` -- and the next readiness returns
+it unchanged. A request set aside (`dropped`), covered, or whose proposal
+was applied or rejected is no longer live: the next readiness opens a new
+one. None opens for a non-player character, and none while an open offer
+already gives that rank (`covering_trial_offer`): the trial exists, the
+ready character takes it.
+
+**Opened where the points stop.** `write_skill_progress` calls
+`open_trial_request` on the gain that makes the row ready (the points
+reach a waiting threshold from below), so every path that gains points
+-- a roll, a step's roll, a skill reward -- opens it and none can forget.
+A gain on a row already waiting opens nothing. The writer adds and
+flushes; the caller owns the commit (INV-18). The request is a pipeline
+row, never a mutation: INV-15 is untouched. `open_request` refuses a
+`trial` trigger, so a step request never takes this shape.
+
+**A request with no day.** `request_dict` reads the day only when the
+request has one (`day_number` None for a trial), so the creator's panel
+lists a trial request as it is. The « Demandes de quête » metric gains
+the row « Épreuve de rang ». Gate: `rank_trials.py` TD1-TD2.
+
 ---
 
 *Co-built with Claude, June 2026.*

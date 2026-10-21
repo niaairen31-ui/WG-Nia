@@ -227,7 +227,7 @@
 - `quest_designer.py` — The quest designer (TICKET-0121, BRIEF-0121-E; decisions C1, D1, F1, G1, H2, V1).
 - `quest_lore.py` — The lore a quest designer is shown before it designs: what canon already holds on the request's subject.
 - `quest_reads.py` — Quest offers and quests: what the two surfaces read (TICKET-0108, BRIEF-0108-B, contract C-04).
-- `quest_requests.py` — The quest request's reads (TICKET-0121, BRIEF-0121-B, L1): which steps of an agenda are inquiry steps, by the requests that opened them, and the request as the creator's panel lists it (BRIEF-0121-E).
+- `quest_requests.py` — The quest request's reads (TICKET-0121, BRIEF-0121-B, L1): which steps of an agenda are inquiry steps, by the requests that opened them, and the request as the creator's panel lists it (BRIEF-0121-E), and a rank trial's reads: the open offer that already gives the rank, the request's subject and declaration (TICKET-0116).
 - `quest_settlement_view.py` — What « déclarer accomplie » shows before Nia decides (TICKET-0109, BRIEF-0109-C, G1, contract C-06).
 - `quest_value.py` — The indicative unit of a quest (TICKET-0109, BRIEF-0109-B, C1/E1, contract C-03).
 - `quest_wording.py` — How a quest term reads, in French (TICKET-0109, BRIEF-0109-B, C-04).

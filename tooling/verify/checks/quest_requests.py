@@ -19,7 +19,7 @@ QR4 -- the CHECKs hold: a raw INSERT with `status='done'`, one with
 QR5 -- `inquiry_step_ids` returns the steps of `route` and `dropped`
    requests of that agenda only: a `blocked` one and another agenda's are
    absent.
-QR6 -- `compute_metrics` over a fixture (one request of each trigger, one
+QR6 -- `compute_metrics` over a fixture (one request of each step trigger (no trial), one
    answered `already`, one proposal `applied` whose offer's giver was
    created after it): the `quest_requests` rows equal a literal expected
    list; a world with none gives the same labels at 0.
@@ -55,6 +55,7 @@ EXPECTED_ROWS = [
     ("Origine", "Déclaration aiguillée", 1, 3),
     ("Origine", "Étape bloquée", 1, 3),
     ("Origine", "Savoir introuvable", 1, 3),
+    ("Origine", "Épreuve de rang", 0, 3),
     ("Origine", "Journées aiguillées vers une quête", 1, 2),
     ("Existence", "Elle existe", 0, 3),
     ("Existence", "Elle n'existe pas", 1, 3),

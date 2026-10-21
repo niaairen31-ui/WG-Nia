@@ -368,3 +368,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 20200 | A RANK MAY ASK A TRIAL, A TRIAL IS A QUEST (TICKET-0116) -- THE STORAGE OF v2.29 (BRIEF-0116-a, schema v2.29) | BRIEF-0116-a | v2.29, v2.29 |
 | 20240 | THE POINTS COME FIRST; A RANK THAT ASKS A TRIAL WAITS (TICKET-0116) -- skill_ranks.trial_required, trial_target, held_trial_target (BRIEF-0116-b, no schema change) | BRIEF-0116-b |  |
 | 20273 | A RANK IS A REWARD THE READY CHARACTER RECEIVES (TICKET-0116) -- THE rank CURRENCY, THE TRIAL GATE, INV-64 (BRIEF-0116-c, no schema change) | BRIEF-0116-c |  |
+| 20312 | A SKILL READY FOR ITS TRIAL ASKS THE CREATOR FOR ONE (TICKET-0116) -- open_trial_request (BRIEF-0116-d, no schema change) | BRIEF-0116-d |  |
