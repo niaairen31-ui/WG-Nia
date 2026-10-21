@@ -20340,6 +20340,45 @@ request has one (`day_number` None for a trial), so the creator's panel
 lists a trial request as it is. The « Demandes de quête » metric gains
 the row « Épreuve de rang ». Gate: `rank_trials.py` TD1-TD2.
 
+## WHO MASTERS A SKILL IS READ IN ONE PLACE (TICKET-0116) -- skill_access.skill_masters (BRIEF-0116-e, no schema change)
+
+**A pure move.** `cockpit/crud/skills.py::_masters` -- the world's
+characters at Maître in one skill, by definition or by base domain --
+moves to `skill_access.skill_masters`, its body unchanged; the crud's
+three callers (the learnable list, its masters, the grant's teacher
+check) call it there. The quest designer is its second reader (R6: no
+copy), so the query lives beside the other skill reads, not in a route
+module.
+
+## THE DESIGNER PROPOSES A RANK TRIAL, NIA CONFIRMS IT (TICKET-0116) -- quest_trial, _design_trial, the rank reward kept (BRIEF-0116-e, no schema change)
+
+**F1: « Concevoir » on a trial request.** A trial needs no subject call
+and no existence question -- the skill exists. An open offer that already
+gives the rank covers the request (`covering_trial_offer`, no model
+call). Otherwise `_design_trial` reads the lore of the skill (its label,
+then its system's name) and of its masters, and makes one `quest_trial`
+call: the design's answer shape and user template under a preamble of its
+own, whose only outcome is `offer`.
+
+**G1: masters are lore, never a requirement.** The masters' facts enter
+the gathering and the prompt asks for a master first among the givers;
+none is required, and the creator chooses the giver.
+
+**The rank reward is the code's.** The model never writes a `rank` term
+(`_term` drops one with `RANK_TERM_FR`); `_trial_payload` appends the
+reward `rank` (skill, target rank) last, makes the offer repeatable (H1:
+one trial for every character ready), and adds the `trial` key the card
+reads. The proposal is sourced `quest_request`: a trial has no day.
+
+**The applier keeps the reward.** `apply_offer_proposal` refuses, right
+after its request check, a trial whose approved terms lost that reward
+(« Cette épreuve doit garder sa récompense de rang. »), writing nothing.
+INV-63's refusals are unchanged.
+
+**One offer path.** `_offer` -- steps, settled conditions, one retry,
+notes, payload, proposal -- is shared by both paths, extracted unchanged
+from `_design`. Gate: `rank_trials.py` TE1-TE3.
+
 ---
 
 *Co-built with Claude, June 2026.*

@@ -369,3 +369,5 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 20240 | THE POINTS COME FIRST; A RANK THAT ASKS A TRIAL WAITS (TICKET-0116) -- skill_ranks.trial_required, trial_target, held_trial_target (BRIEF-0116-b, no schema change) | BRIEF-0116-b |  |
 | 20273 | A RANK IS A REWARD THE READY CHARACTER RECEIVES (TICKET-0116) -- THE rank CURRENCY, THE TRIAL GATE, INV-64 (BRIEF-0116-c, no schema change) | BRIEF-0116-c |  |
 | 20312 | A SKILL READY FOR ITS TRIAL ASKS THE CREATOR FOR ONE (TICKET-0116) -- open_trial_request (BRIEF-0116-d, no schema change) | BRIEF-0116-d |  |
+| 20343 | WHO MASTERS A SKILL IS READ IN ONE PLACE (TICKET-0116) -- skill_access.skill_masters (BRIEF-0116-e, no schema change) | BRIEF-0116-e |  |
+| 20353 | THE DESIGNER PROPOSES A RANK TRIAL, NIA CONFIRMS IT (TICKET-0116) -- quest_trial, _design_trial, the rank reward kept (BRIEF-0116-e, no schema change) | BRIEF-0116-e |  |

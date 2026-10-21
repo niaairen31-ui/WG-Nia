@@ -315,6 +315,14 @@ PROMPT_REGISTRY: dict[str, PromptSpec] = {
         call_sites=("src/world_engine/quest_designer.py:_design_call",),
         default_model=_author_model,
     ),
+    # TICKET-0116 (BRIEF-0116-E): a rank trial's offer -- the design's answer under a preamble of its own.
+    "quest_trial": PromptSpec(
+        surface="authoring",
+        world_scoped=False,
+        dry_run_capable=True,
+        call_sites=("src/world_engine/quest_designer.py:_design_call",),
+        default_model=_author_model,
+    ),
     "world_tick": PromptSpec(
         surface="play",
         world_scoped=False,

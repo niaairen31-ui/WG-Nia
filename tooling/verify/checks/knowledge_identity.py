@@ -121,7 +121,8 @@ _SUBJECT_CENSUS: dict[str, int] = {
     "src/world_engine/writes/quest_requests.py": 2,
     # TICKET-0121, BRIEF-0121-E: a quest request's subject (what the player seeks) -- never a knowledge key.
     "src/world_engine/quest_requests.py": 2,
-    "src/world_engine/quest_designer.py": 10,
+    # TICKET-0116, BRIEF-0116-E: a trial request's subject -- never a knowledge key.
+    "src/world_engine/quest_designer.py": 12,
     "src/world_engine/cockpit/routes/quest_requests.py": 1,
 }
 

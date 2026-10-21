@@ -24,7 +24,7 @@ from ..models import ConditionDraft, ProposedMutation, QuestOffer, QuestRequest
 from ..writes import TermSpec, write_quest_offer
 from ..writes.condition_drafts import mark_draft_saved, move_condition_draft
 from ..writes.conditions import clean_condition
-from ..writes.quest_requests import move_request
+from ..writes.quest_requests import TRIAL_TRIGGER, move_request
 from .routes.attributes import UnsavedBody
 
 
@@ -136,15 +136,25 @@ def _insert_named_drafts(db: Session, world_id: str, payload: dict) -> None:
             move_condition_draft(db, draft, "inserted")
 
 
+def _keeps_trial_rank(payload: dict, request: QuestRequest) -> bool:
+    """C-08: the approved terms still hold the trial's reward -- `rank`, its skill, its target rank."""
+    return any(isinstance(t, dict) and t.get("direction") == "reward" and t.get("currency") == "rank"
+               and t.get("skill_key") == request.skill_key and t.get("amount") == request.target_rank
+               for t in payload.get("terms") or [])
+
+
 def apply_offer_proposal(mut: ProposedMutation, payload: dict, db: Session) -> Optional[str]:
     """C-10, INV-63: write an approved `quest_offer_creation` through the creator CRUD's own save.
     Returns the error (French, shown in Needs attention) and writes nothing when it refuses: the
     request missing or not this proposal's, no giver, a player-visible field repeating a secret fact
     the creator did not confirm (the flags recomputed here, never trusted from the payload), a
-    condition still waiting, or a refusal of `save_offer_body`."""
+    condition still waiting, a rank trial's offer without its rank reward (TICKET-0116), or a refusal of
+    `save_offer_body`."""
     request = db.get(QuestRequest, payload.get("request_id"))
     if request is None or request.mutation_id != mut.id:
         return "La demande de quête de cette proposition est introuvable."
+    if request.trigger == TRIAL_TRIGGER and not _keeps_trial_rank(payload, request):
+        return "Cette épreuve doit garder sa récompense de rang."
     if not str(payload.get("giver_entity_id") or "").strip():
         return "Choisis un donneur."
     texts = {"title": payload.get("title") or "", "summary": payload.get("summary") or "",

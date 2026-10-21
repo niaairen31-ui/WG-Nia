@@ -94,11 +94,55 @@ TD2 -- the edges. `open_request(trigger="trial", ...)` raises C-07's message;
    `trigger` `trial` without raising or warning; `compute_metrics` over the fixture holds
    the row (« Origine », « Épreuve de rang », 2, 2).
 
+BRIEF-0116-E's rules (F1, G1, H1, C-08: « Concevoir » on a rank trial -- the
+designer proposes it, Nia confirms it). The model is a stub assigned to
+`quest_designer.chat` (the `quest_designer.py` precedent), routing a call by
+its system prompt: « Tu conçois une épreuve de rang » -> `trial`, « Tu
+prépares une quête » -> `subject`, anything else -> `design`; the fixture
+seeds `QUEST_DESIGNER_PROMPT_HEADS` and `QUEST_TRIAL_PROMPT_HEADS` through
+`seed_pilot.upsert_prompt_template`:
+
+TE1 -- the design (fixture: a world whose rank 1 asks a trial; player P whose
+   `agility` became ready -- the request opened by D --; a Maître, Orsa, in
+   `agility` -- a base row at rank 5 -- and a fact « Orsa forge des lames à
+   Valmor » whose participant is Orsa, known by her). a. With an open offer
+   giving `rank` agility 2: `design` -> `covered`, the request `covered`
+   with that `offer_id`, zero stub calls; the offer then closed
+   (`status='closed'`) and the request moved back to `new`. b. `design` with
+   a scripted `offer` (one step, one `money` cost, givers [« Orsa »], and a
+   `rank` term the model should not have written): one stub call, routed
+   `trial`, its user message holding P's declaration and Orsa's fact; one
+   `quest_offer_creation` proposal by `local_ai_quest_designer`,
+   `source_type` `quest_request`, `pass_play_id` None; its payload's keys are
+   QD2's set plus `trial`; `repeatable` True; its last term is the C-05 rank
+   row for (`agility`, 2) and it holds no other `rank` term; `RANK_TERM_FR`
+   is among its notes; `trial` is `{"skill_key": "agility", "target_rank":
+   2, "skill_label": "agility", "rank_label": "Apprenti"}`; one giver
+   suggestion, Orsa; the request `proposed` with its `mutation_id`. c. A
+   request whose scripted answer is `covered` -> `LlmParseError`, no
+   proposal written, the request unchanged.
+TE2 -- the applier (fixture, continued). Approving TE1b's proposal with a
+   giver and its terms without the rank row -> the proposal `approved` with
+   « Cette épreuve doit garder sa récompense de rang. », no offer written;
+   approving it again with the rank row -> `applied`, one offer whose terms
+   end with the rank reward, `repeatable` True, the request's `offer_id`;
+   `available_offers(P)` lists it; a player whose agility does not wait does
+   not see it.
+TE3 -- static. `PROMPT_REGISTRY["quest_trial"]` is `authoring`, on
+   `_author_model`, its call site `src/world_engine/quest_designer.py:_design_call`;
+   `seed_pilot.QUEST_TRIAL_PROMPT_HEADS` holds one head `pt-quest-trial`,
+   usage `quest_trial`, its `user_template` the design's, its system prompt
+   starting « Tu conçois une épreuve de rang » and holding « FEUILLES. »;
+   `scripts/apply_ticket_0116_trial_prompt.py` exists and names
+   `QUEST_TRIAL_PROMPT_HEADS`; `cockpit/crud/skills.py` defines no `_masters`
+   and calls `skill_masters(` three times.
+
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that collects nothing fails.
 """
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import sys
@@ -120,6 +164,7 @@ def _fresh_db() -> None:
     os.environ["WORLD_ENGINE_DATABASE_URL"] = f"sqlite:///{db_path}"
     os.environ.setdefault("WORLD_ENGINE_ENV", "test")
     sys.path.insert(0, str(ROOT / "src"))
+    sys.path.insert(0, str(ROOT / "scripts"))
 
 
 # --- fixture ---------------------------------------------------------------------
@@ -696,6 +741,267 @@ def _td2_edges(session, ids: dict, who: dict) -> None:
         fail(f"TD2: the quest_requests metric rows are {rows}")
 
 
+# --- TE1 / TE2 / TE3 ---------------------------------------------------------------
+
+class Stub:
+    """Scripted answers by usage (read from the system prompt), `{}` once a usage's script is spent;
+    every call is recorded."""
+
+    def __init__(self) -> None:
+        self.script: dict[str, list] = {"trial": [], "subject": [], "design": []}
+        self.calls: list[tuple[str, str]] = []
+
+    def __call__(self, messages, model=None, format=None, **_kw) -> str:
+        system, user = messages[0]["content"], messages[1]["content"]
+        if system.startswith("Tu conçois une épreuve de rang"):
+            usage = "trial"
+        elif system.startswith("Tu prépares une quête"):
+            usage = "subject"
+        else:
+            usage = "design"
+        self.calls.append((usage, user))
+        answer = self.script[usage].pop(0) if self.script[usage] else {}
+        return json.dumps(answer, ensure_ascii=False)
+
+
+STUB = Stub()
+ORSA_FACT = "Orsa forge des lames à Valmor"
+QD2_KEYS = {"request_id", "character_id", "subject", "giver_entity_id", "contact_entity_id", "giver_suggestions",
+            "title", "summary", "repeatable", "status", "eligibility", "eligibility_draft_id", "steps", "terms",
+            "unsaved_attributes", "pending_drafts", "notes", "consulted_fact_ids", "secret_fact_ids", "flags",
+            "flags_confirmed"}
+RANK_ROW = {"direction": "reward", "currency": "rank", "counterparty_entity_id": None, "item_id": None,
+            "fact_id": None, "skill_key": "agility", "amount": 2, "level": None}
+
+
+def _te_world(session) -> dict:
+    """A world whose rank 1 asks a trial, P ready in agility (its trial request opened), O who is not,
+    and Orsa, Maître in agility, with a fact about her that she knows."""
+    from sqlmodel import select
+
+    from world_engine.models import Character, Entity, Fact, Skill
+    from world_engine.writes import attach_participants, create_fact, upsert_skill_rank, write_knowledge
+    from world_engine.writes import write_skill_progress
+
+    ids = _world(session, "Trials TE")
+    world = ids["world"]
+    upsert_skill_rank(session, world_id=world, rank=1, label="Initié", points_to_next=10, trial_to_next=True)
+    ids["P"] = _player(session, world, "P", (("agility", 1, 9),))
+    ids["O"] = _player(session, world, "O", (("agility", 1, 3),))
+    orsa = Entity(world_id=world, type="character", name="Orsa")
+    session.add(orsa)
+    session.flush()
+    session.add(Character(id=orsa.id, world_id=world, character_type="npc"))
+    session.add(Skill(character_id=orsa.id, domain="agility", rank=5, xp=0))
+    fact = create_fact(session, world_id=world, content=ORSA_FACT, created_by="check", facet="information")
+    session.flush()
+    attach_participants(session, fact=session.get(Fact, fact.id), entity_ids=[orsa.id])
+    write_knowledge(session, entity_id=orsa.id, fact_id=fact.id, level="knows", is_secret=False, changed_by="check")
+    session.commit()
+    row = session.exec(select(Skill).where(Skill.character_id == ids["P"], Skill.domain == "agility")).one()
+    write_skill_progress(session, skill_id=row.id, world_id=world, points=1, changed_by="check")
+    session.commit()
+    requests = _trial_requests(session, world)
+    return {**ids, "orsa": orsa.id, "request": requests[0].id if requests else None}
+
+
+def _trial_answer(outcome: str = "offer") -> dict:
+    return {"outcome": outcome, "title": "La lame d'Orsa", "summary": "Forger une lame digne d'Orsa.",
+            "eligibility": None, "givers": ["Orsa"], "notes": [],
+            "steps": [{"objective": "Forger une lame sous l'œil d'Orsa", "cost": 2, "domain": "agility",
+                       "prerequisite": None, "completion": None, "failure": None}],
+            "terms": [{"direction": "cost", "currency": "money", "target": None, "amount": 5, "level": None},
+                      {"direction": "reward", "currency": "rank", "target": "agility", "amount": 2,
+                       "level": None}]}
+
+
+def _proposals(session, world: str) -> list:
+    from sqlmodel import select
+
+    from world_engine.models import ProposedMutation
+
+    return list(session.exec(select(ProposedMutation).where(ProposedMutation.world_id == world,
+                                                            ProposedMutation.mutation_type == "quest_offer_creation")))
+
+
+def check_te1_te2(engine) -> None:
+    from sqlmodel import Session
+
+    from world_engine.models import QuestRequest
+
+    with Session(engine) as session:
+        ids = _te_world(session)
+        if ids["request"] is None:
+            fail("TE1: P's readiness opened no trial request")
+            return
+        _te1_covered(session, ids)
+        mut = _te1_offer(session, ids)
+        _te1_refused(session, ids)
+        if mut is not None:
+            _te2_apply(session, ids, mut, session.get(QuestRequest, ids["request"]))
+
+
+def _te1_covered(session, ids: dict) -> None:
+    from world_engine import quest_designer
+    from world_engine.day_plan import PlanStep
+    from world_engine.models import QuestRequest
+    from world_engine.writes import TermSpec, write_quest_offer
+    from world_engine.writes.quest_requests import move_request
+
+    spec = dict(world_id=ids["world"], giver_entity_id=ids["orsa"], title="L'épreuve d'Orsa", summary=None,
+                repeatable=False, eligibility=None, steps=[PlanStep(objective="Franchir le gué", cost=1, domain=None)],
+                terms=[TermSpec(direction="reward", currency="rank", skill_key="agility", amount=2)])
+    offer = write_quest_offer(session, offer=None, status="open", **spec)
+    session.commit()
+    STUB.calls.clear()
+    request = session.get(QuestRequest, ids["request"])
+    try:
+        result = quest_designer.design(session, request, [])
+    except Exception as exc:  # noqa: BLE001 -- the rule is « covered, no model call »
+        session.rollback()
+        result = SimpleNamespace(outcome=repr(exc))
+    session.commit()
+    if (result.outcome, request.status, request.offer_id, len(STUB.calls)) != ("covered", "covered", offer.id, 0):
+        fail(f"TE1a: covered gave {result.outcome!r}, the request {request.status!r}/{request.offer_id == offer.id}, "
+             f"{len(STUB.calls)} stub call(s)")
+    write_quest_offer(session, offer=offer, status="closed", **spec)
+    move_request(session, request, "new")
+    session.commit()
+
+
+def _te1_offer(session, ids: dict):
+    from world_engine import quest_designer
+    from world_engine.models import QuestRequest
+
+    STUB.calls.clear()
+    STUB.script = {"trial": [_trial_answer()], "subject": [], "design": []}
+    request = session.get(QuestRequest, ids["request"])
+    try:
+        result = quest_designer.design(session, request, [])
+    except Exception as exc:  # noqa: BLE001 -- the rule is « one trial call, then a proposal »
+        session.rollback()
+        fail(f"TE1b: design raised {exc!r}, stub calls {[usage for usage, _ in STUB.calls]}")
+        return None
+    session.commit()
+    calls = [usage for usage, _ in STUB.calls]
+    user = STUB.calls[0][1] if STUB.calls else ""
+    if calls != ["trial"] or request.declaration not in user or ORSA_FACT not in user:
+        fail(f"TE1b: stub calls {calls}, declaration in user {request.declaration in user}, "
+             f"Orsa's fact in user {ORSA_FACT in user}")
+    rows = _proposals(session, ids["world"])
+    mut = result.mutation
+    if result.outcome != "proposed" or mut is None or len(rows) != 1:
+        fail(f"TE1b: outcome {result.outcome!r}, {len(rows)} proposal(s), notes {result.notes}")
+        return None
+    if (mut.proposed_by, mut.source_type, mut.pass_play_id) != ("local_ai_quest_designer", "quest_request", None):
+        fail(f"TE1b: the row is {mut.proposed_by!r}/{mut.source_type!r}/{mut.pass_play_id!r}")
+    payload = mut.payload
+    if set(payload) != QD2_KEYS | {"trial"}:
+        fail(f"TE1b: payload keys differ: {sorted(set(payload) ^ (QD2_KEYS | {'trial'}))}")
+        return None
+    ranks = [t for t in payload["terms"] if t.get("currency") == "rank"]
+    if payload["repeatable"] is not True or payload["terms"][-1] != RANK_ROW or len(ranks) != 1:
+        fail(f"TE1b: repeatable {payload['repeatable']!r}, terms {payload['terms']}")
+    if quest_designer.RANK_TERM_FR not in payload["notes"]:
+        fail(f"TE1b: notes {payload['notes']} lack RANK_TERM_FR")
+    want = {"skill_key": "agility", "target_rank": 2, "skill_label": "agility", "rank_label": "Apprenti"}
+    if payload["trial"] != want:
+        fail(f"TE1b: trial {payload['trial']}")
+    if [g["entity_id"] for g in payload["giver_suggestions"]] != [ids["orsa"]]:
+        fail(f"TE1b: giver suggestions {payload['giver_suggestions']}")
+    if (request.status, request.mutation_id) != ("proposed", mut.id):
+        fail(f"TE1b: the request is {request.status!r}, mutation {request.mutation_id!r}")
+    return mut
+
+
+def _te1_refused(session, ids: dict) -> None:
+    from world_engine import quest_designer
+    from world_engine.llm_parse import LlmParseError
+    from world_engine.models import QuestRequest
+    from world_engine.writes.quest_requests import open_trial_request
+
+    request = open_trial_request(session, world_id=ids["world"], character_id=ids["P"], skill_key="perception",
+                                 target_rank=2)
+    session.commit()
+    before = len(_proposals(session, ids["world"]))
+    STUB.script = {"trial": [_trial_answer("covered")], "subject": [], "design": []}
+    try:
+        quest_designer.design(session, request, [])
+        fail("TE1c: a trial answered `covered` raised no LlmParseError")
+    except LlmParseError:
+        pass
+    session.rollback()
+    request = session.get(QuestRequest, request.id)
+    if len(_proposals(session, ids["world"])) != before or request.status != "new" or request.mutation_id:
+        fail(f"TE1c: after the refusal the request is {request.status!r}, proposals "
+             f"{len(_proposals(session, ids['world']))} (was {before})")
+
+
+def _te2_apply(session, ids: dict, mut, request) -> None:
+    from sqlmodel import select
+
+    from world_engine.cockpit.routes.mutations import ApproveBody, approve_mutation
+    from world_engine.models import Character, QuestOffer, QuestOfferTerm
+    from world_engine.quest_reads import available_offers
+
+    def offers() -> list:
+        return list(session.exec(select(QuestOffer).where(QuestOffer.world_id == ids["world"],
+                                                          QuestOffer.title == "La lame d'Orsa")))
+
+    payload = {**mut.payload, "giver_entity_id": ids["orsa"], "flags_confirmed": True}
+    stripped = {**payload, "terms": [t for t in payload["terms"] if t.get("currency") != "rank"]}
+    first = approve_mutation(mut.id, ApproveBody(payload=json.dumps(stripped)), session)
+    if (first.get("status") != "approved" or first.get("error") != "Cette épreuve doit garder sa récompense de rang."
+            or offers()):
+        fail(f"TE2: approving without the rank gave {first.get('status')!r}/{first.get('error')!r}, "
+             f"{len(offers())} offer(s)")
+    done = approve_mutation(mut.id, ApproveBody(payload=json.dumps(payload)), session)
+    written = offers()
+    if done.get("status") != "applied" or len(written) != 1:
+        fail(f"TE2: approving with the rank gave {done.get('status')!r}/{done.get('error')!r}, "
+             f"{len(written)} offer(s)")
+        return
+    offer = written[0]
+    terms = list(session.exec(select(QuestOfferTerm).where(QuestOfferTerm.offer_id == offer.id)
+                              .order_by(QuestOfferTerm.term_order)))
+    last = terms[-1] if terms else None
+    if (last is None or (last.direction, last.currency, last.skill_key, last.amount) != ("reward", "rank", "agility", 2)
+            or offer.repeatable is not True):
+        fail(f"TE2: the offer's terms {[(t.direction, t.currency) for t in terms]}, repeatable {offer.repeatable!r}")
+    session.refresh(request)
+    if request.offer_id != offer.id:
+        fail(f"TE2: the request's offer_id is {request.offer_id!r}")
+    for who, want in (("P", True), ("O", False)):
+        listed = offer.id in {o.id for o in available_offers(session.get(Character, ids[who]), session)}
+        if listed != want:
+            fail(f"TE2: available_offers({who}) {'holds' if listed else 'lacks'} the trial")
+
+
+def check_te3() -> None:
+    import seed_pilot
+
+    from world_engine.prompt_registry import PROMPT_REGISTRY, _author_model
+
+    spec = PROMPT_REGISTRY.get("quest_trial")
+    if spec is None or (spec.surface, spec.default_model, spec.call_sites) != (
+            "authoring", _author_model, ("src/world_engine/quest_designer.py:_design_call",)):
+        fail(f"TE3: PROMPT_REGISTRY['quest_trial'] is {spec}")
+    heads = getattr(seed_pilot, "QUEST_TRIAL_PROMPT_HEADS", ())
+    head = heads[0] if len(heads) == 1 else {}
+    prompt = head.get("system_prompt") or ""
+    if (head.get("id"), head.get("usage"), head.get("user_template")) != (
+            "pt-quest-trial", "quest_trial", seed_pilot.QUEST_DESIGN_USER_TEMPLATE) \
+            or not prompt.startswith("Tu conçois une épreuve de rang") or "FEUILLES." not in prompt:
+        fail(f"TE3: QUEST_TRIAL_PROMPT_HEADS holds {len(heads)} head(s), {head.get('id')!r}/{head.get('usage')!r}")
+    script = ROOT / "scripts" / "apply_ticket_0116_trial_prompt.py"
+    if not script.is_file() or "QUEST_TRIAL_PROMPT_HEADS" not in script.read_text(encoding="utf-8"):
+        fail("TE3: scripts/apply_ticket_0116_trial_prompt.py is missing or names no QUEST_TRIAL_PROMPT_HEADS")
+    crud = (ROOT / "src" / "world_engine" / "cockpit" / "crud" / "skills.py").read_text(encoding="utf-8")
+    if "def _masters" in crud or crud.count("skill_masters(") != 3:
+        fail(f"TE3: crud/skills.py defines _masters {'def _masters' in crud}, "
+             f"calls skill_masters( {crud.count('skill_masters(')} time(s)")
+
+
 def main() -> int:
     _fresh_db()
     from world_engine.db import create_db_and_tables, engine
@@ -707,6 +1013,17 @@ def main() -> int:
     check_tc2_tc3(engine)
     check_tc4()
     check_td1_td2(engine)
+    import seed_pilot
+    from sqlmodel import Session
+
+    from world_engine import quest_designer
+    quest_designer.chat = STUB
+    with Session(engine) as session:
+        for entry in seed_pilot.QUEST_DESIGNER_PROMPT_HEADS + seed_pilot.QUEST_TRIAL_PROMPT_HEADS:
+            seed_pilot.upsert_prompt_template(session, **entry)
+        session.commit()
+    check_te1_te2(engine)
+    check_te3()
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -715,7 +1032,8 @@ def main() -> int:
           "a skill is ready when its points reached such a threshold, the points stop there and "
           "the rolls and the point reward skip a waiting skill, the creator's CRUD carries the flags, "
           "a rank is a reward only, offered to and given only to the character ready for it, "
-          "and a ready player skill asks the creator for its trial, once per skill and rank")
+          "a ready player skill asks the creator for its trial, once per skill and rank, "
+          "and the designer proposes that trial with the rank reward the code adds and the applier keeps")
     return 0
 
 

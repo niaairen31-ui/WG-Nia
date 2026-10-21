@@ -9,6 +9,11 @@ lacks left to the creator (G1), up to three suggested givers (D1), and the playe
 against the secrets it read (`prose_guard`, V1). Nothing is written to canon here: the proposal waits in
 the review queue, and the applier (`cockpit/quest_offer_save.apply_offer_proposal`) writes it after the
 creator's approval. `OllamaError` and `LlmParseError` propagate; the caller rolls back.
+
+A rank trial's request (TICKET-0116, F1) skips the subject call and the existence question: an open
+offer that already gives the rank covers it; otherwise the lore of the skill and of its masters is read,
+one `quest_trial` call writes the offer, and the code adds the rank reward, makes it repeatable (H1) and
+sources the proposal `quest_request`.
 """
 
 from __future__ import annotations
@@ -23,24 +28,32 @@ from . import prompt_call
 from .conditions import node_to_dict
 from .llm_parse import LlmParseError
 from .lore_resolve import resolve_named
-from .models import BASE_SKILL_DOMAINS, Entity, Fact, Knowledge, ProposedMutation, QuestOffer, QuestRequest
+from .models import (
+    BASE_SKILL_DOMAINS, Entity, Fact, Knowledge, ProposedMutation, QuestOffer, QuestRequest, SkillDefinition,
+    SkillSystem,
+)
 from .name_index import CREATOR
 from .ollama_client import chat
 from .prose_guard import flags as prose_flags
 from .prose_guard import secret_ids
 from .prose_render import fact_texts
 from .quest_lore import gather_lore
+from .quest_requests import covering_trial_offer
+from .skill_access import skill_label, skill_masters
+from .skill_ranks import world_ladder
 from .writes.condition_drafts import write_condition_draft
-from .writes.quest_requests import DESIGNER_PRODUCER, QUEST_OFFER_CREATION, move_request
+from .writes.quest_requests import DESIGNER_PRODUCER, QUEST_OFFER_CREATION, TRIAL_TRIGGER, move_request
 
 SUBJECT_USAGE = "quest_subject"
 DESIGN_USAGE = "quest_design"
+TRIAL_USAGE = "quest_trial"
 MAX_GIVER_SUGGESTIONS = 3
 DESIGNER_UNAVAILABLE_MESSAGE = (
     "Le modèle local (Ollama) est indisponible : la demande n'a pas été conçue et rien n'a changé. "
     "Relance quand Ollama est démarré."
 )
 OUTCOMES = ("offer", "covered", "unknown")
+TRIAL_OUTCOMES = ("offer",)
 ROLES = ("prerequisite", "completion", "failure")
 EXISTENCE_FR = {
     "exists": "La créatrice a dit que ce sujet existe dans ce monde : {text}.",
@@ -81,11 +94,13 @@ def _subject(db: Session, request: QuestRequest, exchanges: Optional[list]) -> d
     return parsed
 
 
-def _design_call(db: Session, values: dict[str, str], exchanges: Optional[list]) -> dict:
-    """The `quest_design` call: one whole offer, or `covered`, or `unknown`."""
-    parsed = prompt_call.call_json(db, DESIGN_USAGE, values, exchanges, chat)
-    if parsed.get("outcome") not in OUTCOMES:
-        raise LlmParseError(f"quest_design: outcome {parsed.get('outcome')!r} is not one of {OUTCOMES}")
+def _design_call(db: Session, values: dict[str, str], exchanges: Optional[list], usage: str = DESIGN_USAGE,
+                 outcomes: tuple[str, ...] = OUTCOMES) -> dict:
+    """The `quest_design` call: one whole offer, or `covered`, or `unknown` -- or, for a rank trial, the
+    `quest_trial` call, an offer only."""
+    parsed = prompt_call.call_json(db, usage, values, exchanges, chat)
+    if parsed.get("outcome") not in outcomes:
+        raise LlmParseError(f"{usage}: outcome {parsed.get('outcome')!r} is not one of {outcomes}")
     return parsed
 
 
@@ -308,6 +323,8 @@ def design(db: Session, request: QuestRequest, exchanges: Optional[list] = None)
 
 
 def _design(db: Session, request: QuestRequest, subject_calls: list, design_calls: list) -> DesignResult:
+    if request.trigger == TRIAL_TRIGGER:
+        return _design_trial(db, request, design_calls)
     world_id = request.world_id
     parsed = _subject(db, request, subject_calls)
     subject = str(parsed["subject"]).strip()
@@ -336,6 +353,14 @@ def _design(db: Session, request: QuestRequest, subject_calls: list, design_call
         why = str(answer.get("unknown") or "").strip() or "Le lore ne dit rien de ce sujet."
         move_request(db, request, "asking", note=why, subject=subject)
         return DesignResult("asking", notes=[why])
+    return _offer(db, request, subject, gathering, context, ctx, answer, design_calls, DESIGN_USAGE, OUTCOMES)
+
+
+def _offer(db: Session, request: QuestRequest, subject: str, gathering, context, ctx, answer: dict,
+           design_calls: list, usage: str, outcomes: tuple[str, ...]) -> DesignResult:
+    """The offer path, shared by a request and a rank trial: the steps, their conditions settled (one
+    retry with the errors), the notes, the payload, the proposal, the request moved to `proposed`."""
+    world_id = request.world_id
     notes: list[str] = []
     steps = _steps(answer, notes)
     if not steps:
@@ -344,9 +369,10 @@ def _design(db: Session, request: QuestRequest, subject_calls: list, design_call
     errors = _retry_errors(settled)
     if errors:
         ctx = context()
-        again = _design_call(db, _design_values(db, request, subject, ctx, gathering, errors), design_calls)
+        again = _design_call(db, _design_values(db, request, subject, ctx, gathering, errors), design_calls,
+                             usage, outcomes)
         if again["outcome"] != "offer":
-            raise LlmParseError("quest_design: the corrected answer is no offer")
+            raise LlmParseError(f"{usage}: the corrected answer is no offer")
         answer, notes = again, []
         steps = _steps(answer, notes)
         if not steps:
@@ -354,11 +380,61 @@ def _design(db: Session, request: QuestRequest, subject_calls: list, design_call
         settled = _settle(db, request, ctx, _conditions(steps, answer.get("eligibility")), [], True)
     notes += _settled_notes(settled, answer) + _unknown_facts(db, world_id, gathering.fact_ids)
     payload = _payload(db, request, subject, answer, steps, settled, ctx, notes)
+    if request.trigger == TRIAL_TRIGGER:
+        payload = _trial_payload(db, request, payload)
+    source = ({"source_type": "pass_play", "pass_play_id": request.pass_play_id} if request.pass_play_id
+              else {"source_type": "quest_request"})
     mutation = ProposedMutation(
-        world_id=world_id, source_type="pass_play", pass_play_id=request.pass_play_id,
+        world_id=world_id, **source,
         mutation_type=QUEST_OFFER_CREATION, target_table="quest_offer", payload=payload,
         status="proposed", proposed_by=DESIGNER_PRODUCER, rationale=f"quest request {request.id} -- {subject}")
     db.add(mutation)
     db.flush()
     move_request(db, request, "proposed", mutation_id=mutation.id, subject=subject)
     return DesignResult("proposed", mutation, payload["notes"])
+
+
+def _trial_keywords(db: Session, skill_key: str) -> list[str]:
+    """The lore keywords of a skill: its label, then its definition's system's name when it has one."""
+    keywords = [skill_label(db, skill_key)]
+    definition = db.get(SkillDefinition, skill_key) if skill_key not in BASE_SKILL_DOMAINS else None
+    system = db.get(SkillSystem, definition.system_id) if definition is not None and definition.system_id else None
+    if system is not None:
+        keywords.append(system.name)
+    return keywords
+
+
+def _design_trial(db: Session, request: QuestRequest, design_calls: list) -> DesignResult:
+    """C-08: a rank trial -- covered by an open offer that gives the rank, else one `quest_trial` call
+    over the lore of the skill and of its masters (never the existence question), then the offer path."""
+    world_id = request.world_id
+    offer = covering_trial_offer(db, world_id, request.skill_key, request.target_rank)
+    if offer is not None:
+        move_request(db, request, "covered", offer_id=offer.id)
+        return DesignResult("covered", notes=[f"Déjà couverte par « {offer.title} »."])
+    subject = request.subject
+    base = request.skill_key in BASE_SKILL_DOMAINS
+    masters = skill_masters(db, world_id, definition_id=None if base else request.skill_key,
+                            domain=request.skill_key if base else None)
+    gathering = gather_lore(db, world_id, keywords=_trial_keywords(db, request.skill_key), names=[],
+                            entity_ids=tuple(m["id"] for m in masters))
+    instruction = f"{request.declaration} {subject}"
+
+    def context():
+        return _interpreter.build_context(db, world_id, instruction, None, (), extra_fact_ids=gathering.fact_ids)
+
+    ctx = context()
+    answer = _design_call(db, _design_values(db, request, subject, ctx, gathering, []), design_calls,
+                          TRIAL_USAGE, TRIAL_OUTCOMES)
+    return _offer(db, request, subject, gathering, context, ctx, answer, design_calls, TRIAL_USAGE, TRIAL_OUTCOMES)
+
+
+def _trial_payload(db: Session, request: QuestRequest, payload: dict) -> dict:
+    """C-08: a trial's offer is repeatable (H1), its rank reward is the code's and comes last, and the
+    `trial` key names the skill and the rank for the review card."""
+    rank = {"direction": "reward", "currency": "rank", "counterparty_entity_id": None, "item_id": None,
+            "fact_id": None, "skill_key": request.skill_key, "amount": request.target_rank, "level": None}
+    trial = {"skill_key": request.skill_key, "target_rank": request.target_rank,
+             "skill_label": skill_label(db, request.skill_key),
+             "rank_label": world_ladder(db, request.world_id)[request.target_rank].label}
+    return {**payload, "repeatable": True, "terms": [*payload["terms"], rank], "trial": trial}
