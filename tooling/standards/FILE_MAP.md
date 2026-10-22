@@ -282,6 +282,7 @@
 - `_shared.py` — Author CRUD — shared cross-domain accessors (TICKET-0027, BRIEF-0027-i).
 - `agendas.py` — Author CRUD — agendas (TICKET-0018).
 - `entities.py` — Author CRUD — entity core: field-spec vocabularies, the entity type registry, field coercion/validation, entity serialization, and composite create/update/soft-delete for character/faction/location/artifact.
+- `entity_extras.py` — A create's world extras -- the states, links and germs a draft proposed and the creator kept, written in the create's own transaction (TICKET-0124, BRIEF-0124-E).
 - `entity_geometry.py` — Author CRUD — location spatial write surface: playable bounds, obstacle polygons and door rows.
 - `entity_runtime.py` — Governed-runtime-type instance CRUD mechanics (TICKET-0046, BRIEF-0046-e).
 - `events.py` — Author CRUD — the event journal (TICKET-0022; rewritten by TICKET-0114, BRIEF-0114-C): no-delete-ever history rows.
@@ -556,6 +557,7 @@
 - `undefined_names.py` — G1 check: no undefined names under src/ (TICKET-0027 R8, BRIEF-0027-i).
 - `visit_delta.py` — Structural gate for the `visit` table (TICKET-0016, BRIEF-0016-a).
 - `world_cascade.py` — G1 check for TICKET-0096 (BRIEF-0096-A) -- the world cascade deletes every world-scoped row, or refuses before deleting anything.
+- `world_extras.py` — G1 check for TICKET-0124 -- a create carries the states, links and germs the creator kept, all in one transaction or none.
 - `world_premise.py` — G1 check for TICKET-0124 -- every generator that writes fiction is told the world it writes for, in its usage's regime, through one placeholder.
 - `world_sheet.py` — G1 check for TICKET-0124 -- a world has a tone and can be edited, and the « Monde » page edits it.
 - `world_tick.py` — Structural gate for the world-tick briefing surface (TICKET-0014, BRIEF-0014-a).

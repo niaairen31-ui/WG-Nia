@@ -20527,6 +20527,37 @@ versions without the placeholder as legitimate fixtures. Consequence: a
 restore of a pre-0124 version is refused until the placeholder is put back
 -- the creator edits the text instead. Gate: `world_premise.py` WP4.
 
+## A CREATE CARRIES WHAT THE WORLD ADDS (TICKET-0124) -- states, links and ticked germs in one transaction; the creator_draft producer (BRIEF-0124-e, no schema change)
+
+**S1: everything or nothing.** `EntityWriteBody` gains `states`,
+`relations` and `germs` (C-09), honoured on create only -- `update_entity`
+answers 422 for any non-empty one before a write. `create_entity` calls
+`cockpit/crud/entity_extras.py::write_create_extras` right after
+`_create_entity_core` and before its single commit (INV-18: the extras
+module never commits, never rolls back). States go through
+`write_attribute_value` (`kind="correction"`, `changed_by="creator_crud"`;
+a `sys:` key is refused, the canon columns are not written here), links
+through `write_oriented_relations` (social types only, `a_to_b`, value
+50; a new entity has no relation yet, so the social route's 409 cannot
+arise). Any refusal -- a writer's `ValueError`, a system key, a link out
+of the world or to itself, a non-social type, a germ type outside
+character, location, faction -- is a `ValueError` the route rolls back and
+answers 422: the entity itself is not created. The response carries the
+counts under `world_extras`.
+
+**I1: the creator's tick is the approval.** A ticked germ is an
+`entity_creation` proposal born `approved`, `proposed_by="creator_draft"`,
+payload `{entity_type, name, concept, origin_entity_id, link_type}`
+(C-10), and lands in « Créations en attente ». No review round and no
+`mutation_review` row: nothing was proposed to the creator, she wrote it
+(`record_review` stays in `routes/mutations.py`, RD5). Its producer is of a
+fourth kind, `creator`, so PP3 -- which holds `model` and `engine` sites to
+`status="proposed"` -- is unchanged. `source_type="creation"` with no
+source FK follows the tick precedent: `proposed_mutation` enforces no
+single source. A germ whose name collides with an active entity or an open
+germ (`day_concordance._germ_blocked`) is skipped and named under
+`germs_skipped`, never a refusal. Gate: `world_extras.py` EX1-EX3.
+
 ---
 
 *Co-built with Claude, June 2026.*

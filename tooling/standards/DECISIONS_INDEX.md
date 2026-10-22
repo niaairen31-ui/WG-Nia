@@ -376,3 +376,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 20428 | ONE WORLD PREMISE, TWO REGIMES (TICKET-0124) -- world_premise.py, PromptSpec.premise, premised_prompt (BRIEF-0124-b, no schema change) | BRIEF-0124-b |  |
 | 20460 | THE RENDER SITES READ THROUGH PREMISED_PROMPT (TICKET-0124) -- 34 calls, 18 functions that stay (BRIEF-0124-c, no schema change) | BRIEF-0124-c |  |
 | 20499 | THE WORLD PREMISE IN EVERY TEMPLATE (TICKET-0124) -- premised_texts, apply_ticket_0124_world_premise.py, the edit guard (BRIEF-0124-d, no schema change) | BRIEF-0124-d |  |
+| 20530 | A CREATE CARRIES WHAT THE WORLD ADDS (TICKET-0124) -- states, links and ticked germs in one transaction; the creator_draft producer (BRIEF-0124-e, no schema change) | BRIEF-0124-e |  |
