@@ -243,7 +243,8 @@ def check_live_behavior(engine) -> None:
     from fastapi import HTTPException
 
     with Session(engine) as db:
-        head = PromptTemplate(name="check-fixture", usage="npc_dialogue")
+        # A `none` usage (TICKET-0124, K1): this rule tests versions, not the world premise -- P1-g is world_premise.py's WP4.
+        head = PromptTemplate(name="check-fixture", usage="conversation_summary")
         db.add(head)
         db.flush()
         write_prompt_variables(db, template_id=head.id, variables=["player_line"])
