@@ -506,6 +506,7 @@
 - `origin_guard.py` — G1 check for TICKET-0098 (BRIEF-0098-A, decision I1) -- the origin guard.
 - `page_contract.py` — G1 check for TICKET-0005 (BRIEF-0005-a/b/c) — Création page-contract structural gate.
 - `parked_plan_guard.py` — Structural gate for the parked-plan socle (TICKET-0077, BRIEF-0077-a).
+- `pc_resolution.py` — G1 check for TICKET-0125 -- a world with several player characters is refused, never resolved to one of them.
 - `pipeline_state.py` — Structural gate for ticket front-matter conformity (pipeline glue, BRIEF-0004), extended by BRIEF-0006-b (TICKET-0006) with sentinel checks on the command files -- moved to `session_config.py` by TICKET-0117 (BRIEF-0117-b), which owns the Claude Code session configuration.
 - `pipeline_wiring.py` — Structural gate for the day-declaration socle (TICKET-0075, BRIEF-0075-a).
 - `placement_unit.py` — G1 check: permanent regression guard for the sole placement/distance authority (TICKET-0031, BRIEF-0031-a).

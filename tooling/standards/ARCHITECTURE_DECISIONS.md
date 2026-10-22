@@ -20709,6 +20709,25 @@ generation without touching a prompt.
 draft leaves it as typed (`world_generation` receives no premise). Gate:
 `world_sheet.py` WG1.
 
+## A world with several PCs refuses instead of choosing (BRIEF-0125-a, no schema change)
+
+**M2: no lookup picks "the first" PC of a world.** Two creator lookups
+resolved the world's player character with `.first()`:
+`crud/entities.py::_player_character_id` and
+`analyzer_transcript.py::_resolve_player_id`. Both now read every PC of the
+world. `_player_character_id` keeps its 400 « No player character in the
+active world. » at zero, returns the id at one, and answers 409 « Plusieurs
+personnages joueurs dans ce monde : précisez lequel. » above one; its
+callers (scene, play, spatial routes) receive the refusal as an
+`HTTPException`, and the creator bootstrap already turns one into
+`player_id: None`. `_resolve_player_id` returns None unless the world holds
+exactly one PC. Journée was already safe: `routes/day.py::
+_resolve_player_character` refuses when the count is not one. Today a world
+holds at most one PC (every PC is bound to the creator user,
+`idx_character_one_pc_per_user_world`); the refusal is preventive, for the
+player-profile PCs of TICKET-0126. Choosing the active PC is TICKET-0128.
+Gate: `pc_resolution.py` PR1-PR2.
+
 ---
 
 *Co-built with Claude, June 2026.*

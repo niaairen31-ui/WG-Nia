@@ -382,3 +382,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 20637 | NOTHING STACKS IN CRÉATION (TICKET-0124) -- germs in the list, the germ panel, the sheet's panes (BRIEF-0124-h, no schema change) | BRIEF-0124-h |  |
 | 20665 | WHAT THE WORLD ADDS, ON THE SHEET (TICKET-0124) -- DraftWorldPanel.svelte (BRIEF-0124-i, no schema change) | BRIEF-0124-i |  |
 | 20691 | THE « MONDE » PAGE (TICKET-0124) -- WorldSheet.svelte, the tone in the create modal (BRIEF-0124-j, no schema change) | BRIEF-0124-j |  |
+| 20712 | A world with several PCs refuses instead of choosing (BRIEF-0125-a, no schema change) | BRIEF-0125-a |  |

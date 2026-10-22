@@ -246,13 +246,16 @@ def _first_of(item: dict, *keys: str, default: Any = None) -> Any:
 
 
 def _resolve_player_id(db: Session, world_id: str) -> str | None:
-    """Resolve the active world's player character id (character_type='player')."""
-    char = db.exec(
+    """Resolve the active world's player character id (character_type='player').
+
+    TICKET-0125 (M2): None unless the world has exactly one PC.
+    """
+    chars = db.exec(
         select(Character)
         .join(Entity, Entity.id == Character.id)
         .where(Entity.world_id == world_id, Character.character_type == "player")
-    ).first()
-    return char.id if char else None
+    ).all()
+    return chars[0].id if len(chars) == 1 else None
 
 
 def _normalize_mutation_type(item: dict) -> None:
