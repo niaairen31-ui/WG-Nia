@@ -71,6 +71,7 @@ from .routes import mutations as _routes_mutations
 from .routes import npc_agent as _routes_npc_agent
 from .routes import observation as _routes_observation
 from .routes import play as _routes_play
+from .routes import player as _routes_player
 from .routes import prompts as _routes_prompts
 from .routes import quest_requests as _routes_quest_requests
 from .routes import quests as _routes_quests
@@ -147,6 +148,7 @@ app.include_router(_routes_lore_mentions.router)
 app.include_router(_routes_lore_choices.router)
 app.include_router(_routes_lore_write.router)
 app.include_router(_routes_lore_perspective.router)
+app.include_router(_routes_player.router)
 app.include_router(_routes_quests.router)
 app.include_router(_routes_quest_requests.router)
 app.include_router(_routes_conditions.router)
