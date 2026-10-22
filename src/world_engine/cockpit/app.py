@@ -283,6 +283,16 @@ def _check_frontend_build_on_startup() -> None:
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+@app.get("/jouer", response_class=HTMLResponse)
+def serve_player_shell() -> HTMLResponse:
+    """The player shell (TICKET-0125, P1): its own page and bundle, never
+    the creator shell. Not a `_SHELL_ROUTES` surface."""
+    return HTMLResponse(
+        (_STATIC_DIR / "jouer.html").read_text(encoding="utf-8"),
+        headers={"cache-control": _REVALIDATE_CACHE_CONTROL},
+    )
+
+
 @app.get("/legacy", response_class=HTMLResponse)
 def serve_legacy() -> HTMLResponse:
     """The legacy single-file cockpit, served verbatim (TICKET-0056, B1).

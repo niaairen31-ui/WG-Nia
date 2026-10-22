@@ -2,7 +2,7 @@
 // identically here and in tooling/verify/checks/frontend_build_fresh.py.
 // SOURCE SET: every file under frontend/src/ at any depth, plus exactly
 // frontend/package.json, frontend/package-lock.json, frontend/vite.config.js,
-// frontend/index.html. PER-FILE: sha256 of raw bytes, lowercase hex.
+// frontend/index.html, frontend/jouer.html. PER-FILE: sha256 of raw bytes, lowercase hex.
 // CANONICAL STRING: sort by relpath (byte-wise ascending, POSIX-separated),
 // append "<relpath>\n<filehash>\n" per file, concatenate with no separator.
 // SOURCE HASH: sha256 of the canonical string (UTF-8), lowercase hex.
@@ -28,7 +28,7 @@ function walk(dir, out) {
 
 const absoluteFiles = [];
 walk(path.join(frontendRoot, 'src'), absoluteFiles);
-for (const rel of ['package.json', 'package-lock.json', 'vite.config.js', 'index.html']) {
+for (const rel of ['package.json', 'package-lock.json', 'vite.config.js', 'index.html', 'jouer.html']) {
   absoluteFiles.push(path.join(frontendRoot, rel));
 }
 
