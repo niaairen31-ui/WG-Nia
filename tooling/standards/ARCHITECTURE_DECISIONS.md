@@ -20688,6 +20688,27 @@ the sheet unnecessary. When « Créer et lier » prepared a character
 link with an empty type for the creator to name, then clears it. Gate:
 `draft_panel.py` DP1-DP2.
 
+## THE « MONDE » PAGE (TICKET-0124) -- WorldSheet.svelte, the tone in the create modal (BRIEF-0124-j, no schema change)
+
+**W1: the world's premise can be edited where it is written.** A world's
+laws used to be editable only at creation. Création's « Monde » tab
+(`CREATION_TABS.monde`, after « Vocabulaire du monde », a single-container
+bespoke entry with no primary action) mounts the `worldSheet` island
+(`WorldSheet.svelte`, origin `new`). It reads the ACTIVE world through
+`GET /api/worlds/{id}` (BRIEF-0124-a) and reloads when `serverState.worldId`
+changes. It edits the name, the context, the tone and the ordered
+fundamental laws (add, move, remove), and « Enregistrer » sends `PUT
+/api/worlds/{id}`, which rewrites the laws through `write_world_laws`; empty
+law inputs are dropped, the shell's mirror refreshes, and the outcome shows
+on the status line (no dialog). These are the texts every generator's
+premise carries (`world_premise.py`): an edit here reaches the next
+generation without touching a prompt.
+
+**B2: the tone at creation.** The world-create modal asks « Ton et style
+(optionnel) » beside the description and sends it as `tone`; the AI world
+draft leaves it as typed (`world_generation` receives no premise). Gate:
+`world_sheet.py` WG1.
+
 ---
 
 *Co-built with Claude, June 2026.*

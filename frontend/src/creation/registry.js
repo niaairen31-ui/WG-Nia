@@ -594,4 +594,11 @@ export const CREATION_ISLANDS = Object.freeze({
     origin: 'new',
     createdBy: 'TICKET-0124',
   }),
+  // TICKET-0124 (BRIEF-0124-J, W1): the active world's sheet -- a new island.
+  worldSheet: Object.freeze({
+    containerId: 'creation-monde',
+    component: 'WorldSheet.svelte',
+    origin: 'new',
+    createdBy: 'TICKET-0124',
+  }),
 });

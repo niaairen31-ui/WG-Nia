@@ -369,6 +369,16 @@ export const CREATION_TABS = {
     islands: [{ key: 'vocabulary', containerId: 'creation-vocabulaire' }],
     primaryAction: { label: '+ Nouveau', handler: () => triggerPrimaryAction('vocabulary') },
   },
+  // TICKET-0124 (BRIEF-0124-J, W1): the world's name, description, tone and laws.
+  monde: {
+    label: 'Monde',
+    archetype: 'bespoke',
+    containers: ['creation-monde'],
+    loader: null,
+    state: { onTabEnter: null, onWorldSwitch: null },
+    islands: [{ key: 'worldSheet', containerId: 'creation-monde' }],
+    primaryAction: null,
+  },
   subjects: {
     label: 'Sujets',
     archetype: 'bespoke',

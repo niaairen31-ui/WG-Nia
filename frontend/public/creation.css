@@ -315,6 +315,7 @@ input.notes::placeholder { color: var(--muted); }
 #creation-dettes      { flex: 1; min-height: 0; overflow: auto; }
 #creation-vocabulaire { flex: 1; min-height: 0; overflow: auto; }
 #creation-suivi       { flex: 1; min-height: 0; overflow: auto; }
+#creation-monde        { flex: 1; min-height: 0; overflow: auto; }
 
 /* ── Région review tree (BRIEF-36) ───────────────────────────────────────── */
 .review-node   { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin: 6px 0; }

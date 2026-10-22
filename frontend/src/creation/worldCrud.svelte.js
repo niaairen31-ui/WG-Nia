@@ -33,6 +33,7 @@ export const worldCrudState = $state({
   createOpen: false,
   createName: '',
   createDescription: '',
+  createTone: '', // TICKET-0124 (BRIEF-0124-J, B2): the world's tone; the AI draft leaves it as is.
   createLaws: '',
   createStatus: '',
   genBrief: '',
@@ -67,6 +68,7 @@ export function openWorldCreateModal() {
   worldCrudState.createOpen = true;
   worldCrudState.createName = '';
   worldCrudState.createDescription = '';
+  worldCrudState.createTone = '';
   worldCrudState.createLaws = '';
   worldCrudState.createStatus = '';
   worldCrudState.genBrief = '';
@@ -115,6 +117,7 @@ export async function worldCreateSubmit() {
       body: JSON.stringify({
         name,
         description: worldCrudState.createDescription.trim(),
+        tone: worldCrudState.createTone.trim(),
         fundamental_laws: worldCrudState.createLaws.trim(),
       }),
     });

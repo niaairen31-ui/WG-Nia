@@ -233,6 +233,8 @@
   <!-- ── Vocabulaire du monde sub-tab -- Svelte island (TICKET-0113 « États »,
        TICKET-0114 its event types and sortes): empty by construction ── -->
   <div id="creation-vocabulaire" style:display={containerVisible('creation-vocabulaire') ? '' : 'none'}></div>
+  <!-- ── Monde sub-tab -- Svelte island (TICKET-0124): empty by construction ── -->
+  <div id="creation-monde" style:display={containerVisible('creation-monde') ? '' : 'none'}></div>
   <div id="creation-subjects" style:display={containerVisible('creation-subjects') ? '' : 'none'}></div>
 
   <!-- ── Suivi sub-tab -- Svelte island (TICKET-0115): empty by construction ── -->

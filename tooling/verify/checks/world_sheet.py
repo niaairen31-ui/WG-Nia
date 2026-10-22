@@ -12,6 +12,14 @@ WS3 -- edit. A second `create_world` leaves WS2's world inactive; on it,
    `tone None`, `laws ["x", "y"]`, `is_active` unchanged; the world's
    `current_phase` is unchanged. An empty name answers 422 and changes
    nothing; an unknown id answers 404 to `get_world` and `update_world`.
+WG1 -- static, the page (BRIEF-0124-J, C-15). `tabs.js` holds a `monde`
+   entry right after `vocabulaire`'s, with `containers: ['creation-monde']`
+   and `{ key: 'worldSheet', containerId: 'creation-monde' }`; `registry.js`
+   the `worldSheet` entry; `mount.js` `worldSheet: WorldSheet`;
+   `WorldSheet.svelte` holds `/api/worlds/`, `method: 'PUT'`, `Ton et style`
+   and `refreshServerState`, and none of `alert(`, `confirm(`, `prompt(`;
+   `WorldCrud.svelte` holds `world-create-tone`; `worldCrud.svelte.js` holds
+   `tone: worldCrudState.createTone`. A missing file is a FAILURE.
 
 The route functions are called directly with a `Session` on a fresh
 temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
@@ -28,6 +36,7 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = ROOT / "src"
 MIGRATION = ROOT / "scripts" / "migrate_v2_30_world_tone.py"
+CREATION = ROOT / "frontend" / "src" / "creation"
 
 FAILURES: list[str] = []
 
@@ -165,9 +174,50 @@ def rule_ws3(engine, world_id: str) -> None:
         fail("WS3 collected nothing")
 
 
+def _read(name: str) -> str:
+    path = CREATION / name
+    if not path.is_file():
+        fail(f"WG1 {path} does not exist")
+        return ""
+    return path.read_text(encoding="utf-8")
+
+
+def _holds(label: str, text: str, present: tuple[str, ...], absent: tuple[str, ...] = ()) -> None:
+    for needle in present:
+        if needle not in text:
+            fail(f"WG1 {label} lacks {needle!r}")
+    for needle in absent:
+        if needle in text:
+            fail(f"WG1 {label} holds {needle!r}")
+
+
+def rule_wg1() -> None:
+    tabs = _read("tabs.js")
+    vocab = tabs.find("\n  vocabulaire: {")
+    vocab_end = tabs.find("\n  },", vocab) if vocab != -1 else -1
+    monde = tabs.find("\n  monde: {")
+    # Only the TICKET-0124 comment line may sit between the two entries.
+    between = tabs[vocab_end + len("\n  },"):monde] if -1 not in (vocab_end, monde) else None
+    if between is None or monde < vocab_end or any(
+            line.strip() and not line.strip().startswith("//") for line in between.splitlines()):
+        fail("WG1 tabs.js has no monde entry right after the vocabulaire entry")
+    else:
+        entry = tabs[monde:tabs.find("\n  },", monde)]
+        _holds("tabs.js monde", entry, ("containers: ['creation-monde']",
+                                        "{ key: 'worldSheet', containerId: 'creation-monde' }"))
+    _holds("registry.js", _read("registry.js"), ("worldSheet: Object.freeze({", "component: 'WorldSheet.svelte'"))
+    _holds("mount.js", _read("mount.js"), ("worldSheet: WorldSheet",))
+    _holds("WorldSheet.svelte", _read("WorldSheet.svelte"),
+           ("/api/worlds/", "method: 'PUT'", "Ton et style", "refreshServerState"),
+           ("alert(", "confirm(", "prompt("))
+    _holds("WorldCrud.svelte", _read("WorldCrud.svelte"), ("world-create-tone",))
+    _holds("worldCrud.svelte.js", _read("worldCrud.svelte.js"), ("tone: worldCrudState.createTone",))
+
+
 def main() -> int:
     engine = _fresh_engine()
     rule_ws1()
+    rule_wg1()
     world_id = None
     try:
         world_id = rule_ws2(engine)
@@ -185,7 +235,8 @@ def main() -> int:
             print(f"FAIL: {msg}")
         return 1
     print("PASS: world_sheet -- a world has a nullable tone; create stores it stripped; "
-          "GET/PUT read and edit one world without touching its activation or phase")
+          "GET/PUT read and edit one world without touching its activation or phase; the « Monde » page "
+          "edits the active world's name, description, tone and laws, and the create modal asks the tone")
     return 0
 
 

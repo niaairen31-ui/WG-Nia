@@ -381,3 +381,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 20603 | THE DRAFT FILLS WHAT THE WORLD ASKS (TICKET-0124) -- draft_world.py, its case table (BRIEF-0124-g, no schema change) | BRIEF-0124-g |  |
 | 20637 | NOTHING STACKS IN CRÉATION (TICKET-0124) -- germs in the list, the germ panel, the sheet's panes (BRIEF-0124-h, no schema change) | BRIEF-0124-h |  |
 | 20665 | WHAT THE WORLD ADDS, ON THE SHEET (TICKET-0124) -- DraftWorldPanel.svelte (BRIEF-0124-i, no schema change) | BRIEF-0124-i |  |
+| 20691 | THE « MONDE » PAGE (TICKET-0124) -- WorldSheet.svelte, the tone in the create modal (BRIEF-0124-j, no schema change) | BRIEF-0124-j |  |
