@@ -378,6 +378,7 @@
 - `quests.py` — Quest offers and quests: the writers (TICKET-0108, BRIEF-0108-B, contract C-03).
 - `relations.py` — `relation` canon-write chokepoint (TICKET-0028, BRIEF-0028-b — decomposed from `writes.py`; oriented at TICKET-0090, BRIEF-0090-a).
 - `schema.py` — Governed runtime-DDL writer (TICKET-0044, BRIEF-0044-c — Dcol1, Dname1, Ddrop1, A1 atomicity).
+- `users.py` — Player profiles (TICKET-0125, K1): the only runtime writer of `user`.
 - `worlds.py` — `world` cascade-delete chokepoint (TICKET-0028, BRIEF-0028-b — decomposed from `writes.py`).
 - `zone_promotion.py` — Promotion of a visitable location into a zone (TICKET-0101, D + K, N1).
 
