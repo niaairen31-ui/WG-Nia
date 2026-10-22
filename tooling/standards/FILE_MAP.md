@@ -39,6 +39,7 @@
 - `apply_ticket_0119_tick_prompt.py` — One-shot, idempotent delivery of the TICKET-0119 world tick events prompt update onto the live DB (BRIEF-0119-E): the scope-level tick reads the world's event types -- the `t` list, a new variable `event_types` -- and its sortes (`sortes`), and names an event's type by code and its participants by role and name; it proposes no new type (A1).
 - `apply_ticket_0121_designer_prompts.py` — One-shot, idempotent delivery of the TICKET-0121 quest designer's prompt heads (quest_subject, quest_design) onto the live DB (BRIEF-0121-E).
 - `apply_ticket_0121_select_prompt.py` — One-shot, idempotent delivery of the TICKET-0121 plan-selection prompt update onto the live DB (BRIEF-0121-D, K1): the selection answers a third thing -- `route`, "plan" or "quest" -- when the declaration attaches to no open plan, and is called on every declaration (an empty plan list included).
+- `apply_ticket_0124_world_premise.py` — One-shot, idempotent delivery of the TICKET-0124 world premise onto the live DB (BRIEF-0124-D, P1): one new version per creator or player template, `{world_premise}` at the head of its current system text, the creator's own edits kept.
 - `backup.py` — Timestamped, rotated backup of the live world-engine database.
 - `cockpit.py` — Launch the World Engine Cockpit on 127.0.0.1:8000.
 - `export_lore_usage.py` — Export the Lore shell's usage journal as JSON Lines (TICKET-0103, BRIEF-0103-E, decision E1).

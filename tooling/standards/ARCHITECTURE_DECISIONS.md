@@ -20496,6 +20496,37 @@ declared, and a live text that still holds them repeats nothing. Its
 `world_premise.py` WP3 (both partitions by equality, `call_json`'s two
 `fill(` calls, `prompt_load` filling nothing, the two empty renders).
 
+## THE WORLD PREMISE IN EVERY TEMPLATE (TICKET-0124) -- premised_texts, apply_ticket_0124_world_premise.py, the edit guard (BRIEF-0124-d, no schema change)
+
+**P1: one way to change a prompt.** The placeholder reaches the texts the
+way any prompt change does -- a new `prompt_version` through
+`write_prompt_version`, its variable declared first (C1). For a new
+database, `seed_pilot.upsert_prompt_template` passes a virgin head's texts
+and variables through `premised_texts`: a `creator` or `player` usage gets
+`{world_premise}` at the head of its v1 system text and the variable; a
+`none` usage is untouched. An existing head only gets the variable (S2: the
+seed never writes text on a head that has a version). The seed text
+constants are not edited: ET1/EL1 compare the 0119 deliveries to them
+verbatim. For Nia's database, `apply_ticket_0124_world_premise.py` visits
+every active head of a `creator` or `player` usage, declares the variable
+when absent, and copies its current text with the placeholder prefixed to
+`system_prompt` as one new version -- the creator's own edits kept, a head
+already holding the placeholder left as it is, idempotent.
+`REGION_MANIFEST_USER_TEMPLATE` loses its leading
+`{world_description}{world_fundamental_laws}`; both stay declared and the
+code still renders them `""` (C-07).
+
+**P1-g: the edit guard lives in the two routes.** `update_prompt_text` and
+`restore_prompt_version` -- the only cockpit paths that write prompt text
+-- call `missing_premise` before `write_prompt_version`: a creator or player
+text without `{world_premise}`, or a `none` text with it, is a 422 with the
+French refusal, nothing written. It is not in `write_prompt_version`
+itself: five checks (`prompt_version.py`, `event_tick.py`, `event_lore.py`,
+`knowledge_identity.py`, `observation_runner.py`) write premise-usage
+versions without the placeholder as legitimate fixtures. Consequence: a
+restore of a pre-0124 version is refused until the placeholder is put back
+-- the creator edits the text instead. Gate: `world_premise.py` WP4.
+
 ---
 
 *Co-built with Claude, June 2026.*

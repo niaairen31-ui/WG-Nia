@@ -51,6 +51,7 @@ from ...models import (
 from ...prompt_registry import PROMPT_REGISTRY, effective_model
 from ...prompt_store import current_prompt, get_version, list_versions
 from ...tick_normalize import _EVENT_TYPES
+from ...world_premise import missing_premise
 from ...writes import (
     KNOWLEDGE_LEVELS,
     NPC_GOAL_HORIZONS,
@@ -249,10 +250,16 @@ def update_prompt_text(
     """Write path for prompt text (TICKET-0011) — appends a new `prompt_version`
     row via the single write shape (`write_prompt_version`). 404 unknown head;
     422 with the offending placeholder names on a C1 validation failure
-    (nothing written); 200 -> the new version's summary."""
+    (nothing written); 200 -> the new version's summary.
+
+    P1-g (TICKET-0124): a creator or player text without `{world_premise}`,
+    or a `none` text with it, is a 422 -- nothing written."""
     row = db.get(PromptTemplate, prompt_id)
     if row is None:
         raise HTTPException(status_code=404, detail=f"Prompt template {prompt_id!r} not found")
+    refusal = missing_premise(row.usage, body.system_prompt, body.user_template)
+    if refusal:
+        raise HTTPException(status_code=422, detail=refusal)
     try:
         version = write_prompt_version(
             db,
@@ -277,7 +284,10 @@ def restore_prompt_version(
     """D1: restore = append a NEW version copying the restored one's text —
     history stays strictly monotone. C1 re-validates (fail-closed even on
     restore: if the head's `variables` changed since, the restore is refused,
-    not silently admitted)."""
+    not silently admitted).
+
+    P1-g (TICKET-0124): a creator or player text without `{world_premise}`,
+    or a `none` text with it, is a 422 -- nothing written."""
     row = db.get(PromptTemplate, prompt_id)
     if row is None:
         raise HTTPException(status_code=404, detail=f"Prompt template {prompt_id!r} not found")
@@ -287,6 +297,9 @@ def restore_prompt_version(
             status_code=404,
             detail=f"Version {version_number} of prompt template {prompt_id!r} not found",
         )
+    refusal = missing_premise(row.usage, source.system_prompt, source.user_template)
+    if refusal:
+        raise HTTPException(status_code=422, detail=refusal)
     try:
         version = write_prompt_version(
             db,

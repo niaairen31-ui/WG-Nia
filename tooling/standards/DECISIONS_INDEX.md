@@ -375,3 +375,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 20407 | A WORLD HAS A TONE AND CAN BE EDITED (TICKET-0124) -- world.tone, GET/PUT /api/worlds/{world_id} (BRIEF-0124-a, schema v2.30) | BRIEF-0124-a | v2.30 |
 | 20428 | ONE WORLD PREMISE, TWO REGIMES (TICKET-0124) -- world_premise.py, PromptSpec.premise, premised_prompt (BRIEF-0124-b, no schema change) | BRIEF-0124-b |  |
 | 20460 | THE RENDER SITES READ THROUGH PREMISED_PROMPT (TICKET-0124) -- 34 calls, 18 functions that stay (BRIEF-0124-c, no schema change) | BRIEF-0124-c |  |
+| 20499 | THE WORLD PREMISE IN EVERY TEMPLATE (TICKET-0124) -- premised_texts, apply_ticket_0124_world_premise.py, the edit guard (BRIEF-0124-d, no schema change) | BRIEF-0124-d |  |

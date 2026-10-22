@@ -31,6 +31,25 @@ WP3 -- static, AST over `src/world_engine/**/*.py` (C-07). The `path::function`
    calls neither `fill(` nor `premised_prompt(`; `region_author.py` renders
    `{world_description}` and `{world_fundamental_laws}` as `""` and names no
    `WorldLaw`.
+WP4 -- the texts, the seed, the delivery, the guard (C-08).
+   - import: for every usage, `seed_pilot.premised_texts(usage, "S", "U", ["a"])`
+     prefixes the placeholder and appends the variable for a `creator` or
+     `player` usage, and returns its arguments for a `none` one; a text that
+     already holds the placeholder comes back unchanged; `variables=None`
+     gives `["world_premise"]`;
+   - fixture: `upsert_prompt_template` of a virgin `pt-entity-generation`
+     writes v1 starting with `{world_premise}` and declares the variable; a
+     second upsert writes no v2;
+   - subprocess (its own temp DB, 10 s): `apply_ticket_0124_world_premise.py`
+     gives `pt-npc-dialogue` a v2 `{world_premise}Tu es X.` and the variable,
+     leaves `pt-day-extract-place` (a `none` usage) at v1; a second run exits
+     0, prints `unchanged`, writes no v3;
+   - route functions: `update_prompt_text` refuses (422, `missing_premise`'s
+     text, nothing written) a `player` text without the placeholder and a
+     `none` text with it, and appends a version for a `player` text with it;
+     `restore_prompt_version` of a `creator` v1 without it is a 422;
+   - static: `REGION_MANIFEST_USER_TEMPLATE` holds neither
+     `{world_description}` nor `{world_fundamental_laws}`.
 
 The fixture is a fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL`
 set before any world_engine import) -- never Nia's DB. Every prompt version
@@ -42,6 +61,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import subprocess
 import sys
 import tempfile
 
@@ -375,6 +395,202 @@ def rule_wp3() -> None:
         fail("WP3 region_author.py still names WorldLaw")
 
 
+def _import_seed():
+    scripts = str(ROOT / "scripts")
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    import seed_pilot
+
+    return seed_pilot
+
+
+def _wp4_premised_texts(seed_pilot) -> None:
+    from world_engine.prompt_registry import PROMPT_REGISTRY
+
+    if not PROMPT_REGISTRY:
+        fail("WP4 premised_texts collected nothing")
+    for usage in PROMPT_REGISTRY:
+        got = seed_pilot.premised_texts(usage, "S", "U", ["a"])
+        if usage in NONE:
+            expected = ("S", "U", ["a"])
+        else:
+            expected = ("{world_premise}S", "U", ["a", "world_premise"])
+        if got != expected:
+            fail(f"WP4 premised_texts({usage!r}): expected {expected!r}, got {got!r}")
+        if usage not in NONE:
+            done = ("{world_premise}S", "U", ["a", "world_premise"])
+            again = seed_pilot.premised_texts(usage, *done)
+            if again != done:
+                fail(f"WP4 premised_texts({usage!r}) changed an already premised input: {again!r}")
+    got = seed_pilot.premised_texts("entity_generation", "S", "U", None)
+    if got[2] != ["world_premise"]:
+        fail(f"WP4 premised_texts with variables=None: {got[2]!r}")
+
+
+def _wp4_seed_upsert(engine, seed_pilot) -> None:
+    from sqlmodel import Session
+
+    from world_engine.prompt_store import list_versions
+    from world_engine.models import PromptVariable
+    from sqlmodel import select
+
+    def upsert(db):
+        seed_pilot.upsert_prompt_template(
+            db, "pt-entity-generation", system_prompt="Tu crées une entité.",
+            user_template="{concept}", name="Entity generation", usage="entity_generation",
+            variables=["concept"],
+        )
+
+    with Session(engine) as db:
+        upsert(db)
+        db.commit()
+        versions = list_versions(db, "pt-entity-generation")
+        names = set(db.exec(select(PromptVariable.name)
+                            .where(PromptVariable.prompt_template_id == "pt-entity-generation")).all())
+        if len(versions) != 1 or not versions[0].system_prompt.startswith("{world_premise}"):
+            fail(f"WP4 seed upsert: v1 is {[v.system_prompt for v in versions]!r}")
+        if names != {"concept", "world_premise"}:
+            fail(f"WP4 seed upsert: variables {sorted(names)!r}")
+    with Session(engine) as db:
+        upsert(db)
+        db.commit()
+        if len(list_versions(db, "pt-entity-generation")) != 1:
+            fail("WP4 seed upsert: a second upsert wrote a v2 (S2)")
+
+
+def _wp4_delivery() -> None:
+    from sqlalchemy import create_engine
+    from sqlmodel import Session, SQLModel, select
+
+    from world_engine.models import PromptTemplate, PromptVariable
+    from world_engine.prompt_store import list_versions
+    from world_engine.writes.prompts import write_prompt_variables, write_prompt_version
+
+    url = f"sqlite:///{pathlib.Path(tempfile.mkdtemp()) / 'delivery.db'}"
+    other = create_engine(url)
+    SQLModel.metadata.create_all(other)
+    with Session(other) as db:
+        for head_id, usage, system in (("pt-npc-dialogue", "npc_dialogue", "Tu es X."),
+                                       ("pt-day-extract-place", "day_extract_place", "Extrais.")):
+            db.add(PromptTemplate(id=head_id, name=head_id, usage=usage))
+            db.flush()
+            write_prompt_variables(db, template_id=head_id, variables=["player_line"])
+            write_prompt_version(db, template_id=head_id, system_prompt=system,
+                                 user_template="{player_line}")
+        db.commit()
+    env = dict(os.environ, WORLD_ENGINE_DATABASE_URL=url, WORLD_ENGINE_ENV="test")
+    script = str(ROOT / "scripts" / "apply_ticket_0124_world_premise.py")
+    outputs = []
+    for run in (1, 2):
+        proc = subprocess.run([sys.executable, script], env=env, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=10)
+        outputs.append(proc.stdout)
+        if proc.returncode != 0:
+            fail(f"WP4 delivery run {run} exited {proc.returncode}: {proc.stdout}{proc.stderr}")
+    with Session(other) as db:
+        dialogue = list_versions(db, "pt-npc-dialogue")
+        if len(dialogue) != 2:
+            fail(f"WP4 delivery: pt-npc-dialogue holds {len(dialogue)} versions, not 2")
+        elif (dialogue[0].system_prompt, dialogue[0].user_template) != ("{world_premise}Tu es X.",
+                                                                          "{player_line}"):
+            fail(f"WP4 delivery: pt-npc-dialogue v2 is {dialogue[0].system_prompt!r}")
+        names = sorted(db.exec(select(PromptVariable.name)
+                               .where(PromptVariable.prompt_template_id == "pt-npc-dialogue")).all())
+        if names != ["player_line", "world_premise"]:
+            fail(f"WP4 delivery: pt-npc-dialogue variables {names!r}")
+        if len(list_versions(db, "pt-day-extract-place")) != 1:
+            fail("WP4 delivery: the none usage pt-day-extract-place got a new version")
+    if len(outputs) == 2 and "unchanged" not in outputs[1]:
+        fail(f"WP4 delivery: the second run printed {outputs[1]!r}, no 'unchanged'")
+    other.dispose()
+
+
+def _wp4_routes(engine) -> None:
+    from fastapi import HTTPException
+    from sqlmodel import Session
+
+    from world_engine.cockpit.crud.prompts import (
+        PromptTextBody, restore_prompt_version, update_prompt_text,
+    )
+    from world_engine.models import PromptTemplate
+    from world_engine.prompt_store import list_versions
+    from world_engine.world_premise import missing_premise
+    from world_engine.writes.prompts import write_prompt_variables, write_prompt_version
+
+    def head(db, usage, system, variables):
+        row = PromptTemplate(name=f"route {usage}", usage=usage)
+        db.add(row)
+        db.flush()
+        write_prompt_variables(db, template_id=row.id, variables=variables)
+        write_prompt_version(db, template_id=row.id, system_prompt=system, user_template="")
+        db.commit()
+        return row.id
+
+    def refused(label, call, usage, system, user, db, head_id):
+        before = len(list_versions(db, head_id))
+        try:
+            call()
+        except HTTPException as exc:
+            expected = missing_premise(usage, system, user)
+            if exc.status_code != 422 or exc.detail != expected:
+                fail(f"WP4 {label}: {exc.status_code} {exc.detail!r}, expected 422 {expected!r}")
+        else:
+            fail(f"WP4 {label}: not refused")
+        db.rollback()
+        if len(list_versions(db, head_id)) != before:
+            fail(f"WP4 {label}: a version was written")
+
+    with Session(engine) as db:
+        player = head(db, "mj_interpretation", "{world_premise}Interprète.", ["world_premise"])
+        body = PromptTextBody(system_prompt="Interprète.", user_template="")
+        refused("update player without the placeholder",
+                lambda: update_prompt_text(player, body, db), "mj_interpretation",
+                body.system_prompt, body.user_template, db, player)
+        update_prompt_text(player, PromptTextBody(system_prompt="{world_premise}Juge.",
+                                                  user_template=""), db)
+        if len(list_versions(db, player)) != 2:
+            fail("WP4 update player with the placeholder: no version appended")
+
+        none = head(db, "conversation_summary", "Résume.", ["world_premise"])
+        body = PromptTextBody(system_prompt="{world_premise}Résume.", user_template="")
+        refused("update none with the placeholder", lambda: update_prompt_text(none, body, db),
+                "conversation_summary", body.system_prompt, body.user_template, db, none)
+
+        creator = head(db, "quest_subject", "Propose un sujet.", ["world_premise"])
+        write_prompt_version(db, template_id=creator, system_prompt="{world_premise}Propose.",
+                             user_template="")
+        db.commit()
+        refused("restore creator v1 without the placeholder",
+                lambda: restore_prompt_version(creator, 1, db), "quest_subject",
+                "Propose un sujet.", "", db, creator)
+
+
+def _wp4_static() -> None:
+    import ast
+
+    tree = ast.parse((ROOT / "scripts" / "seed_pilot.py").read_text(encoding="utf-8"))
+    value = None
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == "REGION_MANIFEST_USER_TEMPLATE" for t in node.targets):
+            value = ast.literal_eval(node.value)
+    if value is None:
+        fail("WP4 static: REGION_MANIFEST_USER_TEMPLATE not found")
+        return
+    for placeholder in ("{world_description}", "{world_fundamental_laws}"):
+        if placeholder in value:
+            fail(f"WP4 static: REGION_MANIFEST_USER_TEMPLATE still holds {placeholder}")
+
+
+def rule_wp4(engine) -> None:
+    seed_pilot = _import_seed()
+    _wp4_premised_texts(seed_pilot)
+    _wp4_seed_upsert(engine, seed_pilot)
+    _wp4_delivery()
+    _wp4_routes(engine)
+    _wp4_static()
+
+
 def main() -> int:
     engine = _fresh_engine()
     try:
@@ -389,6 +605,10 @@ def main() -> int:
         rule_wp3()
     except Exception as exc:  # noqa: BLE001 -- fail-closed, reported below
         fail(f"WP3 raised {type(exc).__name__}: {exc}")
+    try:
+        rule_wp4(engine)
+    except Exception as exc:  # noqa: BLE001 -- fail-closed, reported below
+        fail(f"WP4 raised {type(exc).__name__}: {exc}")
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -397,7 +617,8 @@ def main() -> int:
           "built per regime, the player regime carries no state or skill system, and "
           "premised_prompt and call_json fill {world_premise} without touching the stored text; "
           "34 render calls in 31 functions read through premised_prompt, 18 functions stay on "
-          "current_prompt")
+          "current_prompt; the seed and the delivery put {world_premise} at the head of every "
+          "creator and player text, and the edit and restore routes refuse a text without it")
     return 0
 
 
