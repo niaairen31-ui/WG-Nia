@@ -46,7 +46,7 @@ from . import llm_parse, ollama_client
 from .day_resolve import BLOCKED_BAND, INQUIRY_BAND, FactSheet
 from .models import Entity, PassPlay, ProposedMutation, PromptTemplate
 from .prompt_registry import effective_model
-from .prompt_store import current_prompt
+from .prompt_store import premised_prompt
 
 _log = logging.getLogger(__name__)
 
@@ -155,7 +155,7 @@ def narrate(fact_sheet: FactSheet, declaration: str, db: Session) -> str:
     template = _load_day_prose_template("day_narration", fact_sheet.world_id, db)
     if template is None:
         raise llm_parse.LlmParseError("day_narration: no active prompt_template for usage='day_narration'")
-    version = current_prompt(db, template)
+    version = premised_prompt(db, template)
 
     user_msg = (
         version.user_template
@@ -182,7 +182,7 @@ def rewrite(fact_sheet: FactSheet, prior_prose: str, delta: LateDelta, db: Sessi
     template = _load_day_prose_template("day_rewrite", fact_sheet.world_id, db)
     if template is None:
         raise llm_parse.LlmParseError("day_narration: no active prompt_template for usage='day_rewrite'")
-    version = current_prompt(db, template)
+    version = premised_prompt(db, template)
 
     user_msg = (
         version.user_template

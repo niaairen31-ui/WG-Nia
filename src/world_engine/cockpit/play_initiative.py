@@ -31,7 +31,7 @@ from ..models import (
     PromptTemplate,
     Relation,
 )
-from ..prompt_store import current_prompt
+from ..prompt_store import current_prompt, premised_prompt
 from .play import (
     ResponseMode,
     _TurnCtx,
@@ -106,7 +106,7 @@ def _say_initiative_context(ctx: _TurnCtx, initiator_id: str, ss_condition: str)
     initiator_name = initiator_entity.name if initiator_entity else initiator_id
 
     init_behaviour = _load_npc_dialogue_template(ctx.world_id, db)
-    init_behaviour_version = current_prompt(db, init_behaviour)
+    init_behaviour_version = premised_prompt(db, init_behaviour)
     init_ctx = assemble_npc_context(
         initiator_id, ctx.conv.player_id, ctx.conv.location_id, db,
         gathering_id=ctx.conv.gathering_id,
@@ -117,7 +117,7 @@ def _say_initiative_context(ctx: _TurnCtx, initiator_id: str, ss_condition: str)
     # /say turns which use the shared npc_dialogue template.
     init_act_tmpl = _load_npc_initiative_act_template(ctx.world_id, db)
     init_act_instruction = (
-        current_prompt(db, init_act_tmpl).system_prompt
+        premised_prompt(db, init_act_tmpl).system_prompt
         if init_act_tmpl is not None
         else _NPC_INITIATIVE_ACT_FALLBACK
     )
@@ -498,7 +498,7 @@ def _initiative_vote_call(
             + "\n".join(distant_lines)
         )
 
-    version = current_prompt(db, template)
+    version = premised_prompt(db, template)
     user_msg = (
         version.user_template
         .replace("{location_name}", location_name)

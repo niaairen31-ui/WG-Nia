@@ -14,7 +14,7 @@ TS1 -- shapes (import). `SkillRank.trial_to_next` is a NOT NULL boolean with
    trigger}`, `ck_quest_request_origin`'s text is C-01's, its indexes
    `{idx_quest_request_step, idx_quest_request_trial,
    idx_quest_request_world}` with only `idx_quest_request_step` unique;
-   `EXPECTED_STATIC_SCHEMA_VERSION == "v2.29"`; the migration
+   `EXPECTED_STATIC_SCHEMA_VERSION` is v2.29 or later; the migration
    `scripts/migrate_v2_29_rank_trials.py` exists and
    `_PREVIOUS_VERSION == "v2.28"`.
 TS2 -- the CHECKs hold (fresh `create_all`, raw INSERTs, parents inserted
@@ -317,7 +317,8 @@ def check_ts1() -> None:
         fail(f"TS1: quest_request indexes are {sorted(i.name for i in table.indexes)}")
     if [i.name for i in table.indexes if i.unique] != ["idx_quest_request_step"]:
         fail(f"TS1: unique indexes are {[i.name for i in table.indexes if i.unique]}")
-    if EXPECTED_STATIC_SCHEMA_VERSION != "v2.29":
+    major, minor = EXPECTED_STATIC_SCHEMA_VERSION.lstrip("v").split(".")
+    if (int(major), int(minor)) < (2, 29):
         fail(f"TS1: the code's schema version is {EXPECTED_STATIC_SCHEMA_VERSION}")
     if not MIGRATION.is_file():
         fail("TS1: scripts/migrate_v2_29_rank_trials.py is missing")

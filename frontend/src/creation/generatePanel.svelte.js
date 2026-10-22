@@ -30,6 +30,7 @@
    functions this one replaces. Both callers end up at this one apply
    implementation per type -- never two. */
 import { pendingDraftsState } from './pendingDrafts.svelte.js';
+import { creationState } from './state.svelte.js';
 import { factsDraftState } from './factsDraft.svelte.js';
 import { factionPanelState } from './factionPanel.svelte.js';
 
@@ -134,6 +135,27 @@ export function applyGeneratedDraft(legacyDoc, entityType, result) {
   const notes = entityType === 'location' ? applyLocationDraft(legacyDoc, result)
     : entityType === 'faction' ? applyFactionDraft(legacyDoc, result)
     : applyCharacterDraft(legacyDoc, result);
+  applyWorldDraft(result);
   generatePanelState.status = "Brouillon généré — relisez et éditez avant d'accepter.";
   generatePanelState.notes = notes;
+}
+
+/** TICKET-0124 (BRIEF-0124-I, C-14): the draft's world block into
+ *  pendingDraftsState.world -- states and links kept by default, entities
+ *  to create left for the creator to tick (I1) -- plus the character a
+ *  « Créer et lier » prepared, as a kept link, then cleared. */
+function applyWorldDraft(result) {
+  const w = result?.draft?.world ?? {};
+  const links = (w.links ?? []).map((l) => ({ ...l, checked: true }));
+  const target = creationState.germLinkTarget;
+  if (target && !links.some((l) => l.entity_id === target.entity_id)) {
+    links.push({ entity_id: target.entity_id, name: target.name, type: '', note: '', checked: true });
+  }
+  pendingDraftsState.world = {
+    states: (w.states ?? []).map((s) => ({ ...s, checked: true })),
+    links,
+    sameAs: w.same_as ?? null,
+    toCreate: (w.to_create ?? []).map((g) => ({ ...g, checked: false })),
+  };
+  creationState.germLinkTarget = null;
 }

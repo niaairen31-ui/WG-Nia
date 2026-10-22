@@ -50,7 +50,7 @@ from .models import (
     QuestOffer,
 )
 from .prompt_registry import effective_model
-from .prompt_store import current_prompt
+from .prompt_store import premised_prompt
 from .prose_render import fact_texts
 
 _log = logging.getLogger(__name__)
@@ -366,7 +366,7 @@ def emit_plan(
     template = _load_day_plan_template(character.world_id, db)
     if template is None:
         raise llm_parse.LlmParseError("day_plan: no active prompt_template for usage='day_plan'")
-    version = current_prompt(db, template)
+    version = premised_prompt(db, template)
 
     character_entity = db.get(Entity, character.id)
     character_name = character_entity.name if character_entity is not None else character.id

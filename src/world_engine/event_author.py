@@ -26,7 +26,7 @@ from .entity_author import AUTHOR_MODEL
 from .models import Entity, PromptTemplate
 from .ollama_client import OllamaError, chat
 from .prompt_registry import effective_model
-from .prompt_store import current_prompt
+from .prompt_store import premised_prompt
 from .tick_normalize import _EVENT_TYPES
 
 
@@ -77,7 +77,7 @@ def generate_agenda_draft(
     if template is None:
         return {"ok": False, "error": "No active pt-agenda-draft template found"}
 
-    version = current_prompt(db, template)
+    version = premised_prompt(db, template)
     user_message = (
         version.user_template
         .replace("{owner_kind}", owner_kind or "")
@@ -173,7 +173,7 @@ def _event_draft_call(
     if template is None:
         return {"ok": False, "error": "No active pt-event-draft template found"}
 
-    version = current_prompt(db, template)
+    version = premised_prompt(db, template)
     roster_names = ", ".join(sorted(roster.keys()))
     user_message = (
         version.user_template

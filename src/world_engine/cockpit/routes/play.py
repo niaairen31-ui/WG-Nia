@@ -29,7 +29,7 @@ from ... import ollama_client
 from ...analyzer import analyze_window as _analyze_window
 from ...tick import run_world_tick as _run_world_tick
 from ...prompt_registry import effective_model
-from ...prompt_store import current_prompt
+from ...prompt_store import premised_prompt
 from ...context import assemble_mj_context, assemble_npc_context
 from ...db import get_session
 from ...encounters import record_encounter
@@ -108,7 +108,7 @@ def start_conversation(
     sess = _get_or_open_session(world_id, db)
 
     behaviour = _load_npc_dialogue_template(world_id, db)
-    behaviour_version = current_prompt(db, behaviour)
+    behaviour_version = premised_prompt(db, behaviour)
     assembled_context = assemble_npc_context(body.npc_id, player_id, location_id, db)
     system_prompt = _npc_dialogue_system_prompt(behaviour_version.system_prompt, assembled_context)
 

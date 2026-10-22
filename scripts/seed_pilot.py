@@ -16,6 +16,7 @@ from __future__ import annotations
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Optional
 
 # Make the `src` package importable without an editable install.
 SRC = Path(__file__).resolve().parent.parent / "src"
@@ -31,6 +32,7 @@ from world_engine.writes import write_membership, write_npc_prices, write_prompt
 from world_engine.writes.facets import write_entity_facets  # noqa: E402
 from world_engine.writes.knowledge import upsert_knowledge_row  # noqa: E402
 from world_engine.prose_render import fact_text  # noqa: E402
+from world_engine.world_premise import PLACEHOLDER, VARIABLE, regime_of  # noqa: E402
 
 WORLD_ID = "verkhaal"
 
@@ -129,6 +131,28 @@ def _fact_of(session: Session, knowledge_id: str) -> str:
     return session.get(m.Knowledge, knowledge_id).fact_id
 
 
+def premised_texts(
+    usage: Optional[str], system_prompt: str, user_template: str, variables: Optional[list[str]]
+) -> tuple[str, str, Optional[list[str]]]:
+    """The seed texts and variables of a head, with the world premise
+    (TICKET-0124, P1): a `creator` or `player` usage gets `{world_premise}`
+    at the head of its system text, unless either text already holds it,
+    and the variable appended to a copy of `variables` (`[VARIABLE]` when
+    None); a `none` usage gets its arguments back unchanged.
+
+    The seed text constants are never edited for this: ET1/EL1 compare the
+    0119 deliveries to them verbatim (R-13), so the placeholder is added
+    here, at write time."""
+    if regime_of(usage) == "none":
+        return system_prompt, user_template, variables
+    if PLACEHOLDER not in system_prompt and PLACEHOLDER not in user_template:
+        system_prompt = PLACEHOLDER + system_prompt
+    variables = list(variables or [])
+    if VARIABLE not in variables:
+        variables.append(VARIABLE)
+    return system_prompt, user_template, variables
+
+
 def upsert_prompt_template(
     session: Session, id: str, *, system_prompt: str, user_template: str, **head_fields
 ):
@@ -148,12 +172,19 @@ def upsert_prompt_template(
     (idempotent — a second run with unchanged variables writes the same
     rows again, not reflected in the changed-tracking below since that
     tracks the head row only).
+
+    TICKET-0124 (P1): a creator or player usage gets `{world_premise}` at the
+    head of its v1 system text, and the variable, through `premised_texts`.
     """
     variables = head_fields.pop("variables", None)
+    usage = head_fields.get("usage")
     obj = session.get(m.PromptTemplate, id)
     if obj is None:
         obj = m.PromptTemplate(id=id, **head_fields)
         session.add(obj)
+        system_prompt, user_template, variables = premised_texts(
+            usage, system_prompt, user_template, variables
+        )
         write_prompt_variables(session, template_id=obj.id, variables=variables)
         write_prompt_version(
             session,
@@ -171,6 +202,7 @@ def upsert_prompt_template(
             "run scripts/migrate_v1_68_prompt_version.py before re-seeding."
         )
 
+    _s, _u, variables = premised_texts(usage, "", "", variables)
     write_prompt_variables(session, template_id=obj.id, variables=variables)
 
     changed = False
@@ -1435,7 +1467,7 @@ aucun bloc de code Markdown, aucun commentaire.\
 """
 
 REGION_MANIFEST_USER_TEMPLATE = """\
-{world_description}{world_fundamental_laws}Intention du créateur pour cette région : {brief}
+Intention du créateur pour cette région : {brief}
 
 Manifeste JSON :\
 """

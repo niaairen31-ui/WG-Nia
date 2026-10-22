@@ -107,6 +107,7 @@ async function api(path, options) {
  *  creationRenderReturnControl) read it to stay in sync until they migrate
  *  at -l. */
 export async function selectEntity(legacyDoc, id) {
+  creationState.selectedGermId = null;
   creationState.sheetMode = 'loading';
   try {
     const detail = await api(`/api/entities/${encodeURIComponent(id)}`);

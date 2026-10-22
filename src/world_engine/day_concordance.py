@@ -460,6 +460,17 @@ def _germ_blocked(name: str, world_id: Optional[str], db: Session) -> Optional[s
     return None
 
 
+def _source_sentence(declaration: str, surface_form: str) -> str:
+    """The sentence of `declaration` that holds `surface_form`, compared
+    through `normalize_surface`; the whole declaration, cut to 300
+    characters, when none holds it (TICKET-0124, C-10)."""
+    wanted = normalize_surface(surface_form)
+    for sentence in re.split(r"(?<=[.!?…])\s+", declaration.strip()):
+        if wanted and wanted in normalize_surface(sentence):
+            return sentence
+    return declaration.strip()[:300]
+
+
 def emit_germs(unmatched: tuple[UnmatchedMention, ...], pass_play: PassPlay, db: Session) -> list[ProposedMutation]:
     """Persons only (Scope IN item 3 / Scope OUT: places and factions are
     reported, never germinated). Constructs `ProposedMutation` rows and
@@ -468,7 +479,8 @@ def emit_germs(unmatched: tuple[UnmatchedMention, ...], pass_play: PassPlay, db:
     Guards and quota per BRIEF-0081-c: `_germ_blocked` runs before the
     quota, so a blocked candidate never occupies a quota slot; the quota
     then keeps the first `MAX_GERMS_PER_DECLARATION` survivors in mention
-    order and logs the truncated count."""
+    order and logs the truncated count.
+    TICKET-0124 (E1): each germ keeps the sentence it was mentioned in and its place's name."""
     character = db.get(Character, pass_play.character_id)
     world_id = character.world_id if character is not None else None
 
@@ -499,6 +511,7 @@ def emit_germs(unmatched: tuple[UnmatchedMention, ...], pass_play: PassPlay, db:
         rationale = f"matching rungs tried and missed: {', '.join(item.rungs_tried)}"
         if item.candidate_location_id:
             rationale += f"; anchored near location {item.candidate_location_id}"
+        place = db.get(Entity, item.candidate_location_id) if item.candidate_location_id else None
         payload = {
             "entity_type": "character",
             "name": name,
@@ -508,6 +521,8 @@ def emit_germs(unmatched: tuple[UnmatchedMention, ...], pass_play: PassPlay, db:
             "surface_form": mention.surface_form,
             "kind": mention.kind,
             "candidate_location_id": item.candidate_location_id,
+            "source_sentence": _source_sentence(pass_play.declared_action, mention.surface_form),
+            "anchor_name": place.name if place is not None else None,
         }
         germs.append(ProposedMutation(
             world_id=world_id,

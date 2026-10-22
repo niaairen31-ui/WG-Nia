@@ -76,6 +76,9 @@ class World(SQLModel, table=True):
     id: str = Field(default_factory=_uuid, primary_key=True)
     name: str
     description: Optional[str] = None
+    # Creator-set « Ton et style » (v2.30, TICKET-0124, B2): free text read by
+    # every generator through `world_premise.py`. NULL: no tone given.
+    tone: Optional[str] = None
     is_active: bool = Field(
         default=False, sa_column_kwargs={"server_default": text("0")}
     )

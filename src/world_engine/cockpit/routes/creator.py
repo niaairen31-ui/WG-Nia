@@ -9,6 +9,7 @@ in the sibling `cockpit/routes/regions.py` (module-budget split).
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -40,6 +41,7 @@ from ...models import (
     SkillDefinition,
     User,
     World,
+    WorldLaw,
 )
 from ...writes import (
     KNOWLEDGE_LEVELS,
@@ -60,7 +62,9 @@ class EntityGenerateBody(BaseModel):
     brief: str
 
 
-def _generate_draft_with_l1(entity_type: str, brief: str, db: Session) -> dict:
+def _generate_draft_with_l1(
+    entity_type: str, brief: str, db: Session, candidate_ids: tuple[str, ...] = ()
+) -> dict:
     """Shared write-free generation core (BRIEF-0019-a item 4, RECON F2) —
     both `/api/entities/generate` and `/api/creations/{mutation_id}/generate`
     call this instead of `generate_entity_draft` directly, so there is ONE
@@ -73,8 +77,10 @@ def _generate_draft_with_l1(entity_type: str, brief: str, db: Session) -> dict:
     the result as `draft["public"]["goals"]`. A goal-generation failure never
     fails the draft — it's appended to `notes` and the character draft ships
     without goals.
+
+    TICKET-0124 (C-13): `candidate_ids` lead the draft's citable names.
     """
-    result = _generate_entity_draft(entity_type, brief, db)
+    result = _generate_entity_draft(entity_type, brief, db, candidate_ids=candidate_ids)
     if entity_type == "character" and result.get("ok"):
         pub, facets = result["draft"]["public"], result["draft"]["facets"]
         faction_goals = None
@@ -127,14 +133,17 @@ _ENTITY_CREATION_INTROS: dict[str, str] = {
 }
 
 
-def _compose_entity_creation_brief(payload: dict) -> str:
+def _compose_entity_creation_brief(payload: dict, db: Session) -> str:
     """French prose brief for the pure generation chain (item 4) — weaves
-    name + concept + anchor into 2-4 sentences. `anchor` already carries any
-    scope-situating prose the model proposed (near/within/serves — RECON F7),
-    so no extra lookup against the mutation's tick/scope is needed. Tolerant
-    of the dormant conversation channel's shapeless payload (RECON F6):
-    name/concept fall back across `name|title` and `concept|description|
-    content`.
+    name + concept + anchor into 2-4 sentences. A tick germ's `anchor`
+    already carries any scope-situating prose the model proposed
+    (near/within/serves — RECON F7). Tolerant of the dormant conversation
+    channel's shapeless payload (RECON F6): name/concept fall back across
+    `name|title` and `concept|description|content`.
+    TICKET-0124 (C-10): a Journée germ's place is written by name, never its
+    id (`anchor_name`, or the name of `candidate_location_id` for a germ born
+    before it); then the sentence it was mentioned in, and a draft germ's
+    origin link.
     """
     entity_type = str(payload.get("entity_type") or "").strip().casefold()
     intro = _ENTITY_CREATION_INTROS.get(entity_type, "Nouvelle entité")
@@ -143,13 +152,38 @@ def _compose_entity_creation_brief(payload: dict) -> str:
         payload.get("concept") or payload.get("description") or payload.get("content") or ""
     ).strip()
     anchor = str(payload.get("anchor") or "").strip()
+    anchor_name = str(payload.get("anchor_name") or "").strip()
+    location_id = payload.get("candidate_location_id")
+    if not anchor_name and anchor and anchor == location_id:
+        place = db.get(Entity, location_id)
+        anchor_name = place.name if place is not None else ""
+        anchor = ""
 
     sentences = [f"{intro} : {name}." if name else f"{intro}."]
     if concept:
         sentences.append(concept if concept.endswith((".", "!", "?")) else f"{concept}.")
-    if anchor:
+    if anchor_name:
+        sentences.append(f"Lieu : {anchor_name}.")
+    elif anchor:
         sentences.append(anchor if anchor.endswith((".", "!", "?")) else f"{anchor}.")
+    source_sentence = str(payload.get("source_sentence") or "").strip()
+    if source_sentence:
+        sentences.append(f"Mentionné ainsi : « {source_sentence} ».")
+    origin = db.get(Entity, payload["origin_entity_id"]) if payload.get("origin_entity_id") else None
+    if origin is not None:
+        sentences.append(f"Lié à {origin.name} ({payload.get('link_type') or ''}).")
     return " ".join(sentences)
+
+
+def _pending_source(mut: ProposedMutation) -> str:
+    """The pending item's source label (TICKET-0124, C-11, Gate (b) table 4)."""
+    if mut.tick_id:
+        return "tick"
+    if mut.pass_play_id:
+        return "journee"
+    if mut.source_type == "creation":
+        return "creation"
+    return "conversation"
 
 
 @router.get("/api/creations/pending")
@@ -157,7 +191,9 @@ def list_pending_creations(db: Session = Depends(get_session)) -> list[dict]:
     """Approved-but-unrealized entity_creation germs, ALL sources — tick AND
     the dormant conversation channel join the same list (0017-style
     awakening, RECON F6). Query: mutation_type == entity_creation,
-    status == approved, payload lacks created_entity_id.
+    status == approved, payload lacks created_entity_id. TICKET-0124 (C-11):
+    each item names its source (`_pending_source`) and carries the germ's
+    place name, sentence and origin as plain keys.
     """
     rows = db.exec(
         select(ProposedMutation)
@@ -174,9 +210,10 @@ def list_pending_creations(db: Session = Depends(get_session)) -> list[dict]:
         if "created_entity_id" in payload:
             continue
         entity_type = str(payload.get("entity_type") or "").strip().casefold()
+        origin = db.get(Entity, payload["origin_entity_id"]) if payload.get("origin_entity_id") else None
         items.append({
             "mutation_id": mut.id,
-            "source": "tick" if mut.tick_id else "conversation",
+            "source": _pending_source(mut),
             "proposed_at": mut.proposed_at.isoformat() if mut.proposed_at else None,
             "name": str(payload.get("name") or payload.get("title") or "").strip(),
             "concept": str(
@@ -184,8 +221,109 @@ def list_pending_creations(db: Session = Depends(get_session)) -> list[dict]:
             ).strip(),
             "anchor": payload.get("anchor"),
             "entity_type": entity_type if entity_type in _ENTITY_CREATION_TYPES else None,
+            "anchor_name": payload.get("anchor_name"),
+            "source_sentence": payload.get("source_sentence"),
+            "origin_entity_id": payload.get("origin_entity_id"),
+            "origin_name": origin.name if origin is not None else None,
+            "link_type": payload.get("link_type"),
         })
     return items
+
+
+def _open_germ(mutation_id: str, db: Session) -> ProposedMutation:
+    """The approved, unrealized `entity_creation` germ `mutation_id`, or a 409."""
+    mut = db.get(ProposedMutation, mutation_id)
+    if mut is None or mut.mutation_type != "entity_creation" or mut.status != "approved":
+        raise HTTPException(409, "Mutation is not an approved, unrealized entity_creation germ")
+    payload = mut.payload if isinstance(mut.payload, dict) else {}
+    if "created_entity_id" in payload:
+        raise HTTPException(409, "This germ has already been realized")
+    return mut
+
+
+MAX_GERM_CANDIDATES = 12
+
+
+def germ_candidates(db: Session, mut: ProposedMutation) -> list[dict]:
+    """The existing characters a `character` germ could be (TICKET-0124, H1,
+    C-11): active non-player characters of its world at the germ's place or
+    at a `connects_to` neighbour of it, by name, at most
+    `MAX_GERM_CANDIDATES`. The place is `candidate_location_id`, or for a
+    `creation` germ its origin character's place. Any other type, or no
+    place: `[]`."""
+    # Lazy: `play` is a heavy module; creator routes never import it at load.
+    from ..play import _location_neighbours
+
+    payload = mut.payload if isinstance(mut.payload, dict) else {}
+    if str(payload.get("entity_type") or "").strip().casefold() != "character":
+        return []
+    location_id = payload.get("candidate_location_id")
+    if not location_id and mut.source_type == "creation" and payload.get("origin_entity_id"):
+        origin = db.get(Character, payload["origin_entity_id"])
+        location_id = origin.current_location_id if origin is not None else None
+    if not location_id:
+        return []
+    reasons = {location_id: "au même lieu"}
+    for neighbour_id, _name in _location_neighbours(location_id, db):
+        reasons.setdefault(neighbour_id, "lieu voisin")
+    rows = db.exec(
+        select(Entity, Character)
+        .join(Character, Character.id == Entity.id)
+        .where(
+            Entity.world_id == mut.world_id,
+            Entity.status == "active",
+            Character.character_type != "player",
+            Character.current_location_id.in_(list(reasons)),
+        )
+        .order_by(Entity.name)
+        .limit(MAX_GERM_CANDIDATES)
+    ).all()
+    candidates: list[dict] = []
+    for entity, character in rows:
+        place = db.get(Entity, character.current_location_id)
+        candidates.append({
+            "entity_id": entity.id,
+            "name": entity.name,
+            "location_name": place.name if place is not None else None,
+            "reason": reasons[character.current_location_id],
+        })
+    return candidates
+
+
+@router.get("/api/creations/{mutation_id}/candidates")
+def list_germ_candidates(mutation_id: str, db: Session = Depends(get_session)) -> dict:
+    """The existing characters a pending germ could join (TICKET-0124, H1)."""
+    mut = _open_germ(mutation_id, db)
+    return {"mutation_id": mutation_id, "candidates": germ_candidates(db, mut)}
+
+
+class GermAttachBody(BaseModel):
+    entity_id: str
+
+
+@router.post("/api/creations/{mutation_id}/attach")
+def attach_germ(mutation_id: str, body: GermAttachBody, db: Session = Depends(get_session)) -> dict:
+    """A pending germ joins an existing entity instead of creating one
+    (TICKET-0124, H1, Gate (b) table 5). Writes `proposed_mutation` only --
+    no entity, no canon: `target_table="entity"` and `target_id` record the
+    entity relationally, the note says so, and `_link_entity_creation`
+    applies the germ and commits."""
+    mut = _open_germ(mutation_id, db)
+    payload = mut.payload if isinstance(mut.payload, dict) else {}
+    entity_type = str(payload.get("entity_type") or "").strip().casefold()
+    entity = db.get(Entity, body.entity_id)
+    if (entity is None or entity.status != "active" or entity.world_id != mut.world_id
+            or entity.type != entity_type):
+        raise HTTPException(422, "The entity is not an active entity of this germ's world and type")
+    mut.target_table = "entity"
+    mut.target_id = entity.id
+    note = f"rattaché à une entité existante : {entity.name}"
+    mut.creator_notes = f"{mut.creator_notes}\n{note}" if mut.creator_notes else note
+    linked = _crud._link_entity_creation(mutation_id, entity.id, db)
+    if not linked.get("ok"):
+        db.rollback()
+        raise HTTPException(409, linked.get("error"))
+    return {"ok": True, "mutation_id": mutation_id, "entity_id": entity.id, "name": entity.name}
 
 
 @router.post("/api/creations/{mutation_id}/generate")
@@ -194,22 +332,22 @@ def generate_creation_draft(mutation_id: str, db: Session = Depends(get_session)
     same write-free chain as `/api/entities/generate` (+ L1 goals) via
     `_generate_draft_with_l1`. Regenerating later is free: an abandoned
     draft costs nothing because the mutation stays 'approved' until
-    create_entity's guarded linkage flips it.
+    create_entity's guarded linkage flips it. TICKET-0124 (C-11): it also
+    returns the germ's candidates, which lead the draft's citable names
+    (C-13), and a `creation` germ's origin link leads the draft's links.
     """
-    mut = db.get(ProposedMutation, mutation_id)
-    if mut is None or mut.mutation_type != "entity_creation" or mut.status != "approved":
-        raise HTTPException(409, "Mutation is not an approved, unrealized entity_creation germ")
-
+    mut = _open_germ(mutation_id, db)
     payload = mut.payload if isinstance(mut.payload, dict) else {}
-    if "created_entity_id" in payload:
-        raise HTTPException(409, "This germ has already been realized")
 
     entity_type = str(payload.get("entity_type") or "").strip().casefold()
     if entity_type not in _ENTITY_CREATION_TYPES:
         raise HTTPException(409, "Germ has no valid entity_type — cannot generate")
 
-    brief = _compose_entity_creation_brief(payload)
-    result = _generate_draft_with_l1(entity_type, brief, db)
+    brief = _compose_entity_creation_brief(payload, db)
+    candidates = germ_candidates(db, mut)
+    result = _generate_draft_with_l1(entity_type, brief, db, tuple(c["entity_id"] for c in candidates))
+    if result.get("ok"):
+        _prepend_origin_link(db, payload, result["draft"]["world"]["links"])
     return {
         "ok": result.get("ok", False),
         "draft": result.get("draft"),
@@ -217,7 +355,21 @@ def generate_creation_draft(mutation_id: str, db: Session = Depends(get_session)
         "error": result.get("error"),
         "mutation_id": mutation_id,
         "entity_type": entity_type,
+        "candidates": candidates,
     }
+
+
+def _prepend_origin_link(db: Session, payload: dict, links: list[dict]) -> None:
+    """A `creation` germ's origin, as the first of its draft's links, unless
+    already linked (TICKET-0124, C-11): its `origin_entity_id` an active
+    entity, its `link_type` non-empty."""
+    origin = db.get(Entity, payload.get("origin_entity_id") or "")
+    link_type = str(payload.get("link_type") or "").strip()
+    if origin is None or origin.status != "active" or not link_type:
+        return
+    if any(link.get("entity_id") == origin.id for link in links):
+        return
+    links.insert(0, {"entity_id": origin.id, "name": origin.name, "type": link_type, "note": ""})
 
 
 class WorldGenerateBody(BaseModel):
@@ -409,6 +561,14 @@ class WorldCreateBody(BaseModel):
     name: str
     description: str = ""
     fundamental_laws: str = ""
+    tone: str = ""
+
+
+class WorldUpdateBody(BaseModel):
+    name: str
+    description: str = ""
+    tone: str = ""
+    laws: list[str] = []
 
 
 @router.post("/api/worlds")
@@ -416,11 +576,13 @@ def create_world(body: WorldCreateBody, db: Session = Depends(get_session)) -> d
     """Generic empty-world bootstrap (BRIEF-44, B2). Creates one fresh-UUID
     `world` row and auto-activates it in the same transaction (reuses
     activate_world's deactivate-then-activate logic). The created world is
-    empty: no PC, no session, no locations, no templates, no entities."""
+    empty: no PC, no session, no locations, no templates, no entities.
+    The tone is stored stripped, empty -> NULL (TICKET-0124, BRIEF-0124-A)."""
     try:
         new_world = World(
             name=body.name,
             description=body.description,
+            tone=body.tone.strip() or None,
         )
         db.add(new_world)
         db.flush()
@@ -440,6 +602,54 @@ def create_world(body: WorldCreateBody, db: Session = Depends(get_session)) -> d
         db.rollback()
         return {"ok": False, "error": str(exc)}
     return {"ok": True, "world_id": new_world.id}
+
+
+def _world_detail(world: World, db: Session) -> dict:
+    """One world as the « Monde » page reads it (TICKET-0124, BRIEF-0124-A,
+    W1): its laws are the `world_law` texts by position."""
+    laws = db.exec(
+        select(WorldLaw.text_).where(WorldLaw.world_id == world.id).order_by(WorldLaw.position)
+    ).all()
+    return {
+        "id": world.id,
+        "name": world.name,
+        "description": world.description,
+        "tone": world.tone,
+        "laws": list(laws),
+        "is_active": world.is_active,
+    }
+
+
+@router.get("/api/worlds/{world_id}")
+def get_world(world_id: str, db: Session = Depends(get_session)) -> dict:
+    """Read one world, active or not (TICKET-0124, BRIEF-0124-A, W1)."""
+    world = db.get(World, world_id)
+    if world is None:
+        raise HTTPException(status_code=404, detail=f"World {world_id!r} not found")
+    return _world_detail(world, db)
+
+
+@router.put("/api/worlds/{world_id}")
+def update_world(world_id: str, body: WorldUpdateBody, db: Session = Depends(get_session)) -> dict:
+    """Edit one world's name, description, tone and laws, active or not
+    (TICKET-0124, BRIEF-0124-A, W1). The laws keep their full replace
+    through `write_world_laws` (W2 deferred). Never touches `is_active` or
+    `current_phase`. One commit."""
+    world = db.get(World, world_id)
+    if world is None:
+        raise HTTPException(status_code=404, detail=f"World {world_id!r} not found")
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Le nom est requis.")
+    world.name = name
+    world.description = body.description.strip() or None
+    world.tone = body.tone.strip() or None
+    world.updated_at = datetime.now(UTC)
+    db.add(world)
+    write_world_laws(db, world=world, laws=body.laws, changed_by="creator")
+    db.commit()
+    db.refresh(world)
+    return _world_detail(world, db)
 
 
 def _activate_world_core(world_id: str, db: Session) -> None:

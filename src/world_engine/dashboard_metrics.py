@@ -296,6 +296,37 @@ def _quest_requests(db: Session, scope: Scope) -> tuple[list[Row], str]:
     return rows, "Ce que deviennent les demandes de quête nées des journées et des épreuves de rang (P1, S3, D2)."
 
 
+_GERM_SOURCES_FR = {"pass_play": "Journée", "world_tick": "Tick", "creation": "Brouillon"}
+_GERM_GROUPS_FR = ("Journée", "Tick", "Brouillon", "Conversation")
+
+
+def _germs(db: Session, scope: Scope) -> tuple[list[Row], str]:
+    """`entity_creation` proposals by source and fate (TICKET-0124, C-12): an
+    attached germ is `applied` with `target_table == "entity"`."""
+    rows = db.exec(select(ProposedMutation.source_type, ProposedMutation.status, ProposedMutation.target_table)
+                   .where(ProposedMutation.mutation_type == "entity_creation",
+                          _in_worlds(ProposedMutation.world_id, scope),
+                          *_dated(ProposedMutation.proposed_at, scope))).all()
+    fates: dict[str, Counter] = defaultdict(Counter)
+    for source_type, status, target_table in rows:
+        fate = status
+        if status == "applied":
+            fate = "attached" if target_table == "entity" else "new" if target_table is None else "applied"
+        fates[_GERM_SOURCES_FR.get(source_type, "Conversation")][fate] += 1
+    out: list[Row] = []
+    for group in _GERM_GROUPS_FR:
+        counts = fates[group]
+        n = sum(counts.values())
+        if n == 0:
+            continue
+        out += [Row(group, "Proposés", counts["proposed"], n),
+                Row(group, "En attente de réalisation", counts["approved"], n),
+                Row(group, "Réalisés en nouvelle fiche", counts["new"], n),
+                Row(group, "Rattachés à une fiche existante", counts["attached"], n),
+                Row(group, "Rejetés", counts["rejected"], n)]
+    return out, "Ce que deviennent les germes ; H2 regarde les germes de Journée rattachés."
+
+
 METRICS: tuple[Metric, ...] = (
     Metric("event_reviews", "Événements proposés",
            "Combien d'événements proposés acceptes-tu tels quels ?", ("D1", "D2"), True, _event_reviews),
@@ -320,6 +351,8 @@ METRICS: tuple[Metric, ...] = (
     Metric("quest_requests", "Demandes de quête",
            "D'où viennent les demandes de quête, et que deviennent-elles ?", ("P1", "S3", "D2"), True,
            _quest_requests),
+    Metric("germs", "Germes de création",
+           "Que deviennent les germes, et combien rejoignent une fiche existante ?", ("H2",), True, _germs),
 )
 
 

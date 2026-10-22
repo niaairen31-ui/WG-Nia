@@ -586,4 +586,19 @@ export const CREATION_ISLANDS = Object.freeze({
     origin: 'new',
     createdBy: 'TICKET-0115',
   }),
+  // TICKET-0124 (BRIEF-0124-H, L1/H1): one germ, opened from the list --
+  // created directly as an island, no legacy predecessor.
+  germPanel: Object.freeze({
+    containerId: 'creation-germ-panel',
+    component: 'GermPanel.svelte',
+    origin: 'new',
+    createdBy: 'TICKET-0124',
+  }),
+  // TICKET-0124 (BRIEF-0124-J, W1): the active world's sheet -- a new island.
+  worldSheet: Object.freeze({
+    containerId: 'creation-monde',
+    component: 'WorldSheet.svelte',
+    origin: 'new',
+    createdBy: 'TICKET-0124',
+  }),
 });

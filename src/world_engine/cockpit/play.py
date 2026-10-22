@@ -41,7 +41,7 @@ from ..models import (
     Relation,
     Session as GameSession,
 )
-from ..prompt_store import current_prompt
+from ..prompt_store import premised_prompt
 from ..scene_format import format_inventory_line, format_item_list_for_interpretation
 
 
@@ -201,8 +201,8 @@ def _say_load_prompts(world_id: str, db: Session) -> tuple[str, str, str, str]:
 
     mj_template = _play_stream._load_mj_narration_template(world_id, db)
     interpret_template = _play_physical._load_mj_interpret_template(world_id, db)
-    mj_version = current_prompt(db, mj_template)
-    interpret_version = current_prompt(db, interpret_template)
+    mj_version = premised_prompt(db, mj_template)
+    interpret_version = premised_prompt(db, interpret_template)
     return (
         mj_version.user_template, mj_version.system_prompt,
         interpret_version.system_prompt, interpret_version.user_template,
@@ -575,7 +575,7 @@ def _say_npc_generation(
         responder_system_prompt = ctx.system_prompt
     else:
         responder_behaviour = _load_npc_dialogue_template(ctx.world_id, db)
-        responder_behaviour_version = current_prompt(db, responder_behaviour)
+        responder_behaviour_version = premised_prompt(db, responder_behaviour)
         responder_context = assemble_npc_context(
             responder_id, ctx.conv.player_id, ctx.conv.location_id, db,
             gathering_id=ctx.conv.gathering_id,

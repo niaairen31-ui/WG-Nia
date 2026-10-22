@@ -26,7 +26,7 @@ from sqlmodel import Session, select
 from . import llm_parse, ollama_client
 from .context import assemble_npc_context
 from .models import Entity, PromptTemplate
-from .prompt_store import current_prompt
+from .prompt_store import premised_prompt
 
 NEUTRAL_INTENSITY = 50
 # O1: relation_weighted's multiplier is capped at 1.5 — k=0.5 is that cap,
@@ -99,7 +99,7 @@ def _observation_intent_messages(
     location_name = location.name if location else location_id
     present_names = "\n".join(f"- {name}" for name in names_by_id.values())
 
-    version = current_prompt(db, template)
+    version = premised_prompt(db, template)
     system_prompt = f"{version.system_prompt}\n\n{npc_context}"
     user_msg = (
         version.user_template

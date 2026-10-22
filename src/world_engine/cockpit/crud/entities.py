@@ -103,6 +103,7 @@ from ._shared import (
     _validate_entity_ref,
     _world_id,
 )
+from .entity_extras import write_create_extras
 from .zone_hooks import link_new_location, promote_for_child, take_promotion_gatherings
 from .entity_runtime import (
     _build_runtime_ext_kwargs,
@@ -402,6 +403,11 @@ class EntityWriteBody(BaseModel):
     # character create only; it becomes the `physical` skill row
     # (`skill_ranks.TIER_TO_RANK`), none at 0.
     carrure: Optional[int] = None
+    # TICKET-0124 (BRIEF-0124-E, S1/I1): what the world adds on create only
+    # -- C-09 of LOT-0124
+    states: list[dict] = []
+    relations: list[dict] = []
+    germs: list[dict] = []
 
 
 class NpcPricesBody(BaseModel):
@@ -592,6 +598,12 @@ def _refuse_facets(body: EntityWriteBody) -> None:
         raise HTTPException(422, "descriptive lore is edited through /api/entities/{id}/facts")
 
 
+def _refuse_world_extras(body: EntityWriteBody) -> None:
+    """C-09: a draft's states, links and germs are honoured on create only."""
+    if body.states or body.relations or body.germs:
+        raise HTTPException(422, "Les ajouts du monde ne s'écrivent qu'à la création.")
+
+
 def _create_static_entity_core(body: EntityWriteBody, db: DbSession, entity_type: str) -> Entity:
     """Static-registry create core — moved verbatim out of
     `_create_entity_core` (BRIEF-0046-e), behavior byte-for-byte unchanged.
@@ -733,8 +745,12 @@ def create_entity(body: EntityWriteBody, db: DbSession = Depends(get_session)) -
     entity+extension, then the membership leg)."""
     try:
         entity = _create_entity_core(body, db)
+        extras = write_create_extras(db, entity, body)
         db.commit()
         dissolve_emptied(take_promotion_gatherings(db), db)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc))
     except IntegrityError:
         db.rollback()
         raise HTTPException(
@@ -769,6 +785,7 @@ def create_entity(body: EntityWriteBody, db: DbSession = Depends(get_session)) -
         result["relations"] = []
         result["knowledge"] = []
 
+    result["world_extras"] = extras
     if body.mutation_id:
         result["creation_linkage"] = _link_entity_creation(body.mutation_id, entity.id, db)
     return result
@@ -779,6 +796,7 @@ def update_entity(entity_id: str, body: EntityWriteBody, db: DbSession = Depends
     """`body.entity` is whole-replace; `body.extension` is key-present-wins --
     a key absent from it leaves the stored extension column unchanged."""
     _refuse_facets(body)
+    _refuse_world_extras(body)
     entity = _get_entity(db, entity_id)
     data = body.entity
 

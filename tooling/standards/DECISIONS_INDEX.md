@@ -372,3 +372,13 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 20343 | WHO MASTERS A SKILL IS READ IN ONE PLACE (TICKET-0116) -- skill_access.skill_masters (BRIEF-0116-e, no schema change) | BRIEF-0116-e |  |
 | 20353 | THE DESIGNER PROPOSES A RANK TRIAL, NIA CONFIRMS IT (TICKET-0116) -- quest_trial, _design_trial, the rank reward kept (BRIEF-0116-e, no schema change) | BRIEF-0116-e |  |
 | 20382 | A TRIAL IS SEEN WHERE THE CREATOR WORKS (TICKET-0116) -- COMPÉTENCES, THE FICHE, THE REQUESTS PANEL, THE REVIEW CARD (BRIEF-0116-f, no schema change) | BRIEF-0116-f |  |
+| 20407 | A WORLD HAS A TONE AND CAN BE EDITED (TICKET-0124) -- world.tone, GET/PUT /api/worlds/{world_id} (BRIEF-0124-a, schema v2.30) | BRIEF-0124-a | v2.30 |
+| 20428 | ONE WORLD PREMISE, TWO REGIMES (TICKET-0124) -- world_premise.py, PromptSpec.premise, premised_prompt (BRIEF-0124-b, no schema change) | BRIEF-0124-b |  |
+| 20460 | THE RENDER SITES READ THROUGH PREMISED_PROMPT (TICKET-0124) -- 34 calls, 18 functions that stay (BRIEF-0124-c, no schema change) | BRIEF-0124-c |  |
+| 20499 | THE WORLD PREMISE IN EVERY TEMPLATE (TICKET-0124) -- premised_texts, apply_ticket_0124_world_premise.py, the edit guard (BRIEF-0124-d, no schema change) | BRIEF-0124-d |  |
+| 20530 | A CREATE CARRIES WHAT THE WORLD ADDS (TICKET-0124) -- states, links and ticked germs in one transaction; the creator_draft producer (BRIEF-0124-e, no schema change) | BRIEF-0124-e |  |
+| 20561 | A GERM SAYS WHERE IT COMES FROM AND CAN JOIN AN EXISTING CHARACTER (TICKET-0124) -- source sentence, place name, candidates, attach, the Germes metric (BRIEF-0124-f, no schema change) | BRIEF-0124-f |  |
+| 20603 | THE DRAFT FILLS WHAT THE WORLD ASKS (TICKET-0124) -- draft_world.py, its case table (BRIEF-0124-g, no schema change) | BRIEF-0124-g |  |
+| 20637 | NOTHING STACKS IN CRÉATION (TICKET-0124) -- germs in the list, the germ panel, the sheet's panes (BRIEF-0124-h, no schema change) | BRIEF-0124-h |  |
+| 20665 | WHAT THE WORLD ADDS, ON THE SHEET (TICKET-0124) -- DraftWorldPanel.svelte (BRIEF-0124-i, no schema change) | BRIEF-0124-i |  |
+| 20691 | THE « MONDE » PAGE (TICKET-0124) -- WorldSheet.svelte, the tone in the create modal (BRIEF-0124-j, no schema change) | BRIEF-0124-j |  |

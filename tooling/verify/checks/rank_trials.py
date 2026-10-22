@@ -772,9 +772,9 @@ class Stub:
 
     def __call__(self, messages, model=None, format=None, **_kw) -> str:
         system, user = messages[0]["content"], messages[1]["content"]
-        if system.startswith("Tu conçois une épreuve de rang"):
+        if "Tu conçois une épreuve de rang" in system:
             usage = "trial"
-        elif system.startswith("Tu prépares une quête"):
+        elif "Tu prépares une quête" in system:
             usage = "subject"
         else:
             usage = "design"

@@ -71,7 +71,13 @@
    pendingCreations/pendingCreationsLoading/pendingCreationsError: the
    Créations en attente strip's data (loadPendingCreations, tabs.js),
    rendered by Creation.svelte's own {#each} instead of the legacy
-   renderPendingCreationCard HTML-string generator. */
+   renderPendingCreationCard HTML-string generator. TICKET-0124 (BRIEF-0124-H):
+   EntityList.svelte now renders them as the list's « En attente » group.
+
+   selectedGermId/sheetPane/germLinkTarget (TICKET-0124, BRIEF-0124-H, C-14):
+   the germ GermPanel.svelte shows (null: none), the right column's pane
+   ('fiche' | 'competences'), and the character a « Créer et lier » prepared
+   for the generated draft. */
 export const creationState = $state({
   activeTabKey: null,
   entityListActivationTick: 0,
@@ -86,6 +92,10 @@ export const creationState = $state({
   pendingCreations: [],
   pendingCreationsLoading: false,
   pendingCreationsError: '',
+  // TICKET-0124 (BRIEF-0124-H, L1/H1): the open germ, the sheet's pane, and the character a « Créer et lier » prepared (C-14).
+  selectedGermId: null,
+  sheetPane: 'fiche',
+  germLinkTarget: null,
   // 'empty' | 'loading' | 'view' | 'error' | 'legacy' -- 'create' is a
   // sub-case of 'view' carrying sheetIsNew: true (same skeleton, blank data).
   sheetMode: 'empty',

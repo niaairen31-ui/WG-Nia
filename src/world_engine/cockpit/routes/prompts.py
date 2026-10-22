@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 
 from ...prompt_registry import PROMPT_REGISTRY
-from ...prompt_store import current_prompt
+from ...prompt_store import premised_prompt
 from ...context import assemble_mj_context, assemble_npc_context, format_mj_context
 from ...db import get_session
 from ...models import Character, Entity, PromptTemplate
@@ -58,7 +58,7 @@ def preview_prompt_npc_dialogue(
         raise HTTPException(status_code=503, detail="No active 'npc_dialogue' prompt template found.")
 
     assembled_context = assemble_npc_context(npc_id, pc_id, location_id, db)
-    behaviour_version = current_prompt(db, behaviour)
+    behaviour_version = premised_prompt(db, behaviour)
     system_prompt = _npc_dialogue_system_prompt(behaviour_version.system_prompt, assembled_context)
     return {
         "prompt_template_id": behaviour.id,
@@ -97,7 +97,7 @@ def preview_prompt_player_narration(
         raise HTTPException(status_code=503, detail="No active 'player_narration' prompt template found.")
 
     mj_context = assemble_mj_context(db, pc_id, location_id)
-    mj_version = current_prompt(db, mj_template)
+    mj_version = premised_prompt(db, mj_template)
     return {
         "prompt_template_id": mj_template.id,
         "pc_id": pc_id,

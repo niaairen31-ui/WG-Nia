@@ -6,7 +6,8 @@ tools (TICKET-0112, BRIEF-0112-A -- extracted verbatim from
 user template's `{name}` variables, records the exchange when the caller
 keeps a list (`model_exchange.begin`; the raw reply is kept before parsing,
 so a reply that does not parse is still recorded), calls the model and
-parses one JSON object (`llm_parse.extract_object`).
+parses one JSON object (`llm_parse.extract_object`). Both texts are filled
+with the world premise first (`world_premise.fill`, TICKET-0124, BRIEF-0124-B).
 
 The model client is a parameter: each caller passes the `chat` it imported,
 so a check that replaces `<caller module>.chat` still reaches the call
@@ -22,6 +23,7 @@ from typing import Callable, Optional
 from sqlmodel import Session
 
 from . import llm_parse, model_exchange, prompt_load
+from .world_premise import fill
 
 
 def call_json(
@@ -30,12 +32,13 @@ def call_json(
 ) -> dict:
     """One model call for `usage`, its template filled with `values`."""
     spec = prompt_load.load(db, usage)
-    user_message = spec.user_template
+    system_prompt = fill(spec.system_prompt, db, usage)
+    user_message = fill(spec.user_template, db, usage)
     for key, value in values.items():
         user_message = user_message.replace("{" + key + "}", value)
-    exchange = model_exchange.begin(exchanges, usage, spec, spec.system_prompt, user_message)
+    exchange = model_exchange.begin(exchanges, usage, spec, system_prompt, user_message)
     raw = chat(
-        [{"role": "system", "content": spec.system_prompt},
+        [{"role": "system", "content": system_prompt},
          {"role": "user", "content": user_message}],
         model=spec.model, format="json",
     )

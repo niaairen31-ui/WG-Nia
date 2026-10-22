@@ -45,6 +45,7 @@ _T0113 = "tooling/tickets/TICKET-0113-world-state.md"
 _T0114 = "tooling/tickets/TICKET-0114-event-journal.md"
 _T0119 = "tooling/tickets/TICKET-0119-event-producers.md"
 _T0121 = "tooling/tickets/TICKET-0121-journee-quest-designer.md"
+_T0124 = "tooling/tickets/TICKET-0124-world-premise.md"
 _DECISIONS = "tooling/standards/ARCHITECTURE_DECISIONS.md"
 _JSON_BOUNDARY = "tooling/verify/checks/json_ui_boundary.py"
 
@@ -170,6 +171,16 @@ DEFERRALS: tuple[Deferral, ...] = (
              _T0121, "P1 (the plan tool reworked; reactivation: the share of days routed to a quest asks "
                      "for it)",
              metric="quest_requests"),
+    Deferral("H2", "TICKET-0124",
+             "Le modèle reconnaît en jeu un personnage existant derrière un rôle.",
+             "Des germes de Journée que Nia rattache à une fiche existante.",
+             _T0124, "H2 (the model recognises an existing character in play; reactivation: Journée germs "
+                     "the creator attaches to an existing character)",
+             metric="germs"),
+    Deferral("W2", "TICKET-0124",
+             "Garder l'historique des lois du monde.",
+             "Un writer passe world_law_id= à un fait.",
+             _T0124, "W2 (law history; reactivation: a writer passes world_law_id= to a fact)"),
 )
 
 

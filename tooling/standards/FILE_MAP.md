@@ -39,6 +39,7 @@
 - `apply_ticket_0119_tick_prompt.py` — One-shot, idempotent delivery of the TICKET-0119 world tick events prompt update onto the live DB (BRIEF-0119-E): the scope-level tick reads the world's event types -- the `t` list, a new variable `event_types` -- and its sortes (`sortes`), and names an event's type by code and its participants by role and name; it proposes no new type (A1).
 - `apply_ticket_0121_designer_prompts.py` — One-shot, idempotent delivery of the TICKET-0121 quest designer's prompt heads (quest_subject, quest_design) onto the live DB (BRIEF-0121-E).
 - `apply_ticket_0121_select_prompt.py` — One-shot, idempotent delivery of the TICKET-0121 plan-selection prompt update onto the live DB (BRIEF-0121-D, K1): the selection answers a third thing -- `route`, "plan" or "quest" -- when the declaration attaches to no open plan, and is called on every declaration (an empty plan list included).
+- `apply_ticket_0124_world_premise.py` — One-shot, idempotent delivery of the TICKET-0124 world premise onto the live DB (BRIEF-0124-D, P1): one new version per creator or player template, `{world_premise}` at the head of its current system text, the creator's own edits kept.
 - `backup.py` — Timestamped, rotated backup of the live world-engine database.
 - `cockpit.py` — Launch the World Engine Cockpit on 127.0.0.1:8000.
 - `export_lore_usage.py` — Export the Lore shell's usage journal as JSON Lines (TICKET-0103, BRIEF-0103-E, decision E1).
@@ -122,6 +123,7 @@
 - `migrate_v2_27_mutation_reviews.py` — Migration v2.27 — the creator's review of a proposal, round by round (TICKET-0115, BRIEF-0115-A; decisions A3, C1 and H1a of the conditions series' dashboard).
 - `migrate_v2_28_quest_requests.py` — Migration v2.28 — a quest request is a row (TICKET-0121, BRIEF-0121-B; decision L1 of the Journée quest designer).
 - `migrate_v2_29_rank_trials.py` — Migration v2.29 — a rank may ask a trial, and a trial is a quest (TICKET-0116, BRIEF-0116-A; decisions B1, D2, D2-d, F1-b).
+- `migrate_v2_30_world_tone.py` — Migration v2.30 — a world has a tone (TICKET-0124, BRIEF-0124-A; decision B2 of the world premise).
 - `observation_metrics.py` — Observation run metrics (TICKET-0051, BRIEF-0051-g, decision J2/Q).
 - `preview_npc_schedule.py` — Preview `where_is` / `who_is_at` / `unresolved_npcs` — the concrete reader for `world.current_phase` (T-A1) and the live-gate instrument for TICKET-0074, BRIEF-0074-a.
 - `preview_tick_context.py` — Preview the full-interiority briefing a world tick would send to one NPC (TICKET-0014, BRIEF-0014-a; TICKET-0015, BRIEF-0015-a adds --interval) — the concrete reader for `assemble_tick_context` in this brief, and the live-gate instrument for the T1 review.
@@ -168,6 +170,7 @@
 - `day_rewrite.py` — The declaration rewrite (TICKET-0081, BRIEF-0081-b — decisions A2'/B2/J2).
 - `db.py` — Database engine and session management.
 - `debt_reads.py` — Debts: what the two surfaces read (TICKET-0110, BRIEF-0110-B, contract C-06).
+- `draft_world.py` — What a draft adds from its world -- the names it may cite, the fields it fills, and code's judgment of its answer (TICKET-0124, BRIEF-0124-G; A2, G2).
 - `encounters.py` — Encounter registry writer and reads (TICKET-0091, BRIEF-0091-C, C-07).
 - `entity_author.py` — AI entity-authoring assistant (NPC, Location) — BRIEF-24, BRIEF-25.
 - `event_analysis.py` — The play analyzer's typed events (TICKET-0114, BRIEF-0114-H; decisions I2 and R1 of the conditions series).
@@ -252,6 +255,7 @@
 - `tick_normalize.py` — World-tick model-output normalization (TICKET-0014 onward; decomposed from `tick.py` at TICKET-0028, BRIEF-0028-a).
 - `traits.py` — Trait registry — code-source-of-truth (A1, TICKET-0045, BRIEF-0045-b).
 - `unbound_facts.py` — Facts nobody is attached to (TICKET-0097, decisions I1 and J1) — the read behind Creation's « Sujets » panel.
+- `world_premise.py` — The world premise -- what every generator is told about the world it writes for, in the regime its usage declares (TICKET-0124, BRIEF-0124-B; decisions A2, B2, C1, D2).
 - `zone_rules.py` — Zones and visitable locations (TICKET-0101) — pure reads, no write.
 
 ## src/world_engine/cockpit/
@@ -279,6 +283,7 @@
 - `_shared.py` — Author CRUD — shared cross-domain accessors (TICKET-0027, BRIEF-0027-i).
 - `agendas.py` — Author CRUD — agendas (TICKET-0018).
 - `entities.py` — Author CRUD — entity core: field-spec vocabularies, the entity type registry, field coercion/validation, entity serialization, and composite create/update/soft-delete for character/faction/location/artifact.
+- `entity_extras.py` — A create's world extras -- the states, links and germs a draft proposed and the creator kept, written in the create's own transaction (TICKET-0124, BRIEF-0124-E).
 - `entity_geometry.py` — Author CRUD — location spatial write surface: playable bounds, obstacle polygons and door rows.
 - `entity_runtime.py` — Governed-runtime-type instance CRUD mechanics (TICKET-0046, BRIEF-0046-e).
 - `events.py` — Author CRUD — the event journal (TICKET-0022; rewritten by TICKET-0114, BRIEF-0114-C): no-delete-ever history rows.
@@ -399,6 +404,7 @@
 - `corpus_gate.py` — G1 check: corpus gate -- every check in tooling/verify/checks/ runs, or this gate is red (TICKET-0060, BRIEF-0060-d, B1).
 - `creation_container_sizing.py` — G1 check: every single-container Création tab sizes its container (TICKET-0099, BRIEF-0099-a).
 - `creation_island.py` — G1 check: the Creation island-mount seam (TICKET-0058, BRIEF-0058-d, amended by BRIEF-0058-e; re-anchored by TICKET-0059, BRIEF-0059-l commit 1, D1).
+- `creation_layout.py` — G1 check for TICKET-0124 -- nothing stacks in Création's right column: germs are a group of the list, the skill sheet a pane of the sheet.
 - `creation_return_nav.py` — G1 check for TICKET-0054 (BRIEF-0054-d): Creation surface cross-tab entity navigation with a single-slot return crumb.
 - `creation_tab_switch.py` — G1 check: the tab-switch sheet reset (TICKET-0083, BRIEF-0083-a).
 - `dashboard_registry.py` — G1 check for TICKET-0115 -- the dashboard is a registry in code: its metrics read relational columns only, its deferrals point at the passage that declares them, and its export carries what the tab does not show.
@@ -422,6 +428,8 @@
 - `door_coverage.py` — G1 check for TICKET-0039 (BRIEF-0039-e) — door coverage invariant.
 - `door_distinct_points.py` — L1 check for TICKET-0040 (BRIEF-0040-e) — door distinct-point invariant.
 - `door_terminal.py` — G1 check: door terminality + orchestration-only guards (TICKET-0034, BRIEF-0034-b).
+- `draft_panel.py` — G1 check for TICKET-0124 -- the sheet shows what the world adds to a draft and sends what the creator kept.
+- `draft_world.py` — G1 check for TICKET-0124 -- a draft fills the states its world asks for, and code decides what each answer names.
 - `dynamic_ext_crud.py` — G1 check: dynamic ext_* instance CRUD for governed runtime entity types (TICKET-0046, BRIEF-0046-e), on the trait_registry_projection.py temp-fixture idiom — a fresh temp-file SQLite fixture (WORLD_ENGINE_DATABASE_URL set BEFORE any world_engine import), so this check never touches Nia's real DB.
 - `effect_self_write.py` — G1 check: effect_self_write (TICKET-0062, BRIEF-0062-a commit 2).
 - `effects_ledger_source.py` — G1 gate: ledger rows written by completion effects carry `source_type='tick'` (M1, TICKET-0024, BRIEF-0024-c) — both legs of a `ledger_transfer` effect, inside `_apply_completion_effects`.
@@ -454,6 +462,7 @@
 - `function_length.py` — G1 check: function length ceiling (TICKET-0027 R1, BRIEF-0027-a).
 - `gathering_lifecycle.py` — Structural gate for the gathering lifecycle (TICKET-0089, BRIEF-0089-g).
 - `geometry_unit.py` — G1 check: permanent regression guard for the sole collision authority (TICKET-0030, BRIEF-0030-a).
+- `germ_attach.py` — G1 check for TICKET-0124 -- a germ says where it comes from, and can join an existing character instead of creating one.
 - `graph_primitive.py` — G1 check: the graph primitive convergence lock (TICKET-0057, BRIEF-0057-d; amended BRIEF-0058-b to prove convergence, not just presence).
 - `h1_strip_bounded.py` — G1 gate: the H1 partial-application strip exists ONLY inside the `goal_change complete` path — the project's one sanctioned exception to all-or-nothing mutation apply (TICKET-0024, BRIEF-0024-c).
 - `identity_tokens.py` — G1 check for TICKET-0091 (BRIEF-0091-J) — identity tokens (F1).
@@ -553,6 +562,9 @@
 - `undefined_names.py` — G1 check: no undefined names under src/ (TICKET-0027 R8, BRIEF-0027-i).
 - `visit_delta.py` — Structural gate for the `visit` table (TICKET-0016, BRIEF-0016-a).
 - `world_cascade.py` — G1 check for TICKET-0096 (BRIEF-0096-A) -- the world cascade deletes every world-scoped row, or refuses before deleting anything.
+- `world_extras.py` — G1 check for TICKET-0124 -- a create carries the states, links and germs the creator kept, all in one transaction or none.
+- `world_premise.py` — G1 check for TICKET-0124 -- every generator that writes fiction is told the world it writes for, in its usage's regime, through one placeholder.
+- `world_sheet.py` — G1 check for TICKET-0124 -- a world has a tone and can be edited, and the « Monde » page edits it.
 - `world_tick.py` — Structural gate for the world-tick briefing surface (TICKET-0014, BRIEF-0014-a).
 - `zone_children.py` — G1 check for TICKET-0101 (BRIEF-0101-E) — a zone's children take its neighbours.
 - `zone_graph.py` — G1 check for TICKET-0101 (BRIEF-0101-F) — the Lieux graph's three modes.

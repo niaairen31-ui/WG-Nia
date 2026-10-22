@@ -202,7 +202,7 @@ export const CREATION_TABS = {
     containers: ['creation-editor-area'],
     loader: null,
     state: { onTabEnter: () => _npcTabEnterReset(), onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }, { key: 'npcAgent', containerId: 'npcagent-panel' }, { key: 'linkAgent', containerId: 'linkagent-panel' }, { key: 'pjSkillFiche', containerId: 'creation-pj-skill' }],
+    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }, { key: 'npcAgent', containerId: 'npcagent-panel' }, { key: 'linkAgent', containerId: 'linkagent-panel' }, { key: 'pjSkillFiche', containerId: 'creation-pj-skill' }, { key: 'germPanel', containerId: 'creation-germ-panel' }],
     type: 'character',
     entityFilter: (entities) => entities.filter(e => e.type === 'character' && !creationState.playerCharIds.has(e.id)),
     createPanel: null,
@@ -235,7 +235,7 @@ export const CREATION_TABS = {
     containers: ['creation-editor-area', 'batch-panel-wrap'],
     loader: null,
     state: { onTabEnter: () => _lieuxTabEnterReset(), onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }, { key: 'batch', containerId: 'batch-panel-wrap' }],
+    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }, { key: 'batch', containerId: 'batch-panel-wrap' }, { key: 'germPanel', containerId: 'creation-germ-panel' }],
     type: 'location',
     createPanel: null,
     primaryAction: { label: '+ Nouveau', handler: () => triggerPrimaryAction('entitySheet') },
@@ -251,7 +251,7 @@ export const CREATION_TABS = {
     containers: ['creation-editor-area'],
     loader: null,
     state: { onTabEnter: null, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }],
+    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }, { key: 'germPanel', containerId: 'creation-germ-panel' }],
     type: 'faction',
     createPanel: null,
     primaryAction: { label: '+ Nouveau', handler: () => triggerPrimaryAction('entitySheet') },
@@ -368,6 +368,16 @@ export const CREATION_TABS = {
     state: { onTabEnter: null, onWorldSwitch: null },
     islands: [{ key: 'vocabulary', containerId: 'creation-vocabulaire' }],
     primaryAction: { label: '+ Nouveau', handler: () => triggerPrimaryAction('vocabulary') },
+  },
+  // TICKET-0124 (BRIEF-0124-J, W1): the world's name, description, tone and laws.
+  monde: {
+    label: 'Monde',
+    archetype: 'bespoke',
+    containers: ['creation-monde'],
+    loader: null,
+    state: { onTabEnter: null, onWorldSwitch: null },
+    islands: [{ key: 'worldSheet', containerId: 'creation-monde' }],
+    primaryAction: null,
   },
   subjects: {
     label: 'Sujets',
@@ -497,6 +507,9 @@ function activateIslandFor(key) {
 function _creationActivateTab() {
   const entry = CREATION_TABS[creationState.activeTabKey];
   if (!entry) return;
+  creationState.selectedGermId = null;
+  creationState.sheetPane = 'fiche';
+  creationState.germLinkTarget = null;
   creationRefreshList();
   if (entry.loader) entry.loader();
   (entry.slots || []).forEach(s => { if (s.display !== 'on_demand' && s.loader) s.loader(); });
@@ -761,10 +774,36 @@ export async function generatePendingCreation(mutationId) {
     alert((result && result.error) || 'Échec de la génération.');
     return;
   }
+  creationState.selectedGermId = null;
+  creationState.sheetPane = 'fiche';
   document.dispatchEvent(new CustomEvent('creation:sheet-create', { detail: { type: result.entity_type, mutationId } }));
   document.dispatchEvent(new CustomEvent('creation:apply-generated-draft', {
     detail: { entityType: result.entity_type, result },
   }));
+}
+
+/* ── One germ, opened from the list (TICKET-0124, BRIEF-0124-H, H1) ─────── */
+
+export function selectGerm(mutationId) {
+  creationState.selectedGermId = mutationId;
+}
+
+export async function loadGermCandidates(mutationId) {
+  const res = await api(`/api/creations/${encodeURIComponent(mutationId)}/candidates`);
+  return res.candidates;
+}
+
+/** The germ joins an existing entity (POST /attach); an error rethrows. */
+export async function attachGerm(mutationId, entityId) {
+  const res = await api(`/api/creations/${encodeURIComponent(mutationId)}/attach`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entity_id: entityId }),
+  });
+  creationState.selectedGermId = null;
+  await loadPendingCreations();
+  creationRefreshList();
+  return res;
 }
 
 /* ── World-switch cascade (TICKET-0056 C3, moved here per BRIEF-0059-l) ──

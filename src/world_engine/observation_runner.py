@@ -52,7 +52,7 @@ from .observation_writes import (
     write_observation_intent,
     write_observation_run,
 )
-from .prompt_store import current_prompt
+from .prompt_store import current_prompt, premised_prompt
 
 _log = logging.getLogger(__name__)
 
@@ -340,11 +340,11 @@ def _generate_act_line(
     dialogue system prompt + context + act instruction) — duplicated
     rather than imported: core modules never import cockpit modules."""
     dialogue_template = _load_template_by_usage("npc_dialogue", world_id, db)
-    dialogue_prompt = current_prompt(db, dialogue_template).system_prompt if dialogue_template is not None else ""
+    dialogue_prompt = premised_prompt(db, dialogue_template).system_prompt if dialogue_template is not None else ""
 
     act_template = _load_template_by_usage("npc_initiative_act", world_id, db)
     act_instruction = (
-        current_prompt(db, act_template).system_prompt
+        premised_prompt(db, act_template).system_prompt
         if act_template is not None else _NPC_INITIATIVE_ACT_FALLBACK
     )
 
@@ -398,7 +398,7 @@ def _generate_mj_narration(
     scoping (no player to scope for; an omniscient creator reads this)."""
     template = _load_template_by_usage(OBSERVATION_NARRATION_USAGE, world_id, db)
     if template is not None:
-        version = current_prompt(db, template)
+        version = premised_prompt(db, template)
         system_prompt, user_template = version.system_prompt, version.user_template
     else:
         system_prompt, user_template = _OBSERVATION_NARRATION_FALLBACK_SYSTEM, _OBSERVATION_NARRATION_FALLBACK_USER

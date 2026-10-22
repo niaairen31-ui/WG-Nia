@@ -45,6 +45,10 @@
         <textarea id="world-create-description" rows="3" placeholder="Genre, ton, géographie générale…" bind:value={worldCrudState.createDescription}></textarea>
       </div>
       <div class="field-row" style="grid-column:1/-1">
+        <label for="world-create-tone">Ton et style (optionnel)</label>
+        <textarea id="world-create-tone" rows="2" placeholder="Registre, genre, conventions de noms…" bind:value={worldCrudState.createTone}></textarea>
+      </div>
+      <div class="field-row" style="grid-column:1/-1">
         <label for="world-create-laws">Lois fondamentales (contraintes absolues, optionnel)</label>
         <textarea id="world-create-laws" rows="3" placeholder="Ex. « La magie n'existe pas dans ce monde. »" bind:value={worldCrudState.createLaws}></textarea>
       </div>

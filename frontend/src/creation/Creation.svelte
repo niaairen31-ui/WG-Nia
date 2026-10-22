@@ -28,7 +28,7 @@
   import {
     CREATION_TABS, creationInit, showCreationSubTab, creationRefreshList,
     containerVisible, onDemandSlotToggle, creationReturnToOrigin,
-    creationSaveDispatch, loadPendingCreations, generatePendingCreation,
+    creationSaveDispatch,
     initCreationChrome, setMountActions,
   } from './tabs.js';
   import { triggerPrimaryAction, activateIsland } from './mount.js';
@@ -176,42 +176,19 @@
     </aside>
 
     <div class="right-col">
-      <!-- Créations en attente (BRIEF-0019-a) -- approved entity_creation
-           germs awaiting on-demand sheet generation; shown only for entity
-           tabs whose registry entry sets showPendingCreations. -->
-      <div id="creation-pending-strip" style:display={activeEntry?.showPendingCreations ? '' : 'none'} style="border-bottom:2px solid var(--border)">
-        <div class="panel-head" style="flex-shrink:0">
-          <h2 style="font-size:12px">Créations en attente</h2>
-          <button class="btn-icon" onclick={() => loadPendingCreations()} title="Rafraîchir">↻</button>
+      <!-- TICKET-0124 (BRIEF-0124-H, L1): nothing stacks -- the « Fiche |
+           Compétences » panes on the tabs that mount the skill sheet; one
+           germ, opened from the list, alone in the column. -->
+      {#if activeEntry?.islands?.some(i => i.key === 'pjSkillFiche')}
+        <div class="sheet-pane-bar">
+          <button class="creation-sub-tab" class:active={creationState.sheetPane === 'fiche'} onclick={() => { creationState.sheetPane = 'fiche'; }}>Fiche</button>
+          <button class="creation-sub-tab" class:active={creationState.sheetPane === 'competences'} onclick={() => { creationState.sheetPane = 'competences'; }}>Compétences</button>
         </div>
-        <div id="creation-pending-list" class="conv-list" style="max-height:180px; overflow-y:auto">
-          {#if creationState.pendingCreationsLoading}
-            <div class="empty"><span class="spin">⟳</span></div>
-          {:else if creationState.pendingCreationsError}
-            <div class="empty" style="color:var(--red)">Erreur : {creationState.pendingCreationsError}</div>
-          {:else if creationState.pendingCreations.length === 0}
-            <div class="empty">Aucune création en attente.</div>
-          {:else}
-            {#each creationState.pendingCreations as item (item.mutation_id)}
-              <div class="row-card">
-                <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px">
-                  <strong>{item.name || '(sans nom)'}</strong>
-                  <span class="badge b-other" style="font-size:10px">{item.source === 'tick' ? 'TICK' : 'CONVERSATION'}</span>
-                </div>
-                {#if item.concept}<div style="font-size:12px; color:var(--muted)">{item.concept}</div>{/if}
-                {#if !item.entity_type}<span class="badge b-other" style="font-size:10px; border-color:var(--red); color:var(--red)">type inconnu</span>{/if}
-                <div class="row-card-actions">
-                  {#if item.entity_type}
-                    <button class="btn-send" onclick={() => generatePendingCreation(item.mutation_id)}>Générer la fiche</button>
-                  {/if}
-                </div>
-              </div>
-            {/each}
-          {/if}
-        </div>
-      </div>
+      {/if}
+      <!-- The germPanel island's mount point. Empty by construction. -->
+      <div id="creation-germ-panel" style:display={creationState.selectedGermId ? '' : 'none'}></div>
 
-      <div class="transcript-panel" style="border-bottom:none">
+      <div class="transcript-panel" style="border-bottom:none" style:display={(creationState.selectedGermId || creationState.sheetPane === 'competences') ? 'none' : ''}>
         <div class="panel-head">
           <h2 id="author-sheet-title">Sélectionner une entité</h2>
           <button class="btn-ghost" id="author-return-btn" onclick={() => creationReturnToOrigin()}
@@ -228,7 +205,7 @@
            (BRIEF-0005-b), rendered by default on tab activation, outside
            the create gate. Empty by construction, same as every other
            island's container. -->
-      <div id="creation-pj-skill" style:display={containerVisible('creation-pj-skill') ? '' : 'none'}></div>
+      <div id="creation-pj-skill" style:display={(containerVisible('creation-pj-skill') && creationState.sheetPane === 'competences' && !creationState.selectedGermId) ? '' : 'none'}></div>
     </div><!-- .right-col -->
   </div><!-- #creation-editor-area -->
 
@@ -256,6 +233,8 @@
   <!-- ── Vocabulaire du monde sub-tab -- Svelte island (TICKET-0113 « États »,
        TICKET-0114 its event types and sortes): empty by construction ── -->
   <div id="creation-vocabulaire" style:display={containerVisible('creation-vocabulaire') ? '' : 'none'}></div>
+  <!-- ── Monde sub-tab -- Svelte island (TICKET-0124): empty by construction ── -->
+  <div id="creation-monde" style:display={containerVisible('creation-monde') ? '' : 'none'}></div>
   <div id="creation-subjects" style:display={containerVisible('creation-subjects') ? '' : 'none'}></div>
 
   <!-- ── Suivi sub-tab -- Svelte island (TICKET-0115): empty by construction ── -->

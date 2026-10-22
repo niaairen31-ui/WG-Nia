@@ -34,15 +34,10 @@ from sqlmodel import Session, select
 
 from . import llm_parse
 from .entity_author import AUTHOR_MODEL, generate_entity_draft
-from .models import PromptTemplate, World, WorldLaw
+from .models import PromptTemplate
 from .ollama_client import OllamaError, chat
 from .prompt_registry import effective_model
-from .prompt_store import current_prompt
-
-
-def _active_world(db: Session) -> World | None:
-    """BRIEF-44: the active world, for the manifest's premise reader."""
-    return db.exec(select(World).where(World.is_active == True)).first()  # noqa: E712
+from .prompt_store import premised_prompt
 
 
 def _load_manifest_template(db: Session) -> PromptTemplate | None:
@@ -230,24 +225,14 @@ def generate_region_manifest(brief: str, db: Session) -> dict:
     if template is None:
         return {"ok": False, "error": "No active pt-region-manifest template found"}
 
-    world = _active_world(db)
-    description = (world.description if world else None) or ""
-    laws = db.exec(
-        select(WorldLaw).where(WorldLaw.world_id == world.id).order_by(WorldLaw.position)
-    ).all() if world else []
-    fundamental_laws = "\n".join(law.text_ for law in laws)
-    world_description = f"Contexte du monde : {description}\n\n" if description else ""
-    world_fundamental_laws = (
-        f"Lois fondamentales du monde (contraintes absolues) : {fundamental_laws}\n\n"
-        if fundamental_laws else ""
-    )
-
-    version = current_prompt(db, template)
+    version = premised_prompt(db, template)
+    # TICKET-0124 (BRIEF-0124-C): the world premise carries the description and the laws;
+    # these two placeholders render empty so a template that still holds them repeats nothing.
     user_message = (
         version.user_template
         .replace("{brief}", brief)
-        .replace("{world_description}", world_description)
-        .replace("{world_fundamental_laws}", world_fundamental_laws)
+        .replace("{world_description}", "")
+        .replace("{world_fundamental_laws}", "")
     )
 
     messages = [

@@ -20403,6 +20403,312 @@ block names the skill and the rank from `payload.trial`, and `REVIEW_KEYS`
 carries `trial` through `proposalBody`. The applier never reads it: it
 judges the rank reward from the request. Gate: `rank_trials.py` TF1-TF4.
 
+
+## A WORLD HAS A TONE AND CAN BE EDITED (TICKET-0124) -- world.tone, GET/PUT /api/worlds/{world_id} (BRIEF-0124-a, schema v2.30)
+
+**B2: the tone is one free field.** `world.tone` (TEXT, nullable) holds
+the creator's « Ton et style »; every generator will read it through the
+world premise (brief B). It is stored stripped, empty -> NULL, on create
+(`WorldCreateBody.tone`) and on edit. A structured world bible (B3) is
+deferred.
+
+**W1: one world is read and edited.** `GET /api/worlds/{world_id}` answers
+`id, name, description, tone, laws, is_active`; `PUT` writes the name
+(stripped, empty -> 422 « Le nom est requis. »), description, tone,
+`updated_at`, and the laws through `write_world_laws` -- the existing
+full replace -- in one commit. Any world, active or not; `is_active` and
+`current_phase` are never touched. `update_world` is a fifth sanctioned
+`world` write site (`canon_write_policy.txt`). Law history (W2) is
+deferred; its condition is grep-able: the day a writer passes
+`world_law_id=` to a fact, the full replace fails on the foreign key.
+
+**D2: the laws are public.** Nothing hides a law from the players; a hidden
+law is its own ticket. Gate: `world_sheet.py` WS1-WS3.
+
+## ONE WORLD PREMISE, TWO REGIMES (TICKET-0124) -- world_premise.py, PromptSpec.premise, premised_prompt (BRIEF-0124-b, no schema change)
+
+**C1: every usage declares its regime.** `PromptSpec` gains `premise`
+(no default: every entry must declare it) and `premise_reason`, non-empty
+exactly for `none`. The 47 usages split 14 `creator` (the authoring
+generators, `quest_trial` with `quest_design`), 15 `player` (every play
+and day surface that writes fiction) and 18 `none`, each with its reason:
+`world_generation` drafts the world itself; the coherence, placement,
+selection, routing and classification usages judge, assign or pick and
+write no fiction; `lore_rows_to_prose` must add nothing to the rows;
+`condition_interpret` translates a sentence; the `day_extract_*` and
+`day_feasibility` usages are already framed by `world_frame`. A check
+holds the partition literally (`world_premise.py` WP1).
+
+**D2: the player regime is public only.** `world_premise.world_premise`
+builds one block for the active world: name, description, tone, laws.
+The `creator` regime adds the skill systems by name and, given an entity
+type, every active non-system state that type carries (a hidden one
+marked « caché du joueur »). The `player` regime never carries a skill
+system or a state; the laws are public (D2). Nothing but a name -> `""`.
+
+**P1: one placeholder, the existing version path.** The premise reaches
+a text only through `{world_premise}`, declared as a template variable
+and written through `write_prompt_version` like any other. `fill`
+replaces it (a text without it is returned untouched, no query run);
+`prompt_store.premised_prompt` returns the filled text as a frozen
+`PremisedPrompt` -- never the append-only row (INV-48) -- and
+`prompt_call.call_json` fills both texts before its `values`.
+`prompt_load` stays text-only. `missing_premise` gives the French refusal
+when a text and its regime disagree. INV-65 (`prompts.md`); gate:
+`world_premise.py` WP1-WP2.
+
+## THE RENDER SITES READ THROUGH PREMISED_PROMPT (TICKET-0124) -- 34 calls, 18 functions that stay (BRIEF-0124-c, no schema change)
+
+**C-07: the render calls move, nothing else.** Every call that renders a
+`creator` or `player` usage's text -- 34 calls in 31 functions, from the
+authoring generators to every play, observation, tick and day surface --
+reads its version through `premised_prompt` instead of `current_prompt`,
+same arguments; `_entity_draft_call` passes its `entity_type` and
+`generate_npc_goals` passes `"character"`, so the creator regime lists that
+type's states. Each site uses only `id`, `version_number`, `system_prompt`
+and `user_template`, all carried by `PremisedPrompt`. No template holds
+`{world_premise}` yet (brief D), so every text reads exactly as before.
+The npc_dialogue sites still build their system prompt through
+`_npc_dialogue_system_prompt` (INV-39); only where `version` comes from
+changed.
+
+**The 18 functions that stay on `current_prompt`.** A `none` usage needs
+no premise: `_window_call_model` (conversation_analysis),
+`_overhearing_classify`, `summarize_older_lines`, `day_choice._ask` (its
+check stubs `current_prompt` there), `day_extract._extract`,
+`day_feasibility.veto`, `select_plan`, `reconcile`, `generate_world_draft`
+(it drafts the world itself), `render_coherence_messages`,
+`_run_placement_call`, `propose_batch_coherence`, `_select_group_speaker`.
+Three read no text for a model: `_prompt_row_summary` and
+`_pin_templates` read version numbers only; `get_prompt_detail` is the
+Prompts tab's editor, which must show the raw stored text.
+`prompt_coverage.missing_usages` only proves a version exists, and
+`prompt_load.load` stays text-only -- `call_json` fills what it returns
+(C-06).
+
+**The region generator's two placeholders render empty.**
+`generate_region_manifest` was the only generator reading the world's
+description and laws itself (« Contexte du monde », « Lois fondamentales
+du monde »). The premise now carries both, so `{world_description}` and
+`{world_fundamental_laws}` are replaced with `""`: the placeholders stay
+declared, and a live text that still holds them repeats nothing. Its
+`World`/`WorldLaw` reads and `_active_world` are gone. Gate:
+`world_premise.py` WP3 (both partitions by equality, `call_json`'s two
+`fill(` calls, `prompt_load` filling nothing, the two empty renders).
+
+## THE WORLD PREMISE IN EVERY TEMPLATE (TICKET-0124) -- premised_texts, apply_ticket_0124_world_premise.py, the edit guard (BRIEF-0124-d, no schema change)
+
+**P1: one way to change a prompt.** The placeholder reaches the texts the
+way any prompt change does -- a new `prompt_version` through
+`write_prompt_version`, its variable declared first (C1). For a new
+database, `seed_pilot.upsert_prompt_template` passes a virgin head's texts
+and variables through `premised_texts`: a `creator` or `player` usage gets
+`{world_premise}` at the head of its v1 system text and the variable; a
+`none` usage is untouched. An existing head only gets the variable (S2: the
+seed never writes text on a head that has a version). The seed text
+constants are not edited: ET1/EL1 compare the 0119 deliveries to them
+verbatim. For Nia's database, `apply_ticket_0124_world_premise.py` visits
+every active head of a `creator` or `player` usage, declares the variable
+when absent, and copies its current text with the placeholder prefixed to
+`system_prompt` as one new version -- the creator's own edits kept, a head
+already holding the placeholder left as it is, idempotent.
+`REGION_MANIFEST_USER_TEMPLATE` loses its leading
+`{world_description}{world_fundamental_laws}`; both stay declared and the
+code still renders them `""` (C-07).
+
+**P1-g: the edit guard lives in the two routes.** `update_prompt_text` and
+`restore_prompt_version` -- the only cockpit paths that write prompt text
+-- call `missing_premise` before `write_prompt_version`: a creator or player
+text without `{world_premise}`, or a `none` text with it, is a 422 with the
+French refusal, nothing written. It is not in `write_prompt_version`
+itself: five checks (`prompt_version.py`, `event_tick.py`, `event_lore.py`,
+`knowledge_identity.py`, `observation_runner.py`) write premise-usage
+versions without the placeholder as legitimate fixtures. Consequence: a
+restore of a pre-0124 version is refused until the placeholder is put back
+-- the creator edits the text instead. Gate: `world_premise.py` WP4.
+
+## A CREATE CARRIES WHAT THE WORLD ADDS (TICKET-0124) -- states, links and ticked germs in one transaction; the creator_draft producer (BRIEF-0124-e, no schema change)
+
+**S1: everything or nothing.** `EntityWriteBody` gains `states`,
+`relations` and `germs` (C-09), honoured on create only -- `update_entity`
+answers 422 for any non-empty one before a write. `create_entity` calls
+`cockpit/crud/entity_extras.py::write_create_extras` right after
+`_create_entity_core` and before its single commit (INV-18: the extras
+module never commits, never rolls back). States go through
+`write_attribute_value` (`kind="correction"`, `changed_by="creator_crud"`;
+a `sys:` key is refused, the canon columns are not written here), links
+through `write_oriented_relations` (social types only, `a_to_b`, value
+50; a new entity has no relation yet, so the social route's 409 cannot
+arise). Any refusal -- a writer's `ValueError`, a system key, a link out
+of the world or to itself, a non-social type, a germ type outside
+character, location, faction -- is a `ValueError` the route rolls back and
+answers 422: the entity itself is not created. The response carries the
+counts under `world_extras`.
+
+**I1: the creator's tick is the approval.** A ticked germ is an
+`entity_creation` proposal born `approved`, `proposed_by="creator_draft"`,
+payload `{entity_type, name, concept, origin_entity_id, link_type}`
+(C-10), and lands in « Créations en attente ». No review round and no
+`mutation_review` row: nothing was proposed to the creator, she wrote it
+(`record_review` stays in `routes/mutations.py`, RD5). Its producer is of a
+fourth kind, `creator`, so PP3 -- which holds `model` and `engine` sites to
+`status="proposed"` -- is unchanged. `source_type="creation"` with no
+source FK follows the tick precedent: `proposed_mutation` enforces no
+single source. A germ whose name collides with an active entity or an open
+germ (`day_concordance._germ_blocked`) is skipped and named under
+`germs_skipped`, never a refusal. Gate: `world_extras.py` EX1-EX3.
+
+## A GERM SAYS WHERE IT COMES FROM AND CAN JOIN AN EXISTING CHARACTER (TICKET-0124) -- source sentence, place name, candidates, attach, the Germes metric (BRIEF-0124-f, no schema change)
+
+**E1: the sentence and the place by name.** `emit_germs` adds two keys to
+a Journée germ's payload (C-10): `source_sentence`, the sentence of
+`pass_play.declared_action` that holds the mention's surface form
+(`_source_sentence`, compared through `normalize_surface`; the whole
+declaration cut to 300 characters when none holds it), and `anchor_name`,
+the name of `candidate_location_id`. `_compose_entity_creation_brief(payload,
+db)` writes « Lieu : {name}. » and never a location id -- a germ born
+before this lot (`anchor == candidate_location_id`) has its name read at
+compose time; a tick germ's prose `anchor` is kept -- then « Mentionné
+ainsi : « ... » » and a draft germ's « Lié à {origin} ({link_type}). ». The
+pending list names its source from the row (`_pending_source`: `tick`,
+`journee`, `creation`, `conversation`) and serves the germ's place name,
+sentence and origin as plain keys.
+
+**H1: a germ can join an existing character.** `germ_candidates` lists the
+active non-player characters of the germ's world at its place
+(`candidate_location_id`, or a draft germ's origin character's place) or at
+a `connects_to` neighbour, read only through `_location_neighbours`
+(INV-06), by name, at most `MAX_GERM_CANDIDATES = 12`; any type other than
+character, or no place, lists nothing. `GET /api/creations/{id}/candidates`
+serves them and the draft generation returns them. `POST
+/api/creations/{id}/attach` (409 for a germ that is not approved and
+unrealized, 422 for an entity not active, of another world or type) sets
+`target_table="entity"` and `target_id`, appends « rattaché à une entité
+existante : {name} » to `creator_notes`, then `_link_entity_creation`
+applies the germ and commits; a refusal there rolls the session back and
+answers 409. `target_table="entity"` is the relational mark of an attached
+germ: no entity is created and no canon is written, and the dashboard
+counts it without reading the payload.
+
+**The « Germes » metric and two deferrals.** `dashboard_metrics._germs`
+counts `entity_creation` proposals by source (Journée, Tick, Brouillon,
+Conversation) and fate (proposed, awaiting realization, realized in a new
+entity -- `applied`, `target_table` NULL -- attached, rejected). H2 -- the
+model recognising an existing character in play (`day_choice` stays closed
+to inferred mentions) -- reactivates when the creator attaches Journée
+germs to existing characters, watched by `germs`. W2 -- law history --
+reactivates when a writer passes `world_law_id=` to a fact. Gate:
+`germ_attach.py` GA1-GA4.
+
+## THE DRAFT FILLS WHAT THE WORLD ASKS (TICKET-0124) -- draft_world.py, its case table (BRIEF-0124-g, no schema change)
+
+**A2: the draft answers the states its world carries.** The creator premise
+already lists the states a type carries (BRIEF-0124-b). `_entity_draft_call`
+now appends `draft_world.WORLD_FIELDS[entity_type]` to the type's fields --
+`public.states`, `public.links`, `public.to_create`, and for a character
+`public.same_as` -- followed by `known_names_block`: the names the draft may
+cite, the germ's candidates first, then the active non-player characters,
+the factions and the locations by name, at most `MAX_KNOWN_NAMES = 60`. The
+block lists names only, on a creator surface (INV-01 untouched). The draft
+reads the ACTIVE world (`draft_world.active_world_id`); the older
+`entity_author._world_id` (the first world row) is left as it was.
+
+**Model proposes, code judges.** `resolve_world_block` turns the answer into
+`draft["world"] = {"states", "links", "same_as", "to_create"}` by LOT-0124's
+Gate (b) table 3, and every id in it comes from a `select` on the world's
+rows: a state names an applicable active non-system definition (casefold,
+once); a choice value matches a label through `normalize_surface`; an
+integer is an int or the string of one; an entity value names an active
+entity of a value type. A link names an active entity other than the draft
+and carries a social type (`is_social`). `same_as` names an active
+non-player character, and only for a character draft -- the sheet offers
+it, the creator decides (brief I). Every drop appends one French note.
+
+**G2: an unknown name becomes an entity to create, never a guess.** An
+entity value naming nothing, when a value type is creatable, and a link
+naming nothing become entities to create (`{name, entity_type, concept,
+link_type}`, C-09's germ shape); they lead the model's own `to_create`,
+deduplicated by casefolded name, existing names dropped, cut to
+`MAX_DRAFT_GERMS = 3`. Nothing is created at draft time: a ticked one
+becomes a germ at save (BRIEF-0124-e). `generate_creation_draft` passes the
+germ's candidates to the draft and puts a draft germ's origin link first.
+Gate: `draft_world.py` DW1-DW3.
+
+## NOTHING STACKS IN CRÉATION (TICKET-0124) -- germs in the list, the germ panel, the sheet's panes (BRIEF-0124-h, no schema change)
+
+**L1: one block at a time in the right column.** The « Créations en
+attente » strip, the sheet and the skill sheet used to share one column,
+and the skill sheet took up to 45 % of it without shrinking. The strip is
+gone: on the tabs that set `showPendingCreations` (`npc`, `lieux`,
+`factions`) the pending germs are the entity list's first group, « En
+attente ({n}) », each row a germ with its source. A click sets
+`creationState.selectedGermId` and the `germPanel` island
+(`GermPanel.svelte`, origin `new`, container `#creation-germ-panel`) takes
+the column alone. On the tabs that mount `pjSkillFiche` (`npc`, `pj`), a
+« Fiche | Compétences » bar picks `creationState.sheetPane`, and the skill
+sheet now takes the column (`flex: 1; min-height: 0`) instead of sitting
+under the sheet. The « États » section stays inside the Fiche: there is no
+third pane. Selecting an entity, generating a germ's sheet and switching
+tab close the germ; a tab switch also goes back to the Fiche.
+
+**H1: a germ can join an existing character.** For a character germ the
+panel asks « C'est quelqu'un qui existe ? » and lists the germ's
+candidates (`GET /candidates`), then offers any other non-player character
+of the world through a select. Each one gets two actions:
+« Rattacher » (`attachGerm`: `POST /attach`, no new entity, then the
+pending list and the entity list reload) and « Créer et lier », which sets
+`creationState.germLinkTarget` and generates the sheet, so the new
+character's draft links to that one (brief I consumes it). Neither action
+opens a dialog: an error shows on the panel's status line. Gate:
+`creation_layout.py` CL1-CL4.
+
+## WHAT THE WORLD ADDS, ON THE SHEET (TICKET-0124) -- DraftWorldPanel.svelte (BRIEF-0124-i, no schema change)
+
+**Keep or drop, never retype.** A new character, location or faction sheet
+shows « Ce que le monde ajoute » (`DraftWorldPanel.svelte`): the states,
+links, possible same person and entities to create that
+`draft["world"]` resolved (BRIEF-0124-g). `applyGeneratedDraft` stores them
+in `pendingDraftsState.world`, states and links ticked, and the creator
+keeps or drops each one. A state's value is changed after the create, in
+« États »; a link's type can be edited, and a link without one is not
+sent. `worldExtrasForCreate` turns the ticked items into the create body's
+`states`, `relations` and `germs` (C-09), which carry only the resolved ids
+and the germ fields -- never a name for code to guess at. After the create,
+the pending list reloads when germs were written, and a skipped germ is
+named on the status line.
+
+**I1: entities to create start unticked.** Each one ticked becomes a germ
+in « En attente », linked to the new sheet (BRIEF-0124-e); nothing is
+created unless the creator asks for it.
+
+**H1 on the sheet.** On a germ's draft, « Peut-être la même personne que
+{name} » offers « Rattacher à {name} », which calls `attachGerm` and makes
+the sheet unnecessary. When « Créer et lier » prepared a character
+(`creationState.germLinkTarget`), `applyGeneratedDraft` adds it as a kept
+link with an empty type for the creator to name, then clears it. Gate:
+`draft_panel.py` DP1-DP2.
+
+## THE « MONDE » PAGE (TICKET-0124) -- WorldSheet.svelte, the tone in the create modal (BRIEF-0124-j, no schema change)
+
+**W1: the world's premise can be edited where it is written.** A world's
+laws used to be editable only at creation. Création's « Monde » tab
+(`CREATION_TABS.monde`, after « Vocabulaire du monde », a single-container
+bespoke entry with no primary action) mounts the `worldSheet` island
+(`WorldSheet.svelte`, origin `new`). It reads the ACTIVE world through
+`GET /api/worlds/{id}` (BRIEF-0124-a) and reloads when `serverState.worldId`
+changes. It edits the name, the context, the tone and the ordered
+fundamental laws (add, move, remove), and « Enregistrer » sends `PUT
+/api/worlds/{id}`, which rewrites the laws through `write_world_laws`; empty
+law inputs are dropped, the shell's mirror refreshes, and the outcome shows
+on the status line (no dialog). These are the texts every generator's
+premise carries (`world_premise.py`): an edit here reaches the next
+generation without touching a prompt.
+
+**B2: the tone at creation.** The world-create modal asks « Ton et style
+(optionnel) » beside the description and sends it as `tone`; the AI world
+draft leaves it as typed (`world_generation` receives no premise). Gate:
+`world_sheet.py` WG1.
+
 ---
 
 *Co-built with Claude, June 2026.*

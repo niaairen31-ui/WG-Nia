@@ -57,7 +57,7 @@ from .models import (
 )
 from .ollama_client import OllamaError, chat
 from .prompt_registry import effective_model
-from .prompt_store import current_prompt
+from .prompt_store import premised_prompt
 from .prose_render import knowledge_texts
 from .writes import (
     KNOWLEDGE_LEVELS, apply_knowledge_patch, write_knowledge, write_oriented_relations, write_relation,
@@ -360,7 +360,7 @@ def _write_pair_rows(db: Session, batch: LinkBatch, a_id: str, b_id: str, verdic
 
 
 def _render_pair_messages(db: Session, template: PromptTemplate, world_name: str, ctx: dict) -> list[dict]:
-    version = current_prompt(db, template)
+    version = premised_prompt(db, template)
     system_content = version.system_prompt.replace("{world_name}", world_name)
     user_content = (
         version.user_template
