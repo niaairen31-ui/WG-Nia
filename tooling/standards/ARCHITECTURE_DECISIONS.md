@@ -20728,6 +20728,25 @@ holds at most one PC (every PC is bound to the creator user,
 player-profile PCs of TICKET-0126. Choosing the active PC is TICKET-0128.
 Gate: `pc_resolution.py` PR1-PR2.
 
+## A world opens to players; the journal admits perspectives (BRIEF-0125-b, schema v2.31)
+
+**C1: the player sees only the worlds the creator opened.** `world` gains
+`open_to_players` (BOOLEAN NOT NULL DEFAULT 0), the creator's « Ouvert aux
+joueurs ». It is the player shell's only listing criterion; player routes
+never read `is_active`, which stays the creator's single working world.
+
+**H1-c: every perspective question is journaled.** `lore_usage_event` admits
+a third kind, `perspective`, with steps `perspective_ask` and
+`perspective_resolve` -- names unique across kinds, because
+`writes/lore_usage.PAYLOAD_KEYS` is keyed by step. Their payloads carry
+`perspective` (`public`), `asked_by` (`creator` or `player:<user_id>`) and
+`withheld`, the audit's lines. The step CHECK lives in the table DDL, so
+`migrate_v2_31_player_entry.py` rebuilds the table (v2.29's `_rebuild`
+procedure) and copies every row unchanged; its post-check compares the
+journal's row count before and after. INV-59 is unchanged: the journal is
+still written only through `lore_usage` and read only by
+`export_lore_usage.py`. Gate: `player_entry_schema.py` PS1-PS2.
+
 ---
 
 *Co-built with Claude, June 2026.*

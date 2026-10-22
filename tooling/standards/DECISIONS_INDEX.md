@@ -383,3 +383,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 20665 | WHAT THE WORLD ADDS, ON THE SHEET (TICKET-0124) -- DraftWorldPanel.svelte (BRIEF-0124-i, no schema change) | BRIEF-0124-i |  |
 | 20691 | THE « MONDE » PAGE (TICKET-0124) -- WorldSheet.svelte, the tone in the create modal (BRIEF-0124-j, no schema change) | BRIEF-0124-j |  |
 | 20712 | A world with several PCs refuses instead of choosing (BRIEF-0125-a, no schema change) | BRIEF-0125-a |  |
+| 20731 | A world opens to players; the journal admits perspectives (BRIEF-0125-b, schema v2.31) | BRIEF-0125-b | v2.31 |

@@ -124,6 +124,7 @@
 - `migrate_v2_28_quest_requests.py` — Migration v2.28 — a quest request is a row (TICKET-0121, BRIEF-0121-B; decision L1 of the Journée quest designer).
 - `migrate_v2_29_rank_trials.py` — Migration v2.29 — a rank may ask a trial, and a trial is a quest (TICKET-0116, BRIEF-0116-A; decisions B1, D2, D2-d, F1-b).
 - `migrate_v2_30_world_tone.py` — Migration v2.30 — a world has a tone (TICKET-0124, BRIEF-0124-A; decision B2 of the world premise).
+- `migrate_v2_31_player_entry.py` — Migration v2.31 — a world opens to players; the Lore journal admits the perspective kind (TICKET-0125, BRIEF-0125-B; decisions C1, H1-c).
 - `observation_metrics.py` — Observation run metrics (TICKET-0051, BRIEF-0051-g, decision J2/Q).
 - `preview_npc_schedule.py` — Preview `where_is` / `who_is_at` / `unresolved_npcs` — the concrete reader for `world.current_phase` (T-A1) and the live-gate instrument for TICKET-0074, BRIEF-0074-a.
 - `preview_tick_context.py` — Preview the full-interiority briefing a world tick would send to one NPC (TICKET-0014, BRIEF-0014-a; TICKET-0015, BRIEF-0015-a adds --interval) — the concrete reader for `assemble_tick_context` in this brief, and the live-gate instrument for the T1 review.
@@ -510,6 +511,7 @@
 - `pipeline_state.py` — Structural gate for ticket front-matter conformity (pipeline glue, BRIEF-0004), extended by BRIEF-0006-b (TICKET-0006) with sentinel checks on the command files -- moved to `session_config.py` by TICKET-0117 (BRIEF-0117-b), which owns the Claude Code session configuration.
 - `pipeline_wiring.py` — Structural gate for the day-declaration socle (TICKET-0075, BRIEF-0075-a).
 - `placement_unit.py` — G1 check: permanent regression guard for the sole placement/distance authority (TICKET-0031, BRIEF-0031-a).
+- `player_entry_schema.py` — G1 check for TICKET-0125 (BRIEF-0125-B) -- schema v2.31: a world opens to players and the Lore journal admits the perspective kind.
 - `prereq_judge.py` — G1 gate: `goal_change complete`'s prerequisite judge rejects when a `relation_gte` prerequisite is unmet, with an error string carrying the current and required values (G1, TICKET-0024, BRIEF-0024-b).
 - `prompt_lean.py` — G1 check for TICKET-0012 (BRIEF-0012-a) — prompt lean rewrite gate.
 - `prompt_model_write.py` — G1 check for TICKET-0009 (BRIEF-0009-a) — prompt_template.model write path.

@@ -467,6 +467,7 @@ class LoreEntryRow(SQLModel, table=True):
 LORE_USAGE_STEPS: dict[str, tuple[str, ...]] = {
     "write": ("questions", "draft", "commit"),
     "consult": ("ask", "resolve"),
+    "perspective": ("perspective_ask", "perspective_resolve"),
 }
 LORE_USAGE_OUTCOMES: tuple[str, ...] = ("ok", "unavailable", "parse_error", "refused")
 
@@ -478,7 +479,8 @@ class LoreUsageEvent(SQLModel, table=True):
         Index("idx_lore_usage_event_world", "world_ref", "created_at"),
         CheckConstraint(
             "(kind = 'write' AND step IN ('questions','draft','commit')) "
-            "OR (kind = 'consult' AND step IN ('ask','resolve'))",
+            "OR (kind = 'consult' AND step IN ('ask','resolve')) "
+            "OR (kind = 'perspective' AND step IN ('perspective_ask','perspective_resolve'))",
             name="ck_lore_usage_event_step",
         ),
         CheckConstraint(

@@ -79,6 +79,9 @@ class World(SQLModel, table=True):
     # Creator-set « Ton et style » (v2.30, TICKET-0124, B2): free text read by
     # every generator through `world_premise.py`. NULL: no tone given.
     tone: Optional[str] = None
+    # Creator-set « Ouvert aux joueurs » (v2.31, TICKET-0125, C1): the world
+    # is listed in the player shell. Player routes never read `is_active`.
+    open_to_players: bool = Field(default=False, sa_column_kwargs={"server_default": text("0")})
     is_active: bool = Field(
         default=False, sa_column_kwargs={"server_default": text("0")}
     )

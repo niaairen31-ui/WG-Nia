@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.30
+Current schema version: v2.31
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -29,6 +29,7 @@ CREATE TABLE world (
   name                  TEXT NOT NULL,
   description           TEXT,
   tone                  TEXT,                -- creator-set « Ton et style » (v2.30, TICKET-0124, B2); read by the world premise
+  open_to_players       BOOLEAN NOT NULL DEFAULT FALSE,  -- creator-set « Ouvert aux joueurs » (v2.31, TICKET-0125, C1); player shell lists it
   is_active             BOOLEAN NOT NULL DEFAULT FALSE,
                                        -- the single globally-active world (v1.54)
   current_phase         TEXT NOT NULL DEFAULT 'matin'
@@ -1218,6 +1219,9 @@ prompt and user message, raw output, error). `outcome` is `ok`, `unavailable`
 (the request was refused after it reached the model or the apply step).
 Kept for an offline analysis of the tool: its sole reader is
 `scripts/export_lore_usage.py`; nothing in the application reads it back.
+Perspective questions (v2.31, TICKET-0125) are journaled as kind
+`perspective`, steps `perspective_ask` / `perspective_resolve`, with who
+asked and the lines withheld.
 
 Not a world's table (I1): `world_ref` and `world_name` record the world the
 step ran in, without a FK, so the journal outlives a deleted world and stays
@@ -1240,7 +1244,8 @@ CREATE TABLE lore_usage_event (
   created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT ck_lore_usage_event_step CHECK (
     (kind = 'write' AND step IN ('questions','draft','commit'))
-    OR (kind = 'consult' AND step IN ('ask','resolve'))),
+    OR (kind = 'consult' AND step IN ('ask','resolve'))
+    OR (kind = 'perspective' AND step IN ('perspective_ask','perspective_resolve'))),
   CONSTRAINT ck_lore_usage_event_outcome CHECK (
     outcome IN ('ok','unavailable','parse_error','refused')),
   CONSTRAINT ck_lore_usage_event_entry CHECK (
