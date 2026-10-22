@@ -522,6 +522,7 @@
 - `placement_unit.py` — G1 check: permanent regression guard for the sole placement/distance authority (TICKET-0031, BRIEF-0031-a).
 - `player_entry_schema.py` — G1 check for TICKET-0125 (BRIEF-0125-B) -- schema v2.31: a world opens to players and the Lore journal admits the perspective kind.
 - `player_routes.py` — G1 check for TICKET-0125 (BRIEF-0125-E) -- the perspective and player routes answer only what everybody knows, refuse a closed world, and journal every question.
+- `player_shell.py` — G1 check for TICKET-0125 -- the Lore perspective tab and the player shell are wired and confined.
 - `player_worlds.py` — G1 check for TICKET-0125 (BRIEF-0125-C) -- a world opens to players from the « Monde » page and only when told.
 - `prereq_judge.py` — G1 gate: `goal_change complete`'s prerequisite judge rejects when a `relation_gte` prerequisite is unmet, with an error string carrying the current and required values (G1, TICKET-0024, BRIEF-0024-b).
 - `prompt_lean.py` — G1 check for TICKET-0012 (BRIEF-0012-a) — prompt lean rewrite gate.
