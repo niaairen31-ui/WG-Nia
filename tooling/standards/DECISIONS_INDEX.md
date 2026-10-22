@@ -377,3 +377,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 20460 | THE RENDER SITES READ THROUGH PREMISED_PROMPT (TICKET-0124) -- 34 calls, 18 functions that stay (BRIEF-0124-c, no schema change) | BRIEF-0124-c |  |
 | 20499 | THE WORLD PREMISE IN EVERY TEMPLATE (TICKET-0124) -- premised_texts, apply_ticket_0124_world_premise.py, the edit guard (BRIEF-0124-d, no schema change) | BRIEF-0124-d |  |
 | 20530 | A CREATE CARRIES WHAT THE WORLD ADDS (TICKET-0124) -- states, links and ticked germs in one transaction; the creator_draft producer (BRIEF-0124-e, no schema change) | BRIEF-0124-e |  |
+| 20561 | A GERM SAYS WHERE IT COMES FROM AND CAN JOIN AN EXISTING CHARACTER (TICKET-0124) -- source sentence, place name, candidates, attach, the Germes metric (BRIEF-0124-f, no schema change) | BRIEF-0124-f |  |

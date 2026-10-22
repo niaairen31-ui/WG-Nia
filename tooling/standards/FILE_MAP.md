@@ -458,6 +458,7 @@
 - `function_length.py` — G1 check: function length ceiling (TICKET-0027 R1, BRIEF-0027-a).
 - `gathering_lifecycle.py` — Structural gate for the gathering lifecycle (TICKET-0089, BRIEF-0089-g).
 - `geometry_unit.py` — G1 check: permanent regression guard for the sole collision authority (TICKET-0030, BRIEF-0030-a).
+- `germ_attach.py` — G1 check for TICKET-0124 -- a germ says where it comes from, and can join an existing character instead of creating one.
 - `graph_primitive.py` — G1 check: the graph primitive convergence lock (TICKET-0057, BRIEF-0057-d; amended BRIEF-0058-b to prove convergence, not just presence).
 - `h1_strip_bounded.py` — G1 gate: the H1 partial-application strip exists ONLY inside the `goal_change complete` path — the project's one sanctioned exception to all-or-nothing mutation apply (TICKET-0024, BRIEF-0024-c).
 - `identity_tokens.py` — G1 check for TICKET-0091 (BRIEF-0091-J) — identity tokens (F1).

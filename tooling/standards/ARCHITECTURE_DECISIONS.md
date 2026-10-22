@@ -20558,6 +20558,48 @@ single source. A germ whose name collides with an active entity or an open
 germ (`day_concordance._germ_blocked`) is skipped and named under
 `germs_skipped`, never a refusal. Gate: `world_extras.py` EX1-EX3.
 
+## A GERM SAYS WHERE IT COMES FROM AND CAN JOIN AN EXISTING CHARACTER (TICKET-0124) -- source sentence, place name, candidates, attach, the Germes metric (BRIEF-0124-f, no schema change)
+
+**E1: the sentence and the place by name.** `emit_germs` adds two keys to
+a Journée germ's payload (C-10): `source_sentence`, the sentence of
+`pass_play.declared_action` that holds the mention's surface form
+(`_source_sentence`, compared through `normalize_surface`; the whole
+declaration cut to 300 characters when none holds it), and `anchor_name`,
+the name of `candidate_location_id`. `_compose_entity_creation_brief(payload,
+db)` writes « Lieu : {name}. » and never a location id -- a germ born
+before this lot (`anchor == candidate_location_id`) has its name read at
+compose time; a tick germ's prose `anchor` is kept -- then « Mentionné
+ainsi : « ... » » and a draft germ's « Lié à {origin} ({link_type}). ». The
+pending list names its source from the row (`_pending_source`: `tick`,
+`journee`, `creation`, `conversation`) and serves the germ's place name,
+sentence and origin as plain keys.
+
+**H1: a germ can join an existing character.** `germ_candidates` lists the
+active non-player characters of the germ's world at its place
+(`candidate_location_id`, or a draft germ's origin character's place) or at
+a `connects_to` neighbour, read only through `_location_neighbours`
+(INV-06), by name, at most `MAX_GERM_CANDIDATES = 12`; any type other than
+character, or no place, lists nothing. `GET /api/creations/{id}/candidates`
+serves them and the draft generation returns them. `POST
+/api/creations/{id}/attach` (409 for a germ that is not approved and
+unrealized, 422 for an entity not active, of another world or type) sets
+`target_table="entity"` and `target_id`, appends « rattaché à une entité
+existante : {name} » to `creator_notes`, then `_link_entity_creation`
+applies the germ and commits; a refusal there rolls the session back and
+answers 409. `target_table="entity"` is the relational mark of an attached
+germ: no entity is created and no canon is written, and the dashboard
+counts it without reading the payload.
+
+**The « Germes » metric and two deferrals.** `dashboard_metrics._germs`
+counts `entity_creation` proposals by source (Journée, Tick, Brouillon,
+Conversation) and fate (proposed, awaiting realization, realized in a new
+entity -- `applied`, `target_table` NULL -- attached, rejected). H2 -- the
+model recognising an existing character in play (`day_choice` stays closed
+to inferred mentions) -- reactivates when the creator attaches Journée
+germs to existing characters, watched by `germs`. W2 -- law history --
+reactivates when a writer passes `world_law_id=` to a fact. Gate:
+`germ_attach.py` GA1-GA4.
+
 ---
 
 *Co-built with Claude, June 2026.*
