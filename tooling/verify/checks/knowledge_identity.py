@@ -124,6 +124,9 @@ _SUBJECT_CENSUS: dict[str, int] = {
     # TICKET-0116, BRIEF-0116-E: a trial request's subject -- never a knowledge key.
     "src/world_engine/quest_designer.py": 12,
     "src/world_engine/cockpit/routes/quest_requests.py": 1,
+    # TICKET-0125, BRIEF-0125-D: an audit row's `subject` (C-07) -- the dossier
+    # entity's name or the searched text a withheld line is about, never a knowledge key.
+    "src/world_engine/perspective_audit.py": 1,
 }
 
 A = "11111111-1111-1111-1111-111111111111"

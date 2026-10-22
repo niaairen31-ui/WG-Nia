@@ -219,6 +219,10 @@
 - `observation_writes.py` — Single write chokepoint for `observation_*` tables (TICKET-0051, BRIEF-0051-a).
 - `ollama_client.py` — Minimal client for a local Ollama server (stdlib only — no new dependency).
 - `passages.py` — Place registry writer (TICKET-0105, BRIEF-0105-B, C-02).
+- `perspective_audit.py` — The public perspective's audit: every line a public answer withheld, and why (TICKET-0125, BRIEF-0125-D, C-07).
+- `perspective_query.py` — The public perspective's executor: a plan run over what everybody knows (TICKET-0125, BRIEF-0125-D, C-05, C-06).
+- `perspective_render.py` — The public perspective's renderer: the answer to a public question, in prose or by code (TICKET-0125, BRIEF-0125-D, C-08).
+- `perspective_selectors.py` — The public perspective's selectors: what everybody knows about a world (TICKET-0125, BRIEF-0125-D, C-04).
 - `placement.py` — Pure NPC placement for the spatial workstream (TICKET-0031, BRIEF-0031-a).
 - `prompt_call.py` — One templated JSON call to the model, shared by the creator's authoring tools (TICKET-0112, BRIEF-0112-A -- extracted verbatim from `lore_write_draft._call`, which now delegates here).
 - `prompt_coverage.py` — Day-chain prompt coverage guard (TICKET-0076, BRIEF-0076-a).
