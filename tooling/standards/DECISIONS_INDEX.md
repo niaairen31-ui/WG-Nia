@@ -385,3 +385,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 20712 | A world with several PCs refuses instead of choosing (BRIEF-0125-a, no schema change) | BRIEF-0125-a |  |
 | 20731 | A world opens to players; the journal admits perspectives (BRIEF-0125-b, schema v2.31) | BRIEF-0125-b | v2.31 |
 | 20750 | The public perspective (BRIEF-0125-d, no schema change) | BRIEF-0125-d |  |
+| 20801 | Player profiles and the player's door (BRIEF-0125-E, no schema change) | BRIEF-0125 |  |

@@ -20797,6 +20797,43 @@ selectors' queries, names an unresolved mention under `names_only` (never
 the creator regime) and is for the creator and the journal only. Gate:
 `perspective_isolation.py` PI1-PI5.
 
+
+## Player profiles and the player's door (BRIEF-0125-E, no schema change)
+
+**A1', K1: profiles.** Nia plays alone, locally, without a password, under
+several player profiles. A profile is a `user` row with `role='player'`;
+`writes/users.create_player_profile` is the only runtime writer of `user`
+(commit-free, the route owns the commit). A name is stripped, 80 characters
+at most, and unique among the active players under `normalize_surface`
+(users are not world-scoped). `user` is not a canon table: this writer is
+outside the canon-write gate.
+
+**B2: open worlds.** A world is offered to a player only when
+`open_to_players`; no player route reads `world.is_active`, and none goes
+through `_crud._world_id`.
+
+**The five player routes**, all under `/api/joueur/`: `GET`/`POST profils`,
+`GET mondes` (id, name, description, laws by position), `POST savoir/ask`
+and `POST savoir/resolve`. The savoir routes check the world (open) and the
+profile (active, `player`) before anything else, then run the same flow as
+the creator's `/api/lore/perspective/ask|resolve`
+(`cockpit/perspective_flow.py`, one implementation, two doors). The creator
+gets the rows and the audit; the player gets only `{verdict, answer,
+renderer, candidates, plan}`.
+
+**H1-c: the journal.** Every perspective question journals one row of kind
+`perspective` through `lore_usage`: `perspective` `public`, `asked_by`
+`creator` or `player:<profile_id>`, the response, and `withheld`, the audit
+computed for the creator and the player alike -- journaled, never returned
+to a player. A refused binding is journaled `refused`; an unknown
+perspective, a closed world or an unknown profile is refused before the
+journal.
+
+**Drafting decision 9: the profile id travels in the body.** No session,
+no cookie: the player shell is local and single-user, the profile is a
+choice, not an authentication, and the routes stay stateless. Gate:
+`player_routes.py` PR1-PR8.
+
 ---
 
 *Co-built with Claude, June 2026.*
