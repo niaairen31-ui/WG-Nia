@@ -20798,7 +20798,7 @@ the creator regime) and is for the creator and the journal only. Gate:
 `perspective_isolation.py` PI1-PI5.
 
 
-## Player profiles and the player's door (BRIEF-0125-E, no schema change)
+## Player profiles and the player's door (BRIEF-0125-e, no schema change)
 
 **A1', K1: profiles.** Nia plays alone, locally, without a password, under
 several player profiles. A profile is a `user` row with `role='player'`;
@@ -20833,6 +20833,33 @@ journal.
 no cookie: the player shell is local and single-user, the profile is a
 choice, not an authentication, and the routes stay stateless. Gate:
 `player_routes.py` PR1-PR8.
+
+
+## The player shell (BRIEF-0125-g, no schema change)
+
+**P1: a second page, not a surface.** The player shell is `/jouer`:
+`frontend/jouer.html`, a second Vite input with its own bundle
+(`frontend/src/joueur/`), served by a decorator route with the revalidating
+cache directive. It is not a `_SHELL_ROUTES` surface of the creator shell:
+a player page never loads the creator's code, registries or bridge, and
+the creator header does not link to it (drafting decision 10). The only
+code the two bundles share is the Svelte runtime chunk the build splits
+out. `jouer.html` joins the source-hash set in `write-manifest.mjs` and
+`frontend_build_fresh.py`.
+
+**What it does.** Pick or create a profile (remembered in `localStorage`,
+sent in each body), list the open worlds with description and laws, open
+one, and ask « Ce que tout le monde sait » through `/api/joueur/savoir/*`.
+Character creation is shown disabled until TICKET-0126.
+
+**INV-66.** A player surface learns about the world only through a
+perspective, never a creator selector, the creator name regime, a trace,
+near names or the audit; every perspective question is journaled with what
+was withheld. Held in `.claude/rules/player-surface.md`. Gate:
+`player_shell.py` PSH2-PSH4 (every URL literal under `/api/joueur/`, no
+import out of `frontend/src/joueur/` but `svelte`, the page wired and kept
+out of `_SHELL_ROUTES`), with `perspective_isolation.py` and
+`player_routes.py`.
 
 ---
 
