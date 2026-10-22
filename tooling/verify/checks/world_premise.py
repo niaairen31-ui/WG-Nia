@@ -24,6 +24,13 @@ WP2 -- fixture. One active world `Aestia` (description, tone, two laws
      number, and leaves the stored `prompt_version` text unchanged (INV-48);
    - `prompt_call.call_json` on a `quest_subject` head sends the model a
      system message that starts with the premise.
+WP3 -- static, AST over `src/world_engine/**/*.py` (C-07). The `path::function`
+   set holding a `current_prompt(` call equals the literal `STAYS` (18); the
+   set holding a `premised_prompt(` call equals the literal `SWAPPED` (31);
+   `prompt_call.py::call_json` calls `fill(` exactly twice; `prompt_load.py`
+   calls neither `fill(` nor `premised_prompt(`; `region_author.py` renders
+   `{world_description}` and `{world_fundamental_laws}` as `""` and names no
+   `WorldLaw`.
 
 The fixture is a fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL`
 set before any world_engine import) -- never Nia's DB. Every prompt version
@@ -62,6 +69,38 @@ NONE = (
     "day_extract_place", "day_extract_person", "day_extract_faction", "day_feasibility",
     "day_reconcile", "day_plan_select", "day_mention_choice",
 )
+
+STAYS = frozenset({
+    "analyzer_transcript.py::_window_call_model", "analyzer_transcript.py::_overhearing_classify",
+    "cockpit/crud/prompts.py::_prompt_row_summary", "cockpit/crud/prompts.py::get_prompt_detail",
+    "context_window.py::summarize_older_lines", "day_choice.py::_ask", "day_extract.py::_extract",
+    "day_feasibility.py::veto", "day_plan_select.py::select_plan", "day_reconcile.py::reconcile",
+    "entity_author.py::generate_world_draft", "link_context.py::render_coherence_messages",
+    "npc_group_author.py::_run_placement_call", "observation_runner.py::_pin_templates",
+    "prompt_coverage.py::missing_usages", "prompt_load.py::load",
+    "room_batch_author.py::propose_batch_coherence", "cockpit/play_initiative.py::_select_group_speaker",
+})
+SWAPPED = frozenset({
+    "entity_author.py::_entity_draft_call", "entity_author.py::_player_draft_call",
+    "entity_author.py::generate_skill_catalogue_draft", "entity_author.py::generate_npc_goals",
+    "event_author.py::generate_agenda_draft", "event_author.py::_event_draft_call",
+    "region_author.py::generate_region_manifest", "room_batch_author.py::generate_room_batch_manifest",
+    "link_author.py::_render_pair_messages", "cockpit/play.py::_say_load_prompts",
+    "cockpit/play.py::_say_npc_generation", "cockpit/play_initiative.py::_say_initiative_context",
+    "cockpit/play_initiative.py::_initiative_vote_call",
+    "cockpit/play_physical.py::_say_physical_roster_and_arbiter",
+    "cockpit/play_physical.py::_say_physical_npc_reaction",
+    "cockpit/play_physical.py::_build_establishment_narration", "cockpit/routes/play.py::start_conversation",
+    "cockpit/routes/prompts.py::preview_prompt_npc_dialogue",
+    "cockpit/routes/prompts.py::preview_prompt_player_narration",
+    "cockpit/routes/scene.py::_scene_join_already_member",
+    "cockpit/routes/scene.py::_scene_join_resolve_and_create",
+    "cockpit/routes/scene.py::_scene_join_create_for_gathering", "gathering.py::_request_partition",
+    "observation_engine.py::_observation_intent_messages", "observation_runner.py::_generate_act_line",
+    "observation_runner.py::_generate_mj_narration", "tick.py::_tick_call_scope_model",
+    "tick.py::run_world_tick", "day_plan.py::emit_plan", "day_narration.py::narrate",
+    "day_narration.py::rewrite",
+})
 
 HEAD_LINES = [
     "=== CADRE DU MONDE ===",
@@ -278,6 +317,64 @@ def rule_wp2(engine) -> None:
         fail("WP2 collected nothing")
 
 
+def _calls_by_function(tree, name: str) -> dict[str, int]:
+    """Function name -> number of `name(` calls in its body (nested defs included)."""
+    import ast
+
+    counts: dict[str, int] = {}
+    for fn in ast.walk(tree):
+        if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            n = sum(1 for node in ast.walk(fn)
+                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == name)
+            if n:
+                counts[fn.name] = n
+    return counts
+
+
+def _compare(label: str, expected: frozenset, got: set) -> None:
+    if not got:
+        fail(f"WP3 {label}: collected nothing")
+    if got != expected:
+        fail(f"WP3 {label}: missing {sorted(expected - got)}, extra {sorted(got - expected)}")
+
+
+def rule_wp3() -> None:
+    import ast
+
+    package = SRC / "world_engine"
+    trees = {path.relative_to(package).as_posix(): ast.parse(path.read_text(encoding="utf-8"))
+             for path in sorted(package.rglob("*.py")) if path.name != "prompt_store.py"}
+    if not trees:
+        fail("WP3 collected nothing: no module under src/world_engine")
+        return
+    for name, expected in (("current_prompt", STAYS), ("premised_prompt", SWAPPED)):
+        got = {f"{rel}::{fn}" for rel, tree in trees.items() for fn in _calls_by_function(tree, name)}
+        _compare(f"{name}( sites", expected, got)
+
+    fills = _calls_by_function(trees.get("prompt_call.py", ast.Module(body=[], type_ignores=[])), "fill")
+    if fills.get("call_json", 0) != 2:
+        fail(f"WP3 prompt_call.call_json calls fill( {fills.get('call_json', 0)} times, not 2")
+    load_tree = trees.get("prompt_load.py")
+    if load_tree is None:
+        fail("WP3 prompt_load.py not found")
+    else:
+        for name in ("fill", "premised_prompt"):
+            if _calls_by_function(load_tree, name):
+                fail(f"WP3 prompt_load.py calls {name}(")
+
+    region_path = package / "region_author.py"
+    region_src = region_path.read_text(encoding="utf-8")
+    for placeholder in ("{world_description}", "{world_fundamental_laws}"):
+        if f'.replace("{placeholder}", "")' not in region_src:
+            fail(f"WP3 region_author.py: {placeholder} is not rendered as \"\"")
+    region_tree = trees["region_author.py"]
+    names = {node.id for node in ast.walk(region_tree) if isinstance(node, ast.Name)}
+    names |= {alias.asname or alias.name for node in ast.walk(region_tree)
+              if isinstance(node, ast.ImportFrom) for alias in node.names}
+    if "WorldLaw" in names:
+        fail("WP3 region_author.py still names WorldLaw")
+
+
 def main() -> int:
     engine = _fresh_engine()
     try:
@@ -288,13 +385,19 @@ def main() -> int:
         rule_wp2(engine)
     except Exception as exc:  # noqa: BLE001 -- fail-closed, reported below
         fail(f"WP2 raised {type(exc).__name__}: {exc}")
+    try:
+        rule_wp3()
+    except Exception as exc:  # noqa: BLE001 -- fail-closed, reported below
+        fail(f"WP3 raised {type(exc).__name__}: {exc}")
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
         return 1
     print("PASS: world_premise -- 47 usages hold the 14/15/18 regime partition; the premise is "
           "built per regime, the player regime carries no state or skill system, and "
-          "premised_prompt and call_json fill {world_premise} without touching the stored text")
+          "premised_prompt and call_json fill {world_premise} without touching the stored text; "
+          "34 render calls in 31 functions read through premised_prompt, 18 functions stay on "
+          "current_prompt")
     return 0
 
 

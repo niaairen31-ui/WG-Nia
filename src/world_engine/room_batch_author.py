@@ -24,7 +24,7 @@ from .facets import FACETS
 from .models import Entity, Location, LocationTypeCatalog, PromptTemplate, Relation
 from .ollama_client import OllamaError, chat
 from .prompt_registry import effective_model
-from .prompt_store import current_prompt
+from .prompt_store import current_prompt, premised_prompt
 from .spatial_author import _catalog_row
 
 MIN_COUNT = 3
@@ -342,7 +342,7 @@ def generate_room_batch_manifest(anchor_id: str, count: int, db: Session) -> dic
     context = _compose_batch_context(anchor_id, anchor_entity, db)
     catalog_types = _catalog_type_names(anchor_entity.world_id, db)
 
-    version = current_prompt(db, template)
+    version = premised_prompt(db, template)
     user_message = (
         version.user_template
         .replace("{anchor_block}", _anchor_block(context["anchor"]))

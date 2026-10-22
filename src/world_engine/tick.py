@@ -28,7 +28,7 @@ from .fact_refs import CodedRefs, knowledge_key
 from .prose_render import fact_texts
 from .models import Agenda, Character, Entity, Fact, FactionMembership, Knowledge, ProposedMutation
 from .prompt_registry import effective_model
-from .prompt_store import current_prompt
+from .prompt_store import premised_prompt
 from .tick_context import (
     assemble_faction_event_context,
     assemble_location_event_context,
@@ -326,7 +326,7 @@ def _tick_scope_setup(db: Session, scope_type: str, scope_id: str, interval_labe
 def _tick_call_scope_model(db: Session, briefing: str, interval_label: str, model: str, host: str,
                            vocab: Any = None) -> list:
     events_template = load_analysis_prompt(db, world_id=None, usage="world_tick_events")
-    events_version = current_prompt(db, events_template)
+    events_version = premised_prompt(db, events_template)
     values = vocab.prompt_values() if vocab is not None else {"event_types": "(aucun)", "sortes": "(aucune)"}
     events_user_message = (
         events_version.user_template
@@ -487,7 +487,7 @@ def run_world_tick(
     """
     tick_id = str(uuid4())
     template = load_analysis_prompt(db, world_id=None, usage="world_tick")
-    version = current_prompt(db, template)
+    version = premised_prompt(db, template)
     now = datetime.now(UTC)
 
     npc_summaries: list[dict] = []

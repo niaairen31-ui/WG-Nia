@@ -25,7 +25,7 @@ from .facets import FACETS
 from .models import BASE_SKILL_DOMAINS, Entity, PromptTemplate, World
 from .ollama_client import OllamaError, chat
 from .prompt_registry import effective_model
-from .prompt_store import current_prompt
+from .prompt_store import current_prompt, premised_prompt
 from .writes import KNOWLEDGE_LEVELS
 
 _LOCATION_TYPES = ("city", "district", "building", "natural", "underground", "other")
@@ -448,7 +448,7 @@ def _entity_draft_call(entity_type: str, brief: str, db: Session) -> dict:
     if template is None:
         return {"ok": False, "error": "No active pt-entity-generation template found"}
 
-    version = current_prompt(db, template)
+    version = premised_prompt(db, template, entity_type=entity_type)
     user_message = (
         version.user_template
         .replace("{entity_type}", entity_type)
@@ -689,7 +689,7 @@ def _player_draft_call(brief: str, db: Session) -> dict:
     if template is None:
         return {"ok": False, "error": "No active pt-player-generation template found"}
 
-    version = current_prompt(db, template)
+    version = premised_prompt(db, template)
     user_message = version.user_template.replace("{brief}", brief)
 
     messages = [
@@ -807,7 +807,7 @@ def generate_skill_catalogue_draft(brief: str, db: Session) -> dict:
     if template is None:
         return {"ok": False, "error": "No active pt-skill-catalogue template found"}
 
-    version = current_prompt(db, template)
+    version = premised_prompt(db, template)
     user_message = version.user_template.replace("{brief}", brief)
 
     messages = [
@@ -863,7 +863,7 @@ def generate_npc_goals(
     if template is None:
         return {"ok": False, "error": "No active pt-npc-goals template found"}
 
-    version = current_prompt(db, template)
+    version = premised_prompt(db, template, entity_type="character")
     user_message = (
         version.user_template
         .replace("{npc_name}", name or "")

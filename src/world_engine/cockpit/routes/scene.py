@@ -24,7 +24,7 @@ from ... import ollama_client
 from ...gathering import enter_location as _enter_location
 from ...analyzer import analyze_window as _analyze_window
 from ...prompt_registry import effective_model
-from ...prompt_store import current_prompt
+from ...prompt_store import premised_prompt
 from ...context import assemble_mj_context
 from ...db import get_session
 from ...encounters import record_encounter
@@ -212,7 +212,7 @@ def _scene_join_already_member(player_g: Gathering, player_id: str, location_id:
         }
 
     behaviour = _load_npc_dialogue_template(world_id, db)
-    behaviour_version = current_prompt(db, behaviour)
+    behaviour_version = premised_prompt(db, behaviour)
     model     = effective_model(behaviour, ollama_client.DEFAULT_MODEL)
     mj_context = assemble_mj_context(db, player_id, location_id, gathering_id=player_g.id)
     new_conv  = Conversation(
@@ -250,7 +250,7 @@ def _scene_join_resolve_and_create(
     # A2 reused: interpret the text to resolve a gathering target, then create the conversation.
     gathering_status  = _render_gathering_status(player_id, None, open_g, db)
     interpret_template = _load_mj_interpret_template(world_id, db)
-    interpret_version = current_prompt(db, interpret_template)
+    interpret_version = premised_prompt(db, interpret_template)
     model             = effective_model(interpret_template, ollama_client.DEFAULT_MODEL)
 
     # Provide a plausible NPC name for the template context (any member present).
@@ -288,7 +288,7 @@ def _scene_join_create_for_gathering(
     resolved_id: str, player_id: str, location_id: str, world_id: str, sess, db: Session,
 ) -> dict:
     behaviour   = _load_npc_dialogue_template(world_id, db)
-    behaviour_version = current_prompt(db, behaviour)
+    behaviour_version = premised_prompt(db, behaviour)
     model       = effective_model(behaviour, ollama_client.DEFAULT_MODEL)
     mj_context = assemble_mj_context(db, player_id, location_id, gathering_id=resolved_id)
     conv = Conversation(

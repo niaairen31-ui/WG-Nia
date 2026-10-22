@@ -38,7 +38,7 @@ from ..models import (
     Visit,
 )
 from ..prompt_registry import effective_model
-from ..prompt_store import current_prompt
+from ..prompt_store import premised_prompt
 from ..resolution import resolve_physical
 from ..scene_format import active_signposts, format_inventory_line
 from .play import (
@@ -117,7 +117,7 @@ def _say_physical_roster_and_arbiter(
     else:
         arbiter_template = _load_mj_arbiter_template(ctx.world_id, db)
         if arbiter_template is not None:
-            arbiter_version = current_prompt(db, arbiter_template)
+            arbiter_version = premised_prompt(db, arbiter_template)
             raw_domain, opposed_npc_id, applies_constraint, violent = _arbitrate(
                 player_line=ctx.content,
                 npc_list=physical_npc_list,
@@ -204,7 +204,7 @@ def _say_physical_npc_reaction(
     responder_name = opposed_entity.name
 
     responder_behaviour = _load_npc_dialogue_template(ctx.world_id, db)
-    responder_behaviour_version = current_prompt(db, responder_behaviour)
+    responder_behaviour_version = premised_prompt(db, responder_behaviour)
     responder_context = assemble_npc_context(
         responder_id, ctx.conv.player_id, ctx.conv.location_id, db,
         gathering_id=ctx.conv.gathering_id,
@@ -699,7 +699,7 @@ def _build_establishment_narration(
                 if row.aspect in FACETS["coutume"].aspects and row.content
             }
         signposts = active_signposts(db, location_id, player_character_id)
-        version = current_prompt(db, template)
+        version = premised_prompt(db, template)
         user_msg = _build_establishment_user(
             version.user_template,
             loc_entity.name if loc_entity else location_id,

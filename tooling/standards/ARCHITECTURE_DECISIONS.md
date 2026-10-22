@@ -20457,6 +20457,45 @@ replaces it (a text without it is returned untouched, no query run);
 when a text and its regime disagree. INV-65 (`prompts.md`); gate:
 `world_premise.py` WP1-WP2.
 
+## THE RENDER SITES READ THROUGH PREMISED_PROMPT (TICKET-0124) -- 34 calls, 18 functions that stay (BRIEF-0124-c, no schema change)
+
+**C-07: the render calls move, nothing else.** Every call that renders a
+`creator` or `player` usage's text -- 34 calls in 31 functions, from the
+authoring generators to every play, observation, tick and day surface --
+reads its version through `premised_prompt` instead of `current_prompt`,
+same arguments; `_entity_draft_call` passes its `entity_type` and
+`generate_npc_goals` passes `"character"`, so the creator regime lists that
+type's states. Each site uses only `id`, `version_number`, `system_prompt`
+and `user_template`, all carried by `PremisedPrompt`. No template holds
+`{world_premise}` yet (brief D), so every text reads exactly as before.
+The npc_dialogue sites still build their system prompt through
+`_npc_dialogue_system_prompt` (INV-39); only where `version` comes from
+changed.
+
+**The 18 functions that stay on `current_prompt`.** A `none` usage needs
+no premise: `_window_call_model` (conversation_analysis),
+`_overhearing_classify`, `summarize_older_lines`, `day_choice._ask` (its
+check stubs `current_prompt` there), `day_extract._extract`,
+`day_feasibility.veto`, `select_plan`, `reconcile`, `generate_world_draft`
+(it drafts the world itself), `render_coherence_messages`,
+`_run_placement_call`, `propose_batch_coherence`, `_select_group_speaker`.
+Three read no text for a model: `_prompt_row_summary` and
+`_pin_templates` read version numbers only; `get_prompt_detail` is the
+Prompts tab's editor, which must show the raw stored text.
+`prompt_coverage.missing_usages` only proves a version exists, and
+`prompt_load.load` stays text-only -- `call_json` fills what it returns
+(C-06).
+
+**The region generator's two placeholders render empty.**
+`generate_region_manifest` was the only generator reading the world's
+description and laws itself (« Contexte du monde », « Lois fondamentales
+du monde »). The premise now carries both, so `{world_description}` and
+`{world_fundamental_laws}` are replaced with `""`: the placeholders stay
+declared, and a live text that still holds them repeats nothing. Its
+`World`/`WorldLaw` reads and `_active_world` are gone. Gate:
+`world_premise.py` WP3 (both partitions by equality, `call_json`'s two
+`fill(` calls, `prompt_load` filling nothing, the two empty renders).
+
 ---
 
 *Co-built with Claude, June 2026.*

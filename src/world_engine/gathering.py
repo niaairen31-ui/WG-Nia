@@ -39,7 +39,7 @@ from .models import (
     Session as PlaySession,
 )
 from .prompt_registry import effective_model
-from .prompt_store import current_prompt
+from .prompt_store import premised_prompt
 
 _log = logging.getLogger(__name__)
 
@@ -102,7 +102,7 @@ def _request_partition(
     db: Session,
 ) -> list[Any] | None:
     """Ask the MJ to partition the present NPCs. Returns raw groups, or None on failure."""
-    version = current_prompt(db, template)
+    version = premised_prompt(db, template)
     present_lines = "\n".join(
         f"- {entity.name} : {_present_description(db, entity.id)}"
         for _char, entity in present
