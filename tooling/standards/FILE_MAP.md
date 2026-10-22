@@ -271,6 +271,7 @@
 - `day_reconcile_apply.py` — Reconciliation finalizers, relocated from `cockpit/routes/day.py` for module-budget headroom (TICKET-0077, BRIEF-0077-a) — the `models/config.py::AgendaStep` relocation precedent.
 - `mutations.py` — Per-mutation-type canon appliers (TICKET-0027, BRIEF-0027-c).
 - `origin_guard.py` — Origin guard for every write route (TICKET-0098, BRIEF-0098-A, decision I1).
+- `perspective_flow.py` — The shared public-perspective flow behind two doors (TICKET-0125, BRIEF-0125-E, C-15).
 - `play.py` — The `say`/`_stream` play path (BRIEF-0027-b/-d): mode interpretation, NPC selection/run, mutation-proposal assembly, narration streaming.
 - `play_discovery.py` — Engine discovery proposal (TICKET-0091 BRIEF-B, pure move).
 - `play_initiative.py` — NPC-initiative branch of the `say` play path (TICKET-0035, extracted from play_stream.py at BRIEF-0027-b/-d's module boundary).
@@ -318,6 +319,7 @@
 - `lore.py` — Lore consultation routes (TICKET-0085, BRIEF-0085-c).
 - `lore_choices.py` — Model-choice review routes (TICKET-0095, K1, C-07).
 - `lore_mentions.py` — Name-resolution panel routes (TICKET-0091, BRIEF-0091-K, contract C-16, decision Q17d).
+- `lore_perspective.py` — The creator's public-perspective routes (TICKET-0125, BRIEF-0125-E, C-10).
 - `lore_write.py` — The Lore shell's writing panel routes (TICKET-0098, BRIEF-0098-E).
 - `mutations.py` — The mutation review queue: list/reject/approve/batch-review, the `_apply_mutation` thin dispatcher, the applied-duplicate guard, and mutation serialization.
 - `npc_agent.py` — NPC group agent — batch staging lifecycle, run driver, and commit routes (TICKET-0037, BRIEF-0037-a/b/c).

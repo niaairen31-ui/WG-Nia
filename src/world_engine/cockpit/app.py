@@ -66,6 +66,7 @@ from .routes import lore as _routes_lore
 from .routes import lore_mentions as _routes_lore_mentions
 from .routes import lore_write as _routes_lore_write
 from .routes import lore_choices as _routes_lore_choices
+from .routes import lore_perspective as _routes_lore_perspective
 from .routes import mutations as _routes_mutations
 from .routes import npc_agent as _routes_npc_agent
 from .routes import observation as _routes_observation
@@ -145,6 +146,7 @@ app.include_router(_routes_lore.router)
 app.include_router(_routes_lore_mentions.router)
 app.include_router(_routes_lore_choices.router)
 app.include_router(_routes_lore_write.router)
+app.include_router(_routes_lore_perspective.router)
 app.include_router(_routes_quests.router)
 app.include_router(_routes_quest_requests.router)
 app.include_router(_routes_conditions.router)
