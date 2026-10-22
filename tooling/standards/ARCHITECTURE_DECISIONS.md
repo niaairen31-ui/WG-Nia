@@ -20747,6 +20747,56 @@ journal's row count before and after. INV-59 is unchanged: the journal is
 still written only through `lore_usage` and read only by
 `export_lore_usage.py`. Gate: `player_entry_schema.py` PS1-PS2.
 
+## The public perspective (BRIEF-0125-d, no schema change)
+
+**Why a sibling pipeline.** The player questions the lore on what everybody
+knows. The creator's selectors cannot serve that, even filtered afterwards:
+`entity_dossier` carries creator-only notes, knowledge rows with
+`is_secret`, relation intensities and internal names; `who_knows_about` and
+`facts_mentioning` list knowers and flag creator-only facts. The public
+perspective reuses the planner (`draft_plan(..., descriptions=)`), the plan
+validation (`validate_plan(..., lookups=)`) and the prose renderer, and
+owns everything that reads canon: `perspective_selectors.py`,
+`perspective_query.py`, `perspective_audit.py`, `perspective_render.py`.
+
+**U1: the public view.** `public_view(db, world_id)` holds the facts whose
+public level (`resolve_public_levels`) is above `unaware`, minus the
+creator's notes (`creator_only_fact_ids`, so a note with a public default
+still never shows), and the active entities whose `is_public` is true.
+Mentions resolve under the new `public` name regime: like `perceiver` with
+the public fact set, and a non-public entity's name and appellations are no
+surface at all. Four selectors read through the view only: `public_dossier`
+(identity, public facts, public `Lien` facts with map topology excluded,
+memberships, a faction's members), `public_factions`,
+`public_facts_mentioning`, `world_laws`. No row carries `is_secret`,
+`is_incorrect`, `intensity`, `internal_name`, `knowers`, `creator_only` or
+`level`.
+
+**One "nothing known".** An unknown name, a non-public entity and a public
+entity on which nothing public is held answer the same verdict,
+`nothing_known`, rendered by code as « Rien de ce que tout le monde sait ne
+répond à cette question. »: the answer never tells an absence from a
+secret. The four verdicts are closed (`PERSPECTIVE_VERDICTS`); every one
+but `answered` is a fixed sentence and never reaches a model (INV-58).
+
+**V1: homonyms.** Two public entities sharing a name are
+`ambiguous_mention`, with candidates as name and type only. A binding is
+accepted only among that mention's public candidates, re-resolved under the
+public scope; anything else is `BindingRefused`.
+
+**W1: public memberships.** A membership shows when it is current and not
+secret (`read_public_memberships`, `cover_role ?? role`) and both member and
+faction are public. A faction's member list is a third reader of
+`faction_membership` with the same WHERE triplet, keyed by faction (to be
+named in INV-66).
+
+**The audit.** `withheld(plan, ...)` names every line the public answer
+dropped, with a reason in `WITHHELD_REASONS`: `creator_only`, `not_public`,
+`entity_not_public`, `secret_membership`, `faction_not_public`. It reuses the
+selectors' queries, names an unresolved mention under `names_only` (never
+the creator regime) and is for the creator and the journal only. Gate:
+`perspective_isolation.py` PI1-PI5.
+
 ---
 
 *Co-built with Claude, June 2026.*
