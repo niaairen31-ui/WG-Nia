@@ -140,6 +140,7 @@ src/world_engine/cockpit/routes/creator.py::_activate_world_core          world
 src/world_engine/cockpit/routes/creator.py::set_world_phase               world
 # TICKET-0124, BRIEF-0124-A (W1): update_world edits one world's name,
 # description and tone; its laws go through write_world_laws (above).
+# TICKET-0125, BRIEF-0125-C (C1): and its open_to_players flag, only when sent.
 src/world_engine/cockpit/routes/creator.py::update_world                  world
 src/world_engine/cockpit/routes/creator.py::create_player_character       entity character skill
 src/world_engine/cockpit/play_stream.py::_perform_travel               character

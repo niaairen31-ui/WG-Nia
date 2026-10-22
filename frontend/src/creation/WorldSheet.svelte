@@ -4,12 +4,15 @@
      /api/worlds/{id} and saved with PUT /api/worlds/{id} (C-02) -- the laws
      every generator's premise carries (world_premise.py). Reloaded whenever
      the active world changes. Its CREATION_ISLANDS entry declares origin
-     'new'. No dialog: the outcome shows on the status line. */
+     'new'. No dialog: the outcome shows on the status line.
+     TICKET-0125 (BRIEF-0125-C, C1): the « Ouvert aux joueurs » checkbox
+     sends open_to_players with the rest of the page. */
   import { serverState, refreshServerState } from '../lib/serverState.svelte.js';
 
   let name = $state('');
   let description = $state('');
   let tone = $state('');
+  let openToPlayers = $state(false);
   let laws = $state([]);
   let status = $state('');
   let loaded = $state(false);
@@ -28,6 +31,7 @@
       name = world.name ?? '';
       description = world.description ?? '';
       tone = world.tone ?? '';
+      openToPlayers = world.open_to_players ?? false;
       laws = [...(world.laws ?? [])];
       loaded = true;
     } catch (e) {
@@ -59,7 +63,7 @@
       const res = await fetch(`/api/worlds/${encodeURIComponent(worldId)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, description, tone, laws: laws.map((l) => l.trim()).filter(Boolean) }),
+        body: JSON.stringify({ name, description, tone, open_to_players: openToPlayers, laws: laws.map((l) => l.trim()).filter(Boolean) }),
       });
       if (!res.ok) {
         let msg = `PUT /api/worlds/${worldId} -> ${res.status}`;
@@ -73,6 +77,7 @@
       }
       const world = await res.json();
       laws = [...(world.laws ?? [])];
+      openToPlayers = world.open_to_players ?? false;
       await refreshServerState();
       status = 'Enregistré.';
     } catch (e) {
@@ -99,6 +104,12 @@
       <div class="field-row" style="grid-column:1/-1">
         <label for="world-sheet-tone">Ton et style</label>
         <textarea id="world-sheet-tone" rows="3" placeholder="Registre, genre, conventions de noms…" bind:value={tone}></textarea>
+      </div>
+      <div class="field-row" style="grid-column:1/-1">
+        <label class="world-sheet-open">
+          <input type="checkbox" id="world-sheet-open" bind:checked={openToPlayers}>
+          Ouvert aux joueurs
+        </label>
       </div>
       <div class="field-row" style="grid-column:1/-1">
         <span>Lois fondamentales — vraies partout, connues de tous</span>

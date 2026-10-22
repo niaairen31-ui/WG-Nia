@@ -568,6 +568,7 @@ class WorldUpdateBody(BaseModel):
     name: str
     description: str = ""
     tone: str = ""
+    open_to_players: Optional[bool] = None
     laws: list[str] = []
 
 
@@ -617,6 +618,7 @@ def _world_detail(world: World, db: Session) -> dict:
         "tone": world.tone,
         "laws": list(laws),
         "is_active": world.is_active,
+        "open_to_players": world.open_to_players,
     }
 
 
@@ -634,7 +636,8 @@ def update_world(world_id: str, body: WorldUpdateBody, db: Session = Depends(get
     """Edit one world's name, description, tone and laws, active or not
     (TICKET-0124, BRIEF-0124-A, W1). The laws keep their full replace
     through `write_world_laws` (W2 deferred). Never touches `is_active` or
-    `current_phase`. One commit."""
+    `current_phase`. One commit. TICKET-0125 (C1): the « Ouvert aux
+    joueurs » flag is set only when sent; omitted, it stays."""
     world = db.get(World, world_id)
     if world is None:
         raise HTTPException(status_code=404, detail=f"World {world_id!r} not found")
@@ -644,6 +647,8 @@ def update_world(world_id: str, body: WorldUpdateBody, db: Session = Depends(get
     world.name = name
     world.description = body.description.strip() or None
     world.tone = body.tone.strip() or None
+    if body.open_to_players is not None:
+        world.open_to_players = body.open_to_players
     world.updated_at = datetime.now(UTC)
     db.add(world)
     write_world_laws(db, world=world, laws=body.laws, changed_by="creator")
