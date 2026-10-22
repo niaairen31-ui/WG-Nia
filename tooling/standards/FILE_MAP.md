@@ -170,6 +170,7 @@
 - `day_rewrite.py` — The declaration rewrite (TICKET-0081, BRIEF-0081-b — decisions A2'/B2/J2).
 - `db.py` — Database engine and session management.
 - `debt_reads.py` — Debts: what the two surfaces read (TICKET-0110, BRIEF-0110-B, contract C-06).
+- `draft_world.py` — What a draft adds from its world -- the names it may cite, the fields it fills, and code's judgment of its answer (TICKET-0124, BRIEF-0124-G; A2, G2).
 - `encounters.py` — Encounter registry writer and reads (TICKET-0091, BRIEF-0091-C, C-07).
 - `entity_author.py` — AI entity-authoring assistant (NPC, Location) — BRIEF-24, BRIEF-25.
 - `event_analysis.py` — The play analyzer's typed events (TICKET-0114, BRIEF-0114-H; decisions I2 and R1 of the conditions series).
@@ -426,6 +427,7 @@
 - `door_coverage.py` — G1 check for TICKET-0039 (BRIEF-0039-e) — door coverage invariant.
 - `door_distinct_points.py` — L1 check for TICKET-0040 (BRIEF-0040-e) — door distinct-point invariant.
 - `door_terminal.py` — G1 check: door terminality + orchestration-only guards (TICKET-0034, BRIEF-0034-b).
+- `draft_world.py` — G1 check for TICKET-0124 -- a draft fills the states its world asks for, and code decides what each answer names.
 - `dynamic_ext_crud.py` — G1 check: dynamic ext_* instance CRUD for governed runtime entity types (TICKET-0046, BRIEF-0046-e), on the trait_registry_projection.py temp-fixture idiom — a fresh temp-file SQLite fixture (WORLD_ENGINE_DATABASE_URL set BEFORE any world_engine import), so this check never touches Nia's real DB.
 - `effect_self_write.py` — G1 check: effect_self_write (TICKET-0062, BRIEF-0062-a commit 2).
 - `effects_ledger_source.py` — G1 gate: ledger rows written by completion effects carry `source_type='tick'` (M1, TICKET-0024, BRIEF-0024-c) — both legs of a `ledger_transfer` effect, inside `_apply_completion_effects`.

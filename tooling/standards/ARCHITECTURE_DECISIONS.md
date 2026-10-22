@@ -20600,6 +20600,40 @@ germs to existing characters, watched by `germs`. W2 -- law history --
 reactivates when a writer passes `world_law_id=` to a fact. Gate:
 `germ_attach.py` GA1-GA4.
 
+## THE DRAFT FILLS WHAT THE WORLD ASKS (TICKET-0124) -- draft_world.py, its case table (BRIEF-0124-g, no schema change)
+
+**A2: the draft answers the states its world carries.** The creator premise
+already lists the states a type carries (BRIEF-0124-b). `_entity_draft_call`
+now appends `draft_world.WORLD_FIELDS[entity_type]` to the type's fields --
+`public.states`, `public.links`, `public.to_create`, and for a character
+`public.same_as` -- followed by `known_names_block`: the names the draft may
+cite, the germ's candidates first, then the active non-player characters,
+the factions and the locations by name, at most `MAX_KNOWN_NAMES = 60`. The
+block lists names only, on a creator surface (INV-01 untouched). The draft
+reads the ACTIVE world (`draft_world.active_world_id`); the older
+`entity_author._world_id` (the first world row) is left as it was.
+
+**Model proposes, code judges.** `resolve_world_block` turns the answer into
+`draft["world"] = {"states", "links", "same_as", "to_create"}` by LOT-0124's
+Gate (b) table 3, and every id in it comes from a `select` on the world's
+rows: a state names an applicable active non-system definition (casefold,
+once); a choice value matches a label through `normalize_surface`; an
+integer is an int or the string of one; an entity value names an active
+entity of a value type. A link names an active entity other than the draft
+and carries a social type (`is_social`). `same_as` names an active
+non-player character, and only for a character draft -- the sheet offers
+it, the creator decides (brief I). Every drop appends one French note.
+
+**G2: an unknown name becomes an entity to create, never a guess.** An
+entity value naming nothing, when a value type is creatable, and a link
+naming nothing become entities to create (`{name, entity_type, concept,
+link_type}`, C-09's germ shape); they lead the model's own `to_create`,
+deduplicated by casefolded name, existing names dropped, cut to
+`MAX_DRAFT_GERMS = 3`. Nothing is created at draft time: a ticked one
+becomes a germ at save (BRIEF-0124-e). `generate_creation_draft` passes the
+germ's candidates to the draft and puts a draft germ's origin link first.
+Gate: `draft_world.py` DW1-DW3.
+
 ---
 
 *Co-built with Claude, June 2026.*

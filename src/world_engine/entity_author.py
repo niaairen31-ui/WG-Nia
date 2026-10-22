@@ -20,7 +20,7 @@ from typing import Any
 
 from sqlmodel import Session, select
 
-from . import llm_parse
+from . import draft_world, llm_parse
 from .facets import FACETS
 from .models import BASE_SKILL_DOMAINS, Entity, PromptTemplate, World
 from .ollama_client import OllamaError, chat
@@ -437,22 +437,31 @@ def _normalize_sensed_links(raw: Any) -> list[dict]:
     return rows
 
 
-def _entity_draft_call(entity_type: str, brief: str, db: Session) -> dict:
+def _entity_draft_call(
+    entity_type: str, brief: str, db: Session, candidate_ids: tuple[str, ...] = ()
+) -> dict:
     """Prompt assembly + model call + parse for `generate_entity_draft`.
 
     Returns {"ok": False, "error": "<reason>"} on any failure mode (missing
     template, unreachable model, malformed JSON, empty parse), else
-    {"ok": True, "public_in": dict, "secret_in": dict, "mentions": Any}.
+    {"ok": True, "public_in": dict, "secret_in": dict, "mentions": Any,
+    "world_id": str | None}. TICKET-0124 (C-13): the fields also ask the
+    world block, and the active world's citable names follow them.
     """
     template = _load_template(db)
     if template is None:
         return {"ok": False, "error": "No active pt-entity-generation template found"}
 
+    world_id = draft_world.active_world_id(db)
+    type_fields = _TYPE_FIELDS[entity_type] + "\n" + draft_world.WORLD_FIELDS[entity_type]
+    block = draft_world.known_names_block(db, world_id, entity_type, candidate_ids)
+    if block:
+        type_fields += "\n" + block
     version = premised_prompt(db, template, entity_type=entity_type)
     user_message = (
         version.user_template
         .replace("{entity_type}", entity_type)
-        .replace("{type_fields}", _TYPE_FIELDS[entity_type])
+        .replace("{type_fields}", type_fields)
         .replace("{brief}", brief)
     )
 
@@ -478,7 +487,8 @@ def _entity_draft_call(entity_type: str, brief: str, db: Session) -> dict:
     secret_in = parsed.get("secret")
     secret_in = secret_in if isinstance(secret_in, dict) else {}
     mentions = parsed.get("mentions", public_in.get("mentions"))
-    return {"ok": True, "public_in": public_in, "secret_in": secret_in, "mentions": mentions}
+    return {"ok": True, "public_in": public_in, "secret_in": secret_in, "mentions": mentions,
+            "world_id": world_id}
 
 
 def _bloc_text(raw: Any) -> str:
@@ -567,21 +577,24 @@ def _entity_character_draft(
     return {"ok": True, "draft": draft, "notes": notes}
 
 
-def generate_entity_draft(entity_type: str, brief: str, db: Session) -> dict:
+def generate_entity_draft(
+    entity_type: str, brief: str, db: Session, *, candidate_ids: tuple[str, ...] = ()
+) -> dict:
     """Generate a pre-fill draft for the creator-CRUD form.
 
     Pure generate-and-return: writes no canon anywhere in this function or
     its call path. Never raises into the caller — every failure mode
     (missing template, unreachable model, malformed JSON, empty parse)
     returns {"ok": False, "error": "<reason>"}. On success returns
-    {"ok": True, "draft": {...}, "notes": [...]}.
+    {"ok": True, "draft": {...}, "notes": [...]}; `draft["world"]` is
+    `draft_world.resolve_world_block`'s judgment (TICKET-0124, C-13).
     """
     if entity_type not in _TYPE_FIELDS:
         return {"ok": False, "error": f"Unsupported entity_type {entity_type!r}"}
     if not brief or not brief.strip():
         return {"ok": False, "error": "brief must not be empty"}
 
-    call_result = _entity_draft_call(entity_type, brief, db)
+    call_result = _entity_draft_call(entity_type, brief, db, candidate_ids)
     if not call_result.get("ok"):
         return call_result
     public_in = call_result["public_in"]
@@ -596,6 +609,11 @@ def generate_entity_draft(entity_type: str, brief: str, db: Session) -> dict:
     else:
         result = _entity_character_draft(public_in, secret_in, notes, db)
     result["draft"]["mentions"] = _normalize_mentions(call_result.get("mentions"))
+    world_id = call_result["world_id"]
+    result["draft"]["world"] = draft_world.resolve_world_block(
+        db, world_id, entity_type, public_in, result["draft"]["public"].get("name") or "",
+        result["notes"],
+    ) if world_id else {"states": [], "links": [], "same_as": None, "to_create": []}
     return result
 
 

@@ -62,7 +62,9 @@ class EntityGenerateBody(BaseModel):
     brief: str
 
 
-def _generate_draft_with_l1(entity_type: str, brief: str, db: Session) -> dict:
+def _generate_draft_with_l1(
+    entity_type: str, brief: str, db: Session, candidate_ids: tuple[str, ...] = ()
+) -> dict:
     """Shared write-free generation core (BRIEF-0019-a item 4, RECON F2) —
     both `/api/entities/generate` and `/api/creations/{mutation_id}/generate`
     call this instead of `generate_entity_draft` directly, so there is ONE
@@ -75,8 +77,10 @@ def _generate_draft_with_l1(entity_type: str, brief: str, db: Session) -> dict:
     the result as `draft["public"]["goals"]`. A goal-generation failure never
     fails the draft — it's appended to `notes` and the character draft ships
     without goals.
+
+    TICKET-0124 (C-13): `candidate_ids` lead the draft's citable names.
     """
-    result = _generate_entity_draft(entity_type, brief, db)
+    result = _generate_entity_draft(entity_type, brief, db, candidate_ids=candidate_ids)
     if entity_type == "character" and result.get("ok"):
         pub, facets = result["draft"]["public"], result["draft"]["facets"]
         faction_goals = None
@@ -329,7 +333,8 @@ def generate_creation_draft(mutation_id: str, db: Session = Depends(get_session)
     `_generate_draft_with_l1`. Regenerating later is free: an abandoned
     draft costs nothing because the mutation stays 'approved' until
     create_entity's guarded linkage flips it. TICKET-0124 (C-11): it also
-    returns the germ's candidates.
+    returns the germ's candidates, which lead the draft's citable names
+    (C-13), and a `creation` germ's origin link leads the draft's links.
     """
     mut = _open_germ(mutation_id, db)
     payload = mut.payload if isinstance(mut.payload, dict) else {}
@@ -339,7 +344,10 @@ def generate_creation_draft(mutation_id: str, db: Session = Depends(get_session)
         raise HTTPException(409, "Germ has no valid entity_type — cannot generate")
 
     brief = _compose_entity_creation_brief(payload, db)
-    result = _generate_draft_with_l1(entity_type, brief, db)
+    candidates = germ_candidates(db, mut)
+    result = _generate_draft_with_l1(entity_type, brief, db, tuple(c["entity_id"] for c in candidates))
+    if result.get("ok"):
+        _prepend_origin_link(db, payload, result["draft"]["world"]["links"])
     return {
         "ok": result.get("ok", False),
         "draft": result.get("draft"),
@@ -347,8 +355,21 @@ def generate_creation_draft(mutation_id: str, db: Session = Depends(get_session)
         "error": result.get("error"),
         "mutation_id": mutation_id,
         "entity_type": entity_type,
-        "candidates": germ_candidates(db, mut),
+        "candidates": candidates,
     }
+
+
+def _prepend_origin_link(db: Session, payload: dict, links: list[dict]) -> None:
+    """A `creation` germ's origin, as the first of its draft's links, unless
+    already linked (TICKET-0124, C-11): its `origin_entity_id` an active
+    entity, its `link_type` non-empty."""
+    origin = db.get(Entity, payload.get("origin_entity_id") or "")
+    link_type = str(payload.get("link_type") or "").strip()
+    if origin is None or origin.status != "active" or not link_type:
+        return
+    if any(link.get("entity_id") == origin.id for link in links):
+        return
+    links.insert(0, {"entity_id": origin.id, "name": origin.name, "type": link_type, "note": ""})
 
 
 class WorldGenerateBody(BaseModel):
