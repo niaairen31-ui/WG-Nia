@@ -18,12 +18,32 @@ export const pendingDraftsState = $state({
   // TICKET-0107 (E1): the generator's carrure (-1..2), sent as the create
   // body's `carrure`; the server makes it the NPC's physical skill row.
   carrure: null,
+  // TICKET-0124 (BRIEF-0124-I, C-14): the draft's world block as the server
+  // resolved it (draft_world.py) -- each list item carries `checked`; the
+  // create sends the checked ones (worldExtrasForCreate).
+  world: { states: [], links: [], sameAs: null, toCreate: [] },
 });
 
 export function resetPendingDrafts() {
   pendingDraftsState.knowledge = [];
   pendingDraftsState.goals = { long: '', shorts: ['', ''] };
   pendingDraftsState.carrure = null;
+  pendingDraftsState.world = { states: [], links: [], sameAs: null, toCreate: [] };
+}
+
+/** The create body's `states`, `relations` and `germs` (C-09), from the
+ *  checked items only; a link without a type is not sent. */
+export function worldExtrasForCreate() {
+  const w = pendingDraftsState.world;
+  return {
+    states: w.states.filter((s) => s.checked).map((s) => ({ key: s.key, value: s.value })),
+    relations: w.links
+      .filter((l) => l.checked && (l.type || '').trim())
+      .map((l) => ({ other_entity_id: l.entity_id, type: l.type.trim(), notes: l.note || null })),
+    germs: w.toCreate
+      .filter((g) => g.checked)
+      .map((g) => ({ name: g.name, entity_type: g.entity_type, concept: g.concept, link_type: g.link_type })),
+  };
 }
 
 export function carrureForCreate() {

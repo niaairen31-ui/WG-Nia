@@ -20662,6 +20662,32 @@ character's draft links to that one (brief I consumes it). Neither action
 opens a dialog: an error shows on the panel's status line. Gate:
 `creation_layout.py` CL1-CL4.
 
+## WHAT THE WORLD ADDS, ON THE SHEET (TICKET-0124) -- DraftWorldPanel.svelte (BRIEF-0124-i, no schema change)
+
+**Keep or drop, never retype.** A new character, location or faction sheet
+shows « Ce que le monde ajoute » (`DraftWorldPanel.svelte`): the states,
+links, possible same person and entities to create that
+`draft["world"]` resolved (BRIEF-0124-g). `applyGeneratedDraft` stores them
+in `pendingDraftsState.world`, states and links ticked, and the creator
+keeps or drops each one. A state's value is changed after the create, in
+« États »; a link's type can be edited, and a link without one is not
+sent. `worldExtrasForCreate` turns the ticked items into the create body's
+`states`, `relations` and `germs` (C-09), which carry only the resolved ids
+and the germ fields -- never a name for code to guess at. After the create,
+the pending list reloads when germs were written, and a skipped germ is
+named on the status line.
+
+**I1: entities to create start unticked.** Each one ticked becomes a germ
+in « En attente », linked to the new sheet (BRIEF-0124-e); nothing is
+created unless the creator asks for it.
+
+**H1 on the sheet.** On a germ's draft, « Peut-être la même personne que
+{name} » offers « Rattacher à {name} », which calls `attachGerm` and makes
+the sheet unnecessary. When « Créer et lier » prepared a character
+(`creationState.germLinkTarget`), `applyGeneratedDraft` adds it as a kept
+link with an empty type for the creator to name, then clears it. Gate:
+`draft_panel.py` DP1-DP2.
+
 ---
 
 *Co-built with Claude, June 2026.*

@@ -428,6 +428,7 @@
 - `door_coverage.py` — G1 check for TICKET-0039 (BRIEF-0039-e) — door coverage invariant.
 - `door_distinct_points.py` — L1 check for TICKET-0040 (BRIEF-0040-e) — door distinct-point invariant.
 - `door_terminal.py` — G1 check: door terminality + orchestration-only guards (TICKET-0034, BRIEF-0034-b).
+- `draft_panel.py` — G1 check for TICKET-0124 -- the sheet shows what the world adds to a draft and sends what the creator kept.
 - `draft_world.py` — G1 check for TICKET-0124 -- a draft fills the states its world asks for, and code decides what each answer names.
 - `dynamic_ext_crud.py` — G1 check: dynamic ext_* instance CRUD for governed runtime entity types (TICKET-0046, BRIEF-0046-e), on the trait_registry_projection.py temp-fixture idiom — a fresh temp-file SQLite fixture (WORLD_ENGINE_DATABASE_URL set BEFORE any world_engine import), so this check never touches Nia's real DB.
 - `effect_self_write.py` — G1 check: effect_self_write (TICKET-0062, BRIEF-0062-a commit 2).

@@ -95,9 +95,10 @@
   import LedgerPanel from './LedgerPanel.svelte';
   import ItemsPanel from './ItemsPanel.svelte';
   import StatesPanel from './StatesPanel.svelte';
-  import { resetPendingDrafts, knowledgeForCreate, goalsForCreate, carrureForCreate } from './pendingDrafts.svelte.js';
+  import { resetPendingDrafts, knowledgeForCreate, goalsForCreate, carrureForCreate, worldExtrasForCreate } from './pendingDrafts.svelte.js';
   import PendingKnowledgeEditor from './PendingKnowledgeEditor.svelte';
   import PendingGoalsEditor from './PendingGoalsEditor.svelte';
+  import DraftWorldPanel from './DraftWorldPanel.svelte';
   import { resetGeneratePanel, applyGeneratedDraft } from './generatePanel.svelte.js';
   import GeneratePanel from './GeneratePanel.svelte';
   import { resetEventDraft, eventDraftState, eventDraftBody } from './eventDraft.svelte.js';
@@ -598,10 +599,14 @@
         ...(confirmPromotion ? { confirm_promotion: true } : {}),
         ...(isNewSave && type === 'location' ? { link_to: neighboursForCreate() } : {}),
         ...(isNewSave && type === 'character' && carrureForCreate() ? { carrure: carrureForCreate() } : {}),
+        ...(isNewSave && ['character', 'location', 'faction'].includes(type) ? worldExtrasForCreate() : {}),
       });
       let detail = isNewSave
         ? await api('/api/entities', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
         : await api(`/api/entities/${encodeURIComponent(creationState.sheetDetail.id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body });
+      // TICKET-0124 (BRIEF-0124-I): the create's world extras (C-09), read
+      // before a knowledge refetch replaces `detail`.
+      const worldExtras = detail.world_extras;
 
       if (isNewSave && knowledgeToCreate.length) {
         for (const row of knowledgeToCreate) {
@@ -641,6 +646,8 @@
         // new, baselined bridge-reach site, same order as before.
         consumePendingCreationMutationId();
         loadPendingCreations();
+      } else if (worldExtras?.germs?.length) {
+        loadPendingCreations();
       }
       if (isNewSave) {
         resetGeneratePanel();
@@ -661,6 +668,9 @@
       flushSync(() => { enterViewMode(detail, detail.type); });
       const st = legacyDoc.getElementById('author-status');
       if (st) { st.className = 'author-status ok'; st.textContent = 'Saved.'; }
+      if (st && worldExtras?.germs_skipped?.length) {
+        st.textContent = `Germe(s) déjà présent(s) : ${worldExtras.germs_skipped.map((g) => g.name).join(', ')}`;
+      }
       if (creationState.activeTabKey === 'lieux') {
         legacyDoc.dispatchEvent(new CustomEvent('graph:invalidate', { detail: { consumer: 'lieux' } }));
       }
@@ -820,6 +830,12 @@
         </div>
         <div class="field-section"><div class="field-section-title">Objectifs (créés à l'acceptation)</div>
           <div id="author-pending-goals"><PendingGoalsEditor /></div>
+        </div>
+      {/if}
+
+      {#if isNew && ['character', 'location', 'faction'].includes(type)}
+        <div class="field-section"><div class="field-section-title">Ce que le monde ajoute</div>
+          <div id="author-world-draft"><DraftWorldPanel /></div>
         </div>
       {/if}
 
