@@ -53,7 +53,7 @@
      legacy window into tabs.js, alongside the rest of Creation's chrome),
      which still dispatches 'creation:record-detail' too. */
   import { creationState } from './state.svelte.js';
-  import { creationSelectRecord } from './tabs.js';
+  import { CREATION_TABS, creationSelectRecord, selectGerm } from './tabs.js';
   import { selectEntity } from './sheetState.svelte.js';
   import { loadAgendas } from './intrigues.svelte.js';
   import { loadCatalogue } from './competences.svelte.js';
@@ -296,6 +296,14 @@
     return rows;
   }
 
+  // TICKET-0124 (BRIEF-0124-H, L1): the pending germs are a group of the
+  // list on the tabs that show them; a click opens one in GermPanel.svelte.
+  const GERM_SOURCE_LABELS = { tick: 'Tick', journee: 'Journée', creation: 'Brouillon', conversation: 'Conversation' };
+
+  function showGerms() {
+    return !!CREATION_TABS[creationState.activeTabKey]?.showPendingCreations && creationState.pendingCreations.length > 0;
+  }
+
   function lieuxToggleExpanded(id) {
     const next = new Set(lieuxExpanded);
     if (next.has(id)) next.delete(id);
@@ -304,11 +312,27 @@
   }
 </script>
 
+{#snippet germGroup()}
+  {#if showGerms()}
+    <div class="lieux-bucket-head">En attente ({creationState.pendingCreations.length})</div>
+    {#each creationState.pendingCreations as g (g.mutation_id)}
+      <div class="author-list-item {g.mutation_id === creationState.selectedGermId ? 'active' : ''}"
+           role="button" tabindex="0"
+           onclick={() => selectGerm(g.mutation_id)}
+           onkeydown={(ev) => { if (ev.key === 'Enter') selectGerm(g.mutation_id); }}>
+        <div class="ali-name">{g.name || '(sans nom)'}</div>
+        <div class="ali-meta">{GERM_SOURCE_LABELS[g.source] ?? 'Conversation'} · germe</div>
+      </div>
+    {/each}
+  {/if}
+{/snippet}
+
 {#if mode === 'loading'}
   <div class="empty"><span class="spin">⟳</span></div>
 {:else if mode === 'error'}
   <div class="empty">{errorMessage}</div>
 {:else if mode === 'flat'}
+  {@render germGroup()}
   {#if creationState.activeTabKey === 'npc'}
     <div class="row-card" style="margin-bottom:8px;">
       <button class="btn-ghost" style="font-size:12px; width:100%;" onclick={backfillNpcGoals}>Générer les buts manquants</button>
@@ -327,6 +351,7 @@
     {/each}
   {/if}
 {:else if mode === 'lieux'}
+  {@render germGroup()}
   <div class="lieux-browse-head">
     <label class="field-row checkbox">
       <input type="checkbox" checked={lieuxActiveOnly} onchange={(ev) => { lieuxActiveOnly = ev.currentTarget.checked; }}>

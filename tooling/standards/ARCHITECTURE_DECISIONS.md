@@ -20634,6 +20634,34 @@ becomes a germ at save (BRIEF-0124-e). `generate_creation_draft` passes the
 germ's candidates to the draft and puts a draft germ's origin link first.
 Gate: `draft_world.py` DW1-DW3.
 
+## NOTHING STACKS IN CRÉATION (TICKET-0124) -- germs in the list, the germ panel, the sheet's panes (BRIEF-0124-h, no schema change)
+
+**L1: one block at a time in the right column.** The « Créations en
+attente » strip, the sheet and the skill sheet used to share one column,
+and the skill sheet took up to 45 % of it without shrinking. The strip is
+gone: on the tabs that set `showPendingCreations` (`npc`, `lieux`,
+`factions`) the pending germs are the entity list's first group, « En
+attente ({n}) », each row a germ with its source. A click sets
+`creationState.selectedGermId` and the `germPanel` island
+(`GermPanel.svelte`, origin `new`, container `#creation-germ-panel`) takes
+the column alone. On the tabs that mount `pjSkillFiche` (`npc`, `pj`), a
+« Fiche | Compétences » bar picks `creationState.sheetPane`, and the skill
+sheet now takes the column (`flex: 1; min-height: 0`) instead of sitting
+under the sheet. The « États » section stays inside the Fiche: there is no
+third pane. Selecting an entity, generating a germ's sheet and switching
+tab close the germ; a tab switch also goes back to the Fiche.
+
+**H1: a germ can join an existing character.** For a character germ the
+panel asks « C'est quelqu'un qui existe ? » and lists the germ's
+candidates (`GET /candidates`), then offers any other non-player character
+of the world through a select. Each one gets two actions:
+« Rattacher » (`attachGerm`: `POST /attach`, no new entity, then the
+pending list and the entity list reload) and « Créer et lier », which sets
+`creationState.germLinkTarget` and generates the sheet, so the new
+character's draft links to that one (brief I consumes it). Neither action
+opens a dialog: an error shows on the panel's status line. Gate:
+`creation_layout.py` CL1-CL4.
+
 ---
 
 *Co-built with Claude, June 2026.*

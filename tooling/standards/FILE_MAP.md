@@ -404,6 +404,7 @@
 - `corpus_gate.py` — G1 check: corpus gate -- every check in tooling/verify/checks/ runs, or this gate is red (TICKET-0060, BRIEF-0060-d, B1).
 - `creation_container_sizing.py` — G1 check: every single-container Création tab sizes its container (TICKET-0099, BRIEF-0099-a).
 - `creation_island.py` — G1 check: the Creation island-mount seam (TICKET-0058, BRIEF-0058-d, amended by BRIEF-0058-e; re-anchored by TICKET-0059, BRIEF-0059-l commit 1, D1).
+- `creation_layout.py` — G1 check for TICKET-0124 -- nothing stacks in Création's right column: germs are a group of the list, the skill sheet a pane of the sheet.
 - `creation_return_nav.py` — G1 check for TICKET-0054 (BRIEF-0054-d): Creation surface cross-tab entity navigation with a single-slot return crumb.
 - `creation_tab_switch.py` — G1 check: the tab-switch sheet reset (TICKET-0083, BRIEF-0083-a).
 - `dashboard_registry.py` — G1 check for TICKET-0115 -- the dashboard is a registry in code: its metrics read relational columns only, its deferrals point at the passage that declares them, and its export carries what the tab does not show.

@@ -379,3 +379,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 20530 | A CREATE CARRIES WHAT THE WORLD ADDS (TICKET-0124) -- states, links and ticked germs in one transaction; the creator_draft producer (BRIEF-0124-e, no schema change) | BRIEF-0124-e |  |
 | 20561 | A GERM SAYS WHERE IT COMES FROM AND CAN JOIN AN EXISTING CHARACTER (TICKET-0124) -- source sentence, place name, candidates, attach, the Germes metric (BRIEF-0124-f, no schema change) | BRIEF-0124-f |  |
 | 20603 | THE DRAFT FILLS WHAT THE WORLD ASKS (TICKET-0124) -- draft_world.py, its case table (BRIEF-0124-g, no schema change) | BRIEF-0124-g |  |
+| 20637 | NOTHING STACKS IN CRÉATION (TICKET-0124) -- germs in the list, the germ panel, the sheet's panes (BRIEF-0124-h, no schema change) | BRIEF-0124-h |  |
