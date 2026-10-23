@@ -128,6 +128,15 @@ def _format_public_mentions(row: dict) -> str:
     return line
 
 
+def _format_skills(row: dict) -> str:
+    line = f"{row.get('name')} ({row.get('system') or 'sans système'}, {row.get('base_domain')})"
+    if row.get("requires_master"):
+        line += " ; exige un maître"
+    if row.get("description"):
+        line += f" -- {row['description']}"
+    return line
+
+
 _SECTION_FORMATTERS: dict[str, Callable[[dict], str]] = {
     "identity": _format_identity,
     "facets": _format_facets,
@@ -142,6 +151,7 @@ _SECTION_FORMATTERS: dict[str, Callable[[dict], str]] = {
     "members": _format_members,
     "laws": _format_laws,
     "public_mentions": _format_public_mentions,
+    "skills": _format_skills,
 }
 
 

@@ -4,9 +4,10 @@ A sibling of `lore_selectors.py` for the player: the creator selectors
 cannot serve a perspective, even filtered afterwards (they carry secrets,
 creator-only notes, knowers and intensities). Every selector here takes a
 `PublicView` -- the world's public facts (a public level above `unaware`,
-creator-only notes subtracted) and its public entities (active, `is_public`)
--- and never returns a fact or an entity outside it, nor a key naming
-secrecy, levels or knowers. Read-only: no write, no commit, no model call.
+creator-only notes subtracted), its public entities (active, `is_public`)
+and the skills visible at creation -- and never returns a fact or an
+entity outside it, nor a key naming secrecy, levels or knowers.
+Read-only: no write, no commit, no model call.
 """
 
 from __future__ import annotations
@@ -16,12 +17,15 @@ from dataclasses import dataclass
 from sqlmodel import Session, select
 
 from .context import read_public_memberships
+from .creation_rules import visible_skill_ids
 from .facet_reads import creator_only_fact_ids
 from .facets import FACETS
 from .knowledge_resolve import resolve_public_levels
 from .lore_resolve import normalize_surface
 from .lore_selectors import SelectorSpec
-from .models import Entity, Fact, FactionMembership, FactParticipant, Faction, Relation, WorldLaw
+from .models import (
+    Entity, Fact, FactionMembership, FactParticipant, Faction, Relation, SkillDefinition, SkillSystem, WorldLaw,
+)
 from .prose_render import fact_texts
 from .relation_orientation import MAP_TOPOLOGY_TYPES
 
@@ -31,11 +35,13 @@ class PublicView:
     world_id: str
     fact_ids: frozenset[str]
     entity_ids: frozenset[str]
+    skill_ids: frozenset[str]
 
 
 def public_view(db: Session, world_id: str) -> PublicView:
     """The facts whose public level is above `unaware`, minus the creator's
-    notes (INV-01), and the active entities whose `is_public` is true."""
+    notes (INV-01), the active entities whose `is_public` is true, and the
+    skill definitions visible at creation (`creation_rules.visible_skill_ids`)."""
     levels = resolve_public_levels(db, world_id)
     fact_ids = {fact_id for fact_id, level in levels.items() if level != "unaware"}
     fact_ids -= creator_only_fact_ids(db, fact_ids)
@@ -46,7 +52,10 @@ def public_view(db: Session, world_id: str) -> PublicView:
             Entity.is_public == True,  # noqa: E712
         )
     ).all()
-    return PublicView(world_id=world_id, fact_ids=frozenset(fact_ids), entity_ids=frozenset(entity_ids))
+    return PublicView(
+        world_id=world_id, fact_ids=frozenset(fact_ids), entity_ids=frozenset(entity_ids),
+        skill_ids=visible_skill_ids(db, world_id),
+    )
 
 
 _FACET_ORDER = {name: index for index, name in enumerate(FACETS)}
@@ -243,8 +252,32 @@ def world_laws(world_id: str, view: PublicView, db: Session) -> list[dict]:
     return [{"section": "laws", "position": law.position, "text": law.text_} for law in laws]
 
 
+def public_skills(world_id: str, view: PublicView, db: Session) -> list[dict]:
+    """The skills everybody knows: the definitions visible at creation, one row each."""
+    definitions = db.exec(select(SkillDefinition).where(SkillDefinition.world_id == world_id)).all()
+    systems = {s.id: s.name for s in db.exec(select(SkillSystem).where(SkillSystem.world_id == world_id)).all()}
+    kept = [d for d in definitions if d.id in view.skill_ids]
+
+    def order(d: SkillDefinition) -> tuple:
+        system = systems.get(d.system_id)
+        return (system is None, system or "", d.name, d.id)
+
+    return [
+        {
+            "section": "skills",
+            "skill_id": d.id,
+            "name": d.name,
+            "base_domain": d.base_domain,
+            "system": systems.get(d.system_id),
+            "description": d.description,
+            "requires_master": d.requires_master,
+        }
+        for d in sorted(kept, key=order)
+    ]
+
+
 PERSPECTIVE_SELECTORS: tuple[str, ...] = (
-    "public_dossier", "public_factions", "public_facts_mentioning", "world_laws",
+    "public_dossier", "public_factions", "public_facts_mentioning", "world_laws", "public_skills",
 )
 
 _PERSPECTIVE_LOOKUPS: dict[str, SelectorSpec] = {
@@ -260,6 +293,9 @@ _PERSPECTIVE_LOOKUPS: dict[str, SelectorSpec] = {
     ),
     "world_laws": SelectorSpec(
         fn=world_laws, arity=1, row_cap=100, arg_kinds=("world_id",),
+    ),
+    "public_skills": SelectorSpec(
+        fn=public_skills, arity=1, row_cap=200, arg_kinds=("world_id",),
     ),
 }
 
@@ -277,5 +313,9 @@ PERSPECTIVE_DESCRIPTIONS: dict[str, str] = {
     ),
     "world_laws": (
         "world_laws($world) -- les lois fondamentales du monde, connues de tous."
+    ),
+    "public_skills": (
+        "public_skills($world) -- les compétences de ce monde connues de tous : "
+        "celles qu'un personnage peut choisir à sa création."
     ),
 }

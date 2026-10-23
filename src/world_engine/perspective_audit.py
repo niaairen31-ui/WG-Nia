@@ -4,9 +4,9 @@ For the creator and the journal only: a player-facing module never returns
 it (`routes/player.py` journals it). It replays a valid plan's calls over
 the same queries as `perspective_selectors` and names each line the public
 view dropped: a creator-only note, a fact not public, a non-public entity,
-a secret membership, a membership in a non-public faction. A mention that
-does not resolve publicly is named under `names_only` -- never the creator
-regime. Read-only: no write, no commit, no model call.
+a secret membership, a membership in a non-public faction, a skill not
+visible at creation. A mention that does not resolve publicly is named
+under `names_only` -- never the creator regime. Read-only: no write, no commit, no model call.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from sqlmodel import Session, select
 from .facet_reads import creator_only_fact_ids
 from .lore_query import LorePlan, _call_args, validate_plan
 from .lore_resolve import resolve_named
-from .models import Entity, Faction, FactionMembership
+from .models import Entity, Faction, FactionMembership, SkillDefinition
 from .name_index import NAMES_ONLY
 from .perspective_query import resolve_public_mentions
 from .perspective_selectors import (
@@ -34,6 +34,7 @@ from .prose_render import fact_texts
 
 WITHHELD_REASONS: tuple[str, ...] = (
     "creator_only", "not_public", "entity_not_public", "secret_membership", "faction_not_public",
+    "skill_not_visible",
 )
 
 
@@ -86,6 +87,11 @@ def _withheld_factions(world_id: str, view: PublicView, db: Session) -> list[tup
     return [("entity_not_public", e.name, e.name) for e in factions if e.id not in view.entity_ids]
 
 
+def _withheld_skills(world_id: str, view: PublicView, db: Session) -> list[tuple]:
+    definitions = db.exec(select(SkillDefinition).where(SkillDefinition.world_id == world_id)).all()
+    return [("skill_not_visible", d.name, d.name) for d in definitions if d.id not in view.skill_ids]
+
+
 def withheld(
     plan: LorePlan, world_id: str, db: Session, bindings: Optional[dict[str, str]] = None,
 ) -> list[dict]:
@@ -110,6 +116,9 @@ def withheld(
             continue
         if call.selector == "public_factions":
             lines.update(_withheld_factions(world_id, view, db))
+            continue
+        if call.selector == "public_skills":
+            lines.update(_withheld_skills(world_id, view, db))
             continue
         spec = _PERSPECTIVE_LOOKUPS[call.selector]
         if call.selector == "public_facts_mentioning":
