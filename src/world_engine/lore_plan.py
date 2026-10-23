@@ -48,8 +48,9 @@ _SELECTOR_DESCRIPTIONS: dict[str, str] = {
     ),
 }
 
-def _render_selectors() -> str:
-    return "\n".join(f"- {name}: {desc}" for name, desc in _SELECTOR_DESCRIPTIONS.items())
+def _render_selectors(descriptions: Optional[dict[str, str]] = None) -> str:
+    descriptions = _SELECTOR_DESCRIPTIONS if descriptions is None else descriptions
+    return "\n".join(f"- {name}: {desc}" for name, desc in descriptions.items())
 
 
 def _coerce_mention(raw: object) -> PlanMention:
@@ -88,6 +89,7 @@ PLAN_USAGE = "lore_question_to_plan"
 def draft_plan(
     question: str, world_id: str, db: Session,
     exchanges: Optional[list[model_exchange.ModelExchange]] = None,
+    *, descriptions: Optional[dict[str, str]] = None,
 ) -> LorePlan:
     """Builds the prompt, calls the model through the resolved
     `lore_prompt.RenderSpec`, parses the reply with `llm_parse.extract_object`,
@@ -99,11 +101,14 @@ def draft_plan(
 
     `exchanges` (TICKET-0103, BRIEF-0103-B, C-03): when a list is given, the
     model call is appended to it as a `ModelExchange`, its raw reply kept
-    before parsing."""
+    before parsing.
+
+    `descriptions` (TICKET-0125, C-03) plans over another selector list with
+    the same prompt."""
     spec = lore_prompt.load(db, PLAN_USAGE)
     user_message = (
         spec.user_template
-        .replace("{selectors}", _render_selectors())
+        .replace("{selectors}", _render_selectors(descriptions))
         .replace("{question}", question)
     )
     exchange = model_exchange.begin(exchanges, PLAN_USAGE, spec, spec.system_prompt, user_message)

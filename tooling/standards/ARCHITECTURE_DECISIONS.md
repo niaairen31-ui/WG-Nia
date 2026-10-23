@@ -20709,6 +20709,158 @@ generation without touching a prompt.
 draft leaves it as typed (`world_generation` receives no premise). Gate:
 `world_sheet.py` WG1.
 
+## A world with several PCs refuses instead of choosing (BRIEF-0125-a, no schema change)
+
+**M2: no lookup picks "the first" PC of a world.** Two creator lookups
+resolved the world's player character with `.first()`:
+`crud/entities.py::_player_character_id` and
+`analyzer_transcript.py::_resolve_player_id`. Both now read every PC of the
+world. `_player_character_id` keeps its 400 « No player character in the
+active world. » at zero, returns the id at one, and answers 409 « Plusieurs
+personnages joueurs dans ce monde : précisez lequel. » above one; its
+callers (scene, play, spatial routes) receive the refusal as an
+`HTTPException`, and the creator bootstrap already turns one into
+`player_id: None`. `_resolve_player_id` returns None unless the world holds
+exactly one PC. Journée was already safe: `routes/day.py::
+_resolve_player_character` refuses when the count is not one. Today a world
+holds at most one PC (every PC is bound to the creator user,
+`idx_character_one_pc_per_user_world`); the refusal is preventive, for the
+player-profile PCs of TICKET-0126. Choosing the active PC is TICKET-0128.
+Gate: `pc_resolution.py` PR1-PR2.
+
+## A world opens to players; the journal admits perspectives (BRIEF-0125-b, schema v2.31)
+
+**C1: the player sees only the worlds the creator opened.** `world` gains
+`open_to_players` (BOOLEAN NOT NULL DEFAULT 0), the creator's « Ouvert aux
+joueurs ». It is the player shell's only listing criterion; player routes
+never read `is_active`, which stays the creator's single working world.
+
+**H1-c: every perspective question is journaled.** `lore_usage_event` admits
+a third kind, `perspective`, with steps `perspective_ask` and
+`perspective_resolve` -- names unique across kinds, because
+`writes/lore_usage.PAYLOAD_KEYS` is keyed by step. Their payloads carry
+`perspective` (`public`), `asked_by` (`creator` or `player:<user_id>`) and
+`withheld`, the audit's lines. The step CHECK lives in the table DDL, so
+`migrate_v2_31_player_entry.py` rebuilds the table (v2.29's `_rebuild`
+procedure) and copies every row unchanged; its post-check compares the
+journal's row count before and after. INV-59 is unchanged: the journal is
+still written only through `lore_usage` and read only by
+`export_lore_usage.py`. Gate: `player_entry_schema.py` PS1-PS2.
+
+## The public perspective (BRIEF-0125-d, no schema change)
+
+**Why a sibling pipeline.** The player questions the lore on what everybody
+knows. The creator's selectors cannot serve that, even filtered afterwards:
+`entity_dossier` carries creator-only notes, knowledge rows with
+`is_secret`, relation intensities and internal names; `who_knows_about` and
+`facts_mentioning` list knowers and flag creator-only facts. The public
+perspective reuses the planner (`draft_plan(..., descriptions=)`), the plan
+validation (`validate_plan(..., lookups=)`) and the prose renderer, and
+owns everything that reads canon: `perspective_selectors.py`,
+`perspective_query.py`, `perspective_audit.py`, `perspective_render.py`.
+
+**U1: the public view.** `public_view(db, world_id)` holds the facts whose
+public level (`resolve_public_levels`) is above `unaware`, minus the
+creator's notes (`creator_only_fact_ids`, so a note with a public default
+still never shows), and the active entities whose `is_public` is true.
+Mentions resolve under the new `public` name regime: like `perceiver` with
+the public fact set, and a non-public entity's name and appellations are no
+surface at all. Four selectors read through the view only: `public_dossier`
+(identity, public facts, public `Lien` facts with map topology excluded,
+memberships, a faction's members), `public_factions`,
+`public_facts_mentioning`, `world_laws`. No row carries `is_secret`,
+`is_incorrect`, `intensity`, `internal_name`, `knowers`, `creator_only` or
+`level`.
+
+**One "nothing known".** An unknown name, a non-public entity and a public
+entity on which nothing public is held answer the same verdict,
+`nothing_known`, rendered by code as « Rien de ce que tout le monde sait ne
+répond à cette question. »: the answer never tells an absence from a
+secret. The four verdicts are closed (`PERSPECTIVE_VERDICTS`); every one
+but `answered` is a fixed sentence and never reaches a model (INV-58).
+
+**V1: homonyms.** Two public entities sharing a name are
+`ambiguous_mention`, with candidates as name and type only. A binding is
+accepted only among that mention's public candidates, re-resolved under the
+public scope; anything else is `BindingRefused`.
+
+**W1: public memberships.** A membership shows when it is current and not
+secret (`read_public_memberships`, `cover_role ?? role`) and both member and
+faction are public. A faction's member list is a third reader of
+`faction_membership` with the same WHERE triplet, keyed by faction (to be
+named in INV-66).
+
+**The audit.** `withheld(plan, ...)` names every line the public answer
+dropped, with a reason in `WITHHELD_REASONS`: `creator_only`, `not_public`,
+`entity_not_public`, `secret_membership`, `faction_not_public`. It reuses the
+selectors' queries, names an unresolved mention under `names_only` (never
+the creator regime) and is for the creator and the journal only. Gate:
+`perspective_isolation.py` PI1-PI5.
+
+
+## Player profiles and the player's door (BRIEF-0125-e, no schema change)
+
+**A1', K1: profiles.** Nia plays alone, locally, without a password, under
+several player profiles. A profile is a `user` row with `role='player'`;
+`writes/users.create_player_profile` is the only runtime writer of `user`
+(commit-free, the route owns the commit). A name is stripped, 80 characters
+at most, and unique among the active players under `normalize_surface`
+(users are not world-scoped). `user` is not a canon table: this writer is
+outside the canon-write gate.
+
+**B2: open worlds.** A world is offered to a player only when
+`open_to_players`; no player route reads `world.is_active`, and none goes
+through `_crud._world_id`.
+
+**The five player routes**, all under `/api/joueur/`: `GET`/`POST profils`,
+`GET mondes` (id, name, description, laws by position), `POST savoir/ask`
+and `POST savoir/resolve`. The savoir routes check the world (open) and the
+profile (active, `player`) before anything else, then run the same flow as
+the creator's `/api/lore/perspective/ask|resolve`
+(`cockpit/perspective_flow.py`, one implementation, two doors). The creator
+gets the rows and the audit; the player gets only `{verdict, answer,
+renderer, candidates, plan}`.
+
+**H1-c: the journal.** Every perspective question journals one row of kind
+`perspective` through `lore_usage`: `perspective` `public`, `asked_by`
+`creator` or `player:<profile_id>`, the response, and `withheld`, the audit
+computed for the creator and the player alike -- journaled, never returned
+to a player. A refused binding is journaled `refused`; an unknown
+perspective, a closed world or an unknown profile is refused before the
+journal.
+
+**Drafting decision 9: the profile id travels in the body.** No session,
+no cookie: the player shell is local and single-user, the profile is a
+choice, not an authentication, and the routes stay stateless. Gate:
+`player_routes.py` PR1-PR8.
+
+
+## The player shell (BRIEF-0125-g, no schema change)
+
+**P1: a second page, not a surface.** The player shell is `/jouer`:
+`frontend/jouer.html`, a second Vite input with its own bundle
+(`frontend/src/joueur/`), served by a decorator route with the revalidating
+cache directive. It is not a `_SHELL_ROUTES` surface of the creator shell:
+a player page never loads the creator's code, registries or bridge, and
+the creator header does not link to it (drafting decision 10). The only
+code the two bundles share is the Svelte runtime chunk the build splits
+out. `jouer.html` joins the source-hash set in `write-manifest.mjs` and
+`frontend_build_fresh.py`.
+
+**What it does.** Pick or create a profile (remembered in `localStorage`,
+sent in each body), list the open worlds with description and laws, open
+one, and ask « Ce que tout le monde sait » through `/api/joueur/savoir/*`.
+Character creation is shown disabled until TICKET-0126.
+
+**INV-66.** A player surface learns about the world only through a
+perspective, never a creator selector, the creator name regime, a trace,
+near names or the audit; every perspective question is journaled with what
+was withheld. Held in `.claude/rules/player-surface.md`. Gate:
+`player_shell.py` PSH2-PSH4 (every URL literal under `/api/joueur/`, no
+import out of `frontend/src/joueur/` but `svelte`, the page wired and kept
+out of `_SHELL_ROUTES`), with `perspective_isolation.py` and
+`player_routes.py`.
+
 ---
 
 *Co-built with Claude, June 2026.*

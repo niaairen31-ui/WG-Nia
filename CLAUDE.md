@@ -20,7 +20,8 @@ and how to run things. Invariants that hold for one part of the code live in
   Creation, Observation, Journée and Lore are shell-native Svelte
   components, mounted directly by `App.svelte`; Play alone stays legacy
   (`/legacy`, one governed iframe, `cockpit/legacy.html`) until its own
-  ticket. No new dependency without a decision.
+  ticket. The player shell is a second page, `/jouer`, with its own bundle.
+  No new dependency without a decision.
 - Local models via Ollama; Claude API reserved for heavy lore-coherence work.
 - Runtime: Windows / PowerShell — `.venv\Scripts\Activate.ps1`,
   `$env:PYTHONPATH = "src"`.
@@ -246,6 +247,7 @@ of them.
 - `prompts.md` — prompt text and per-template models.
 - `frontend.md` — the Svelte shell, Création registries, the build.
 - `authoring-lore.md` — region generation, the Lore surface.
+- `player-surface.md` — the player shell, its routes, the perspective.
 - `schema-migrations.md` — migrations, the boot guard, rollback.
 - `local-models.md` — the local models and their thinking modes.
 - `verify-checks.md` — how a verify check is written.

@@ -8,7 +8,7 @@ each a vacuous-proof guard (a missing/empty input is a FAILURE, never a
 trivially-satisfied comparison):
 
   1. Sources exist — frontend/src/ is a directory, the source set is
-     non-empty, and the four named root files exist.
+     non-empty, and the five named root files exist.
   2. Output exists — src/world_engine/cockpit/static/ is a directory
      containing at least one *.js file and an index.html.
   3. Manifest exists and is well-formed — .build-manifest.json parses as
@@ -35,7 +35,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 FRONTEND_DIR = ROOT / "frontend"
 FRONTEND_SRC = FRONTEND_DIR / "src"
-ROOT_FILES = ("package.json", "package-lock.json", "vite.config.js", "index.html")
+ROOT_FILES = ("package.json", "package-lock.json", "vite.config.js", "index.html", "jouer.html")
 STATIC_DIR = ROOT / "src" / "world_engine" / "cockpit" / "static"
 MANIFEST_FILE = STATIC_DIR / ".build-manifest.json"
 SOURCE_HASH_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -60,7 +60,7 @@ def _report_and_exit(source_count: int = 0, output_count: int = 0) -> None:
 
 
 def _source_set() -> list[Path] | None:
-    """Every file under frontend/src/ at any depth, plus the four named
+    """Every file under frontend/src/ at any depth, plus the five named
     root files. Returns None (with FAILURES populated) on any miss —
     assertion 1."""
     if not FRONTEND_SRC.is_dir():

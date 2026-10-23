@@ -12,7 +12,9 @@ on the regime of a `NameScope` (N1c, N2b):
   `fact.default_level != 'unaware'` or a `fact_default` row above
   `unaware`) — what token posing may index;
 - `perceiver`: appellations that are not creator-only and whose fact id is
-  in the perceiver's `known_fact_ids`.
+  in the perceiver's `known_fact_ids`;
+- `public`: like `perceiver` with the public fact set, and only entities
+  whose `is_public` is true (TICKET-0125, U1).
 
 `exclude_entity_id` removes one entity's name and appellations in every
 regime. Text is returned as rendered, never normalized: callers normalize.
@@ -30,7 +32,7 @@ from sqlmodel import Session, select
 from .models import Entity, Fact, FactDefault, FactParticipant
 from .prose_render import fact_texts
 
-REGIMES: tuple[str, ...] = ("names_only", "creator", "prose", "perceiver")
+REGIMES: tuple[str, ...] = ("names_only", "creator", "prose", "perceiver", "public")
 
 # regime -> (appellations counted, creator-only dropped, scope required, known required)
 _APPELLATION_RULES = {
@@ -38,6 +40,7 @@ _APPELLATION_RULES = {
     "creator": (True, False, False, False),
     "prose": (True, True, True, False),
     "perceiver": (True, True, False, True),
+    "public": (True, True, False, True),
 }
 
 
@@ -50,10 +53,13 @@ class NameScope:
     def __post_init__(self) -> None:
         if self.regime not in REGIMES:
             raise ValueError(f"unknown name regime {self.regime!r}")
-        if self.regime == "perceiver" and self.known_fact_ids is None:
-            raise ValueError("the perceiver regime needs known_fact_ids")
-        if self.regime != "perceiver" and self.known_fact_ids is not None:
-            raise ValueError(f"known_fact_ids is only for the perceiver regime, not {self.regime!r}")
+        needs_known = self.regime in ("perceiver", "public")
+        if needs_known and self.known_fact_ids is None:
+            raise ValueError(f"the {self.regime} regime needs known_fact_ids")
+        if not needs_known and self.known_fact_ids is not None:
+            raise ValueError(
+                f"known_fact_ids is only for the perceiver and public regimes, not {self.regime!r}"
+            )
 
 
 NAMES_ONLY = NameScope("names_only")
@@ -114,6 +120,7 @@ def surfaces(db: Session, world_id: str, scope: NameScope) -> tuple[NameSurface,
             select(Entity).where(Entity.world_id == world_id, Entity.status == "active")
         ).all()
         if e.id != scope.exclude_entity_id
+        and (scope.regime != "public" or e.is_public)
     ]
     if not entities:
         return ()

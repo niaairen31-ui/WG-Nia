@@ -24,12 +24,18 @@ MODEL_CALL_KEYS: frozenset[str] = frozenset({
 # The payload of each step, by key (C-02). `error` is None on `ok` and the
 # message the creator was shown otherwise; the step's answer key is None
 # whenever the step did not answer.
+# perspective steps (TICKET-0125): `perspective` is `public`, `asked_by` `creator` or `player:<user_id>`,
+# `withheld` the audit's lines.
 PAYLOAD_KEYS: dict[str, frozenset[str]] = {
     "questions": frozenset({"statement", "questions", "error"}),
     "draft": frozenset({"statement", "answers", "draft", "error"}),
     "commit": frozenset({"proposal", "result", "error"}),
     "ask": frozenset({"question", "response", "error"}),
     "resolve": frozenset({"question", "plan", "bindings", "response", "error"}),
+    "perspective_ask": frozenset({"question", "perspective", "asked_by", "response", "withheld", "error"}),
+    "perspective_resolve": frozenset({
+        "question", "perspective", "asked_by", "plan", "bindings", "response", "withheld", "error",
+    }),
 }
 
 

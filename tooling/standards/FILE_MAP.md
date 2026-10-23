@@ -124,6 +124,7 @@
 - `migrate_v2_28_quest_requests.py` — Migration v2.28 — a quest request is a row (TICKET-0121, BRIEF-0121-B; decision L1 of the Journée quest designer).
 - `migrate_v2_29_rank_trials.py` — Migration v2.29 — a rank may ask a trial, and a trial is a quest (TICKET-0116, BRIEF-0116-A; decisions B1, D2, D2-d, F1-b).
 - `migrate_v2_30_world_tone.py` — Migration v2.30 — a world has a tone (TICKET-0124, BRIEF-0124-A; decision B2 of the world premise).
+- `migrate_v2_31_player_entry.py` — Migration v2.31 — a world opens to players; the Lore journal admits the perspective kind (TICKET-0125, BRIEF-0125-B; decisions C1, H1-c).
 - `observation_metrics.py` — Observation run metrics (TICKET-0051, BRIEF-0051-g, decision J2/Q).
 - `preview_npc_schedule.py` — Preview `where_is` / `who_is_at` / `unresolved_npcs` — the concrete reader for `world.current_phase` (T-A1) and the live-gate instrument for TICKET-0074, BRIEF-0074-a.
 - `preview_tick_context.py` — Preview the full-interiority briefing a world tick would send to one NPC (TICKET-0014, BRIEF-0014-a; TICKET-0015, BRIEF-0015-a adds --interval) — the concrete reader for `assemble_tick_context` in this brief, and the live-gate instrument for the T1 review.
@@ -218,6 +219,10 @@
 - `observation_writes.py` — Single write chokepoint for `observation_*` tables (TICKET-0051, BRIEF-0051-a).
 - `ollama_client.py` — Minimal client for a local Ollama server (stdlib only — no new dependency).
 - `passages.py` — Place registry writer (TICKET-0105, BRIEF-0105-B, C-02).
+- `perspective_audit.py` — The public perspective's audit: every line a public answer withheld, and why (TICKET-0125, BRIEF-0125-D, C-07).
+- `perspective_query.py` — The public perspective's executor: a plan run over what everybody knows (TICKET-0125, BRIEF-0125-D, C-05, C-06).
+- `perspective_render.py` — The public perspective's renderer: the answer to a public question, in prose or by code (TICKET-0125, BRIEF-0125-D, C-08).
+- `perspective_selectors.py` — The public perspective's selectors: what everybody knows about a world (TICKET-0125, BRIEF-0125-D, C-04).
 - `placement.py` — Pure NPC placement for the spatial workstream (TICKET-0031, BRIEF-0031-a).
 - `prompt_call.py` — One templated JSON call to the model, shared by the creator's authoring tools (TICKET-0112, BRIEF-0112-A -- extracted verbatim from `lore_write_draft._call`, which now delegates here).
 - `prompt_coverage.py` — Day-chain prompt coverage guard (TICKET-0076, BRIEF-0076-a).
@@ -266,6 +271,7 @@
 - `day_reconcile_apply.py` — Reconciliation finalizers, relocated from `cockpit/routes/day.py` for module-budget headroom (TICKET-0077, BRIEF-0077-a) — the `models/config.py::AgendaStep` relocation precedent.
 - `mutations.py` — Per-mutation-type canon appliers (TICKET-0027, BRIEF-0027-c).
 - `origin_guard.py` — Origin guard for every write route (TICKET-0098, BRIEF-0098-A, decision I1).
+- `perspective_flow.py` — The shared public-perspective flow behind two doors (TICKET-0125, BRIEF-0125-E, C-15).
 - `play.py` — The `say`/`_stream` play path (BRIEF-0027-b/-d): mode interpretation, NPC selection/run, mutation-proposal assembly, narration streaming.
 - `play_discovery.py` — Engine discovery proposal (TICKET-0091 BRIEF-B, pure move).
 - `play_initiative.py` — NPC-initiative branch of the `say` play path (TICKET-0035, extracted from play_stream.py at BRIEF-0027-b/-d's module boundary).
@@ -313,11 +319,13 @@
 - `lore.py` — Lore consultation routes (TICKET-0085, BRIEF-0085-c).
 - `lore_choices.py` — Model-choice review routes (TICKET-0095, K1, C-07).
 - `lore_mentions.py` — Name-resolution panel routes (TICKET-0091, BRIEF-0091-K, contract C-16, decision Q17d).
+- `lore_perspective.py` — The creator's public-perspective routes (TICKET-0125, BRIEF-0125-E, C-10).
 - `lore_write.py` — The Lore shell's writing panel routes (TICKET-0098, BRIEF-0098-E).
 - `mutations.py` — The mutation review queue: list/reject/approve/batch-review, the `_apply_mutation` thin dispatcher, the applied-duplicate guard, and mutation serialization.
 - `npc_agent.py` — NPC group agent — batch staging lifecycle, run driver, and commit routes (TICKET-0037, BRIEF-0037-a/b/c).
 - `observation.py` — Observation-run routes (TICKET-0051, BRIEF-0051-e/f).
 - `play.py` — Play-path routes: conversations, travel, world-tick.
+- `player.py` — The player's door (TICKET-0125, BRIEF-0125-E, C-11): profiles, open worlds, what everybody knows.
 - `prompts.py` — Prompt dry-run preview routes (BRIEF-0008-b, C3): zero model calls, zero writes, reuse the real context assemblers and the real system-prompt construction so the preview never drifts from the live path.
 - `quest_requests.py` — The quest requests' routes (TICKET-0121, BRIEF-0121-E, C-12).
 - `quests.py` — Quest routes (TICKET-0108, BRIEF-0108-B, contracts C-03 to C-05).
@@ -373,6 +381,7 @@
 - `quests.py` — Quest offers and quests: the writers (TICKET-0108, BRIEF-0108-B, contract C-03).
 - `relations.py` — `relation` canon-write chokepoint (TICKET-0028, BRIEF-0028-b — decomposed from `writes.py`; oriented at TICKET-0090, BRIEF-0090-a).
 - `schema.py` — Governed runtime-DDL writer (TICKET-0044, BRIEF-0044-c — Dcol1, Dname1, Ddrop1, A1 atomicity).
+- `users.py` — Player profiles (TICKET-0125, K1): the only runtime writer of `user`.
 - `worlds.py` — `world` cascade-delete chokepoint (TICKET-0028, BRIEF-0028-b — decomposed from `writes.py`).
 - `zone_promotion.py` — Promotion of a visitable location into a zone (TICKET-0101, D + K, N1).
 
@@ -506,9 +515,15 @@
 - `origin_guard.py` — G1 check for TICKET-0098 (BRIEF-0098-A, decision I1) -- the origin guard.
 - `page_contract.py` — G1 check for TICKET-0005 (BRIEF-0005-a/b/c) — Création page-contract structural gate.
 - `parked_plan_guard.py` — Structural gate for the parked-plan socle (TICKET-0077, BRIEF-0077-a).
+- `pc_resolution.py` — G1 check for TICKET-0125 -- a world with several player characters is refused, never resolved to one of them.
+- `perspective_isolation.py` — G1 check for TICKET-0125 (BRIEF-0125-D) -- the public perspective returns only what everybody knows, and its audit names every line it withheld.
 - `pipeline_state.py` — Structural gate for ticket front-matter conformity (pipeline glue, BRIEF-0004), extended by BRIEF-0006-b (TICKET-0006) with sentinel checks on the command files -- moved to `session_config.py` by TICKET-0117 (BRIEF-0117-b), which owns the Claude Code session configuration.
 - `pipeline_wiring.py` — Structural gate for the day-declaration socle (TICKET-0075, BRIEF-0075-a).
 - `placement_unit.py` — G1 check: permanent regression guard for the sole placement/distance authority (TICKET-0031, BRIEF-0031-a).
+- `player_entry_schema.py` — G1 check for TICKET-0125 (BRIEF-0125-B) -- schema v2.31: a world opens to players and the Lore journal admits the perspective kind.
+- `player_routes.py` — G1 check for TICKET-0125 (BRIEF-0125-E) -- the perspective and player routes answer only what everybody knows, refuse a closed world, and journal every question.
+- `player_shell.py` — G1 check for TICKET-0125 -- the Lore perspective tab and the player shell are wired and confined.
+- `player_worlds.py` — G1 check for TICKET-0125 (BRIEF-0125-C) -- a world opens to players from the « Monde » page and only when told.
 - `prereq_judge.py` — G1 gate: `goal_change complete`'s prerequisite judge rejects when a `relation_gte` prerequisite is unmet, with an error string carrying the current and required values (G1, TICKET-0024, BRIEF-0024-b).
 - `prompt_lean.py` — G1 check for TICKET-0012 (BRIEF-0012-a) — prompt lean rewrite gate.
 - `prompt_model_write.py` — G1 check for TICKET-0009 (BRIEF-0009-a) — prompt_template.model write path.

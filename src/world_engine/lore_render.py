@@ -30,7 +30,8 @@ class RenderedAnswer:
 # facets, relations, knowledge, memberships, goals from entity_dossier
 # (facets: TICKET-0091, BRIEF-0091-H); factions
 # from world_factions (BRIEF-0085-d item 3); coverage, knowers from
-# who_knows_about (BRIEF-0087-e). Sections are grouped in the order their
+# who_knows_about (BRIEF-0087-e); members, laws, public_mentions from the
+# public perspective (TICKET-0125). Sections are grouped in the order their
 # first row appears in `rows`, for both the model prompt and the template
 # fallback -- not in the order of the dict below.
 
@@ -111,6 +112,22 @@ def _format_mentions(row: dict) -> str:
     return line
 
 
+def _format_members(row: dict) -> str:
+    role = f" ({row['role']})" if row.get("role") else ""
+    return f"{row.get('member_name')}{role}"
+
+
+def _format_laws(row: dict) -> str:
+    return f"{row.get('text')}"
+
+
+def _format_public_mentions(row: dict) -> str:
+    line = f"« {row.get('content')} »"
+    if row.get("participants"):
+        line += " -- " + ", ".join(row["participants"])
+    return line
+
+
 _SECTION_FORMATTERS: dict[str, Callable[[dict], str]] = {
     "identity": _format_identity,
     "facets": _format_facets,
@@ -122,6 +139,9 @@ _SECTION_FORMATTERS: dict[str, Callable[[dict], str]] = {
     "knowers": _format_knowers,
     "coverage": _format_coverage,
     "mentions": _format_mentions,
+    "members": _format_members,
+    "laws": _format_laws,
+    "public_mentions": _format_public_mentions,
 }
 
 

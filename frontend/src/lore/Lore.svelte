@@ -21,6 +21,7 @@
   import NamesPanel from './NamesPanel.svelte';
   import ChoiceReviewPanel from './ChoiceReviewPanel.svelte';
   import WritePanel from './WritePanel.svelte';
+  import PerspectivePanel from './PerspectivePanel.svelte';
   import { writeState } from './writePanel.svelte.js';
   import { openLookup } from './namesPanel.svelte.js';
   import {
@@ -106,12 +107,16 @@
     <button class:active={loreTab === 'question'} onclick={() => (loreTab = 'question')}>Question</button>
     <button class:active={loreTab === 'names'} onclick={() => (loreTab = 'names')}>Noms à lier</button>
     <button class:active={loreTab === 'write'} onclick={() => (loreTab = 'write')}>Écrire</button>
+    <button class:active={loreTab === 'perspective'} onclick={() => (loreTab = 'perspective')}>Perspective</button>
   </div>
   {#if loreTab === 'write' && writeState.questRequestId}
     <div class="lore-quest-request">Pour la demande de quête : {writeState.questRequestSubject}</div>
   {/if}
   {#if loreTab === 'write'}
     <WritePanel visible={active} />
+  {/if}
+  {#if loreTab === 'perspective'}
+    <PerspectivePanel visible={active} />
   {/if}
   {#if loreTab === 'names'}
     <NamesPanel visible={active} />

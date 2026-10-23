@@ -207,17 +207,26 @@ ENTITY_TYPE_REGISTRY: dict[str, dict[str, Any]] = {
 
 
 def _player_character_id(db: DbSession, world_id: str) -> str:
-    char = db.exec(
+    """The world's lone player character id.
+
+    TICKET-0125 (M2): more than one PC in the world is a refusal, never a choice.
+    """
+    chars = db.exec(
         select(Character)
         .join(Entity, Entity.id == Character.id)
         .where(
             Entity.world_id == world_id,
             Character.character_type == "player",
         )
-    ).first()
-    if char is None:
+    ).all()
+    if not chars:
         raise HTTPException(status_code=400, detail="No player character in the active world.")
-    return char.id
+    if len(chars) > 1:
+        raise HTTPException(
+            status_code=409,
+            detail="Plusieurs personnages joueurs dans ce monde : précisez lequel.",
+        )
+    return chars[0].id
 
 
 def _entity_summary(e: Entity) -> dict:

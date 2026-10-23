@@ -13,6 +13,12 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.31** — TICKET-0125, BRIEF-0125-B: a world opens to players, and
+  the Lore journal admits the perspective kind. `world` gains
+  `open_to_players` (BOOLEAN NOT NULL DEFAULT 0, C1). `lore_usage_event` is
+  rebuilt: its step CHECK admits `kind = 'perspective'` with steps
+  `perspective_ask` and `perspective_resolve` (H1-c); rows are copied
+  unchanged. `migrate_v2_31_player_entry.py` writes no other data.
 - **v2.30** — TICKET-0124, BRIEF-0124-A: a world has a tone. `world`
   gains `tone` (TEXT, nullable: the creator's « Ton et style », read by
   every generator through the world premise).

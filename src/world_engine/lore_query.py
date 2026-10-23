@@ -63,19 +63,25 @@ class LoreResult:
     near: tuple[dict, ...] = ()
 
 
-def validate_plan(plan: LorePlan, db: Session) -> PlanValidation:
+def validate_plan(
+    plan: LorePlan, db: Session, *, lookups: Optional[dict] = None,
+) -> PlanValidation:
     """Rejects, before any selector runs: a selector outside `SELECTORS`,
     an arg count not matching the spec's arity, an arg referencing an
     unknown mention ref, or an `arg_kinds` mismatch (a mention ref where
     `"world_id"` was expected, or `"$world"` where `"entity_id"` was
     expected). An argument of kind `"text"` (BRIEF-0121-C) must be
     `text:<mots>` with a non-empty rest; a `text:` argument for any other
-    kind is rejected."""
+    kind is rejected.
+
+    `lookups` (TICKET-0125, C-02) validates against another selector table;
+    omitted, the creator's."""
+    lookups = _SELECTOR_LOOKUPS if lookups is None else lookups
     mention_refs = {m.ref for m in plan.mentions}
     for call in plan.calls:
-        if call.selector not in SELECTORS:
+        if call.selector not in lookups:
             return PlanValidation(False, f"selector {call.selector!r} is not in the whitelist")
-        spec = _SELECTOR_LOOKUPS[call.selector]
+        spec = lookups[call.selector]
         if len(call.args) != spec.arity:
             return PlanValidation(
                 False,
