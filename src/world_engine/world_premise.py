@@ -12,6 +12,9 @@ in the regime `PromptSpec.premise` declares for the usage:
   public). It never carries a skill system or a state.
 - `none` -- nothing: the usage writes no fiction, or is framed elsewhere.
 
+`world_id` (TICKET-0126, I1): a player surface names the world it serves;
+without it, the active world, as every creator generator.
+
 `missing_premise` tells whether a text holds the placeholder its regime asks.
 This module only reads: it writes, flushes and commits nothing.
 """
@@ -72,12 +75,18 @@ def _state_lines(db: Session, world: World, entity_type: str) -> list[str]:
     return [header] + [_state_line(v) for v in views]
 
 
-def world_premise(db: Session, regime: str, *, entity_type: Optional[str] = None) -> str:
-    """The premise block of the active world in `regime`; `""` for `none`, no
-    active world, or a world with nothing but its name to say."""
+def world_premise(
+    db: Session, regime: str, *, entity_type: Optional[str] = None, world_id: Optional[str] = None,
+) -> str:
+    """The premise block of `world_id`'s world (the active world when None) in
+    `regime`; `""` for `none`, no such world, or a world with nothing but its
+    name to say."""
     if regime == "none":
         return ""
-    world = db.exec(select(World).where(World.is_active == True)).first()  # noqa: E712
+    if world_id is not None:
+        world = db.get(World, world_id)
+    else:
+        world = db.exec(select(World).where(World.is_active == True)).first()  # noqa: E712
     if world is None:
         return ""
     body: list[str] = []
@@ -105,12 +114,16 @@ def world_premise(db: Session, regime: str, *, entity_type: Optional[str] = None
     return "\n".join([_HEADER, f"Monde : {world.name}", *body, _FOOTER]) + "\n\n"
 
 
-def fill(text: str, db: Session, usage: str, *, entity_type: Optional[str] = None) -> str:
+def fill(
+    text: str, db: Session, usage: str, *, entity_type: Optional[str] = None, world_id: Optional[str] = None,
+) -> str:
     """`text` with every `{world_premise}` replaced by the usage's premise;
     unchanged, and no query run, when it holds none."""
     if PLACEHOLDER not in text:
         return text
-    return text.replace(PLACEHOLDER, world_premise(db, regime_of(usage), entity_type=entity_type))
+    return text.replace(
+        PLACEHOLDER, world_premise(db, regime_of(usage), entity_type=entity_type, world_id=world_id),
+    )
 
 
 def missing_premise(usage: str, system_prompt: str, user_template: str) -> Optional[str]:
