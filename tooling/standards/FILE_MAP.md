@@ -40,6 +40,7 @@
 - `apply_ticket_0121_designer_prompts.py` — One-shot, idempotent delivery of the TICKET-0121 quest designer's prompt heads (quest_subject, quest_design) onto the live DB (BRIEF-0121-E).
 - `apply_ticket_0121_select_prompt.py` — One-shot, idempotent delivery of the TICKET-0121 plan-selection prompt update onto the live DB (BRIEF-0121-D, K1): the selection answers a third thing -- `route`, "plan" or "quest" -- when the declaration attaches to no open plan, and is called on every declaration (an empty plan list included).
 - `apply_ticket_0124_world_premise.py` — One-shot, idempotent delivery of the TICKET-0124 world premise onto the live DB (BRIEF-0124-D, P1): one new version per creator or player template, `{world_premise}` at the head of its current system text, the creator's own edits kept.
+- `apply_ticket_0126_designer_prompts.py` — One-shot, idempotent delivery of the TICKET-0126 character designer's prompt heads (creation_subject, creation_design) onto the live DB (BRIEF-0126-F).
 - `backup.py` — Timestamped, rotated backup of the live world-engine database.
 - `cockpit.py` — Launch the World Engine Cockpit on 127.0.0.1:8000.
 - `export_lore_usage.py` — Export the Lore shell's usage journal as JSON Lines (TICKET-0103, BRIEF-0103-E, decision E1).
@@ -154,6 +155,8 @@
 - `context_describe.py` — Descriptive NPC/MJ context helpers (TICKET-0091 BRIEF-B move; BRIEF-G switched them to facts).
 - `context_window.py` — Sliding context window — shared seam for the played and observed lanes (TICKET-0050, BRIEF-0050-a/-b/-d; TICKET-0052, B1/I2).
 - `creation_check.py` — The one check of a character-creation skill sheet (TICKET-0126, BRIEF-0126-C; INV-67): the player's, the designer's and the one submitted are judged here and nowhere else.
+- `creation_designer.py` — The player-side character designer (TICKET-0126, BRIEF-0126-F; S1, T1, F'a-1, F-c).
+- `creation_lore.py` — What a character designer may read: what everybody knows of a backstory's names and words, the places a character can start in, the public factions (TICKET-0126, BRIEF-0126-F; F-c, D1, INV-66).
 - `creation_rules.py` — The character creation rules of a world and the start sheet a new character holds (TICKET-0126, BRIEF-0126-C; decisions J1', L2, Q, Q-limits, A1, P1).
 - `dashboard_deferrals.py` — The deferrals the creator watches: each rejected or deferred choice whose reactivation condition she approved, where it is declared, and the dashboard metric that watches it, if any (TICKET-0115, BRIEF-0115-D; decisions F2, K2 and L of the conditions series' dashboard).
 - `dashboard_export.py` — The dashboard's export: everything a deeper analysis needs, between two real-world dates, as one JSON document for a Claude Code session (TICKET-0115, BRIEF-0115-D; decisions E2, I1, J1 and M1 of the conditions series' dashboard).

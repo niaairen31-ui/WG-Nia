@@ -2595,6 +2595,118 @@ QUEST_TRIAL_PROMPT_HEADS = (
 )
 
 
+# ----- prompt templates: the character designer (TICKET-0126, BRIEF-0126-F) -----
+# usages "creation_subject" (the backstory's names and words) and
+# "creation_design" (the proposal), player premise regime. Called by
+# creation_designer._subject_call and _design_call.
+CREATION_SUBJECT_SYSTEM_PROMPT = """\
+Tu aides un joueur à créer son personnage dans un jeu de rôle. On te donne \
+le nom de son personnage et l'histoire qu'il a écrite. Ton travail : dire ce \
+qu'il faut chercher dans ce que tout le monde sait du monde.
+
+RÈGLES :
+- "names" : les noms propres de personnes, de lieux, de factions ou \
+d'objets que l'histoire cite, tels qu'écrits ; [] s'il n'y en a pas.
+- "keywords" : de 1 à 6 mots qui distinguent cette histoire (un métier, un \
+art, un lieu, un événement), sans article.
+
+Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne :
+{"names":["..."],"keywords":["..."]}\
+"""
+
+CREATION_SUBJECT_USER_TEMPLATE = """\
+Personnage : {character_name}
+Histoire : {backstory}
+"""
+
+CREATION_DESIGN_SYSTEM_PROMPT = """\
+Tu aides un joueur à créer son personnage dans un jeu de rôle. On te donne \
+l'histoire qu'il a écrite, les compétences du monde et ce qu'il demande, les \
+règles de création, et ce que tout le monde sait du monde. Tu ne sais rien \
+d'autre de ce monde : n'invente ni secret ni fait caché, et ne nomme une \
+personne, un lieu ou une faction existants que s'ils sont dans les listes.
+
+TON TRAVAIL. Propose ce que cette histoire implique :
+- "skills" : ta contre-proposition de compétences. Chaque élément \
+{"skill": un code "s1", "rank": un entier de 0 à 5, "reason": une phrase \
+qui s'appuie sur l'histoire}. Ne mets que les compétences dont le rang \
+diffère du départ. Respecte les règles : la réserve de points, le coût de \
+chaque rang, le rang maximal de chaque compétence, les plafonds. Une \
+compétence qui exige un maître ne s'obtient qu'avec ce maître dans \
+"sketches".
+- "sketches" : les personnes que l'histoire implique, 8 au plus. Chaque \
+élément {"name": son nom, "role": ce qu'elle est pour le personnage, \
+"sentence": la phrase de l'histoire qui la fonde, recopiée, "group": le \
+groupe auquel elle appartient pour le personnage (« sa famille », « son \
+ancienne compagnie »), "kind": "family", "master", "faction" ou "other", \
+"skill": pour un maître, le code de la compétence qu'il a enseignée, sinon \
+null, "existing": le nom d'une personne de la liste des personnes connues \
+de tous si c'est elle, sinon null}.
+- "start_place" : le nom d'un lieu de la liste des lieux où commencer, ou \
+null.
+- "memberships" : les factions de la liste dont l'histoire fait le \
+personnage membre, chacune {"faction": son nom, "role": son rôle en \
+quelques mots, ou null}.
+- "knowledge" : ce que le personnage sait grâce à son histoire, 10 au plus, \
+chacune {"level": "rumor", "suspicious", "partial" ou "knows", "content": \
+une phrase}.
+- "notes" : ce que tu veux dire au joueur, en phrases courtes ; [] sinon.
+
+Réponds UNIQUEMENT avec un objet JSON valide sur une seule ligne :
+{"skills":[],"sketches":[],"start_place":null,"memberships":[],"knowledge":[],"notes":[]}\
+"""
+
+CREATION_DESIGN_USER_TEMPLATE = """\
+Personnage : {character_name}
+Histoire : {backstory}
+
+COMPÉTENCES (code -- nom ; système ; rang de départ ; rang maximal ; maître) :
+{skills}
+
+DEMANDE DU JOUEUR :
+{player_choices}
+
+RÈGLES DE CRÉATION :
+{rules}
+
+CE QUE TOUT LE MONDE SAIT :
+{lore}
+
+PERSONNES CONNUES DE TOUS :
+{people}
+
+LIEUX OÙ COMMENCER :
+{places}
+
+FACTIONS CONNUES DE TOUS :
+{factions}
+{errors}"""
+
+CHARACTER_DESIGNER_PROMPT_HEADS = (
+    dict(
+        id="pt-creation-subject",
+        name="Concepteur de personnage — le sujet de l'histoire",
+        usage="creation_subject",
+        world_id=None,
+        system_prompt=CREATION_SUBJECT_SYSTEM_PROMPT,
+        user_template=CREATION_SUBJECT_USER_TEMPLATE,
+        variables=["character_name", "backstory"],
+        destination="local",
+    ),
+    dict(
+        id="pt-creation-design",
+        name="Concepteur de personnage — la proposition",
+        usage="creation_design",
+        world_id=None,
+        system_prompt=CREATION_DESIGN_SYSTEM_PROMPT,
+        user_template=CREATION_DESIGN_USER_TEMPLATE,
+        variables=["character_name", "backstory", "skills", "player_choices", "rules", "lore", "people",
+                   "places", "factions", "errors"],
+        destination="local",
+    ),
+)
+
+
 # ----- day chain prompt text (TICKET-0075; hoisted to module level, TICKET-0076) -----
 # ----- prompt template: day plan emission (TICKET-0075, BRIEF-0075-b) ---
 # usage = "day_plan". world_id = NULL. ONE call (F1): the model proposes
@@ -3624,6 +3736,8 @@ def seed(session: Session) -> None:
     for entry in QUEST_DESIGNER_PROMPT_HEADS:  # TICKET-0121 (BRIEF-0121-E)
         upsert_prompt_template(session, **entry)
     for entry in QUEST_TRIAL_PROMPT_HEADS:  # TICKET-0116 (BRIEF-0116-E)
+        upsert_prompt_template(session, **entry)
+    for entry in CHARACTER_DESIGNER_PROMPT_HEADS:  # TICKET-0126 (BRIEF-0126-F)
         upsert_prompt_template(session, **entry)
 
     # ----- prompt template: world tick — off-screen NPC advancement ----------
