@@ -10,7 +10,7 @@ item_holding quest_offer_term quest_term quest_economy
 debt debt_term
 attribute_definition attribute_definition_type attribute_choice attribute_value attribute_change
 event_type event_type_role event_type_role_type event_type_scope event_sorte event_participant condition_node_filter
-event_type_effect
+event_type_effect creation_rules
 
 [ALLOWED_SITES]
 # path::function                                              tables
@@ -49,6 +49,8 @@ src/world_engine/writes/config.py::upsert_conversation_window_config conversatio
 src/world_engine/writes/config.py::write_npc_schedule          npc_schedule
 # TICKET-0106, BRIEF-0106-C: upsert_skill_rank is the one writer of skill_rank -- a world's rank names and default points, curated-config family (upsert_conversation_window_config precedent), never a DELETE.
 src/world_engine/writes/config.py::upsert_skill_rank           skill_rank
+# TICKET-0126, BRIEF-0126-C: write_creation_rules is the one writer of creation_rules -- a world's character creation rules, curated-config family, never a DELETE.
+src/world_engine/writes/creation_rules.py::write_creation_rules creation_rules
 # TICKET-0101, BRIEF-0101-C: apply_promotion moves the items and discoverable details lying in a location that becomes a zone to its first child (creator CRUD only, behind the S1 confirmation); its characters, schedules and links go through write_character_location, write_npc_schedule and write_relation, allow-listed above.
 src/world_engine/writes/zone_promotion.py::apply_promotion     discoverable_detail
 # TICKET-0109, BRIEF-0109-A: write_holding is the one writer of item_holding -- set or move how many of an item an entity holds; apply_promotion now moves a place's items through it.

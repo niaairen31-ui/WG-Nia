@@ -153,6 +153,8 @@
 - `context.py` — NPC context assembly — the engine's structural control over what an NPC may say.
 - `context_describe.py` — Descriptive NPC/MJ context helpers (TICKET-0091 BRIEF-B move; BRIEF-G switched them to facts).
 - `context_window.py` — Sliding context window — shared seam for the played and observed lanes (TICKET-0050, BRIEF-0050-a/-b/-d; TICKET-0052, B1/I2).
+- `creation_check.py` — The one check of a character-creation skill sheet (TICKET-0126, BRIEF-0126-C; INV-67): the player's, the designer's and the one submitted are judged here and nowhere else.
+- `creation_rules.py` — The character creation rules of a world and the start sheet a new character holds (TICKET-0126, BRIEF-0126-C; decisions J1', L2, Q, Q-limits, A1, P1).
 - `dashboard_deferrals.py` — The deferrals the creator watches: each rejected or deferred choice whose reactivation condition she approved, where it is declared, and the dashboard metric that watches it, if any (TICKET-0115, BRIEF-0115-D; decisions F2, K2 and L of the conditions series' dashboard).
 - `dashboard_export.py` — The dashboard's export: everything a deeper analysis needs, between two real-world dates, as one JSON document for a Claude Code session (TICKET-0115, BRIEF-0115-D; decisions E2, I1, J1 and M1 of the conditions series' dashboard).
 - `dashboard_metrics.py` — The creator's dashboard: a registry of metrics in code, each a question in French, its computation over relational columns, and the decision codes it watches (TICKET-0115, BRIEF-0115-D; decisions H1, D1, E2 and M1 of the conditions series' dashboard).
@@ -361,6 +363,7 @@
 - `condition_drafts.py` — The condition interpreter's journal writer (TICKET-0112, BRIEF-0112-B, decision IH1).
 - `conditions.py` — The condition writer and reader (TICKET-0111, BRIEF-0111-C, decisions O-a and I1): one `condition` row per owner and role, its tree as `condition_node` rows.
 - `config.py` — Full-replace curated-config canon-write chokepoints (TICKET-0028, BRIEF-0028-b — decomposed from `writes.py`).
+- `creation_rules.py` — The creation rules' writer (TICKET-0126, BRIEF-0126-C, C-05).
 - `debt_sources.py` — Where a debt comes from besides the creator's hand (TICKET-0110, BRIEF-0110-B, S2 and A2, contract C-05).
 - `debts.py` — Debts: the writers (TICKET-0110, BRIEF-0110-B, J2, C2, T1, F-a, F-b1, U1, V1, X1, contract C-03).
 - `entity_states.py` — The writer of the system states an event may change (TICKET-0119, BRIEF-0119-C; decision E1 of the conditions series): `character.vital_status` (`sys:vital_status`) and `entity.status` (`sys:status`), the two columns `writes.event_types.EFFECT_SYSTEM_KEYS` names.
