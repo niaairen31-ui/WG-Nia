@@ -7,7 +7,8 @@
      through the one record path intrigues/evenements already use.
 
      Five sections, top to bottom:
-       Rangs            -- the world's ladder, one record (TICKET-0106, C-06).
+       Rangs            -- the world's ladder, one record (TICKET-0106, C-06),
+                           then the character-creation rules (TICKET-0126).
        Brouillons       -- the assistant entry (H1), then every draft row.
        Systèmes         -- each system is a row of its own (its fiche), its
                            skills indented under it (C1).
@@ -23,6 +24,7 @@
     competencesState, NO_SYSTEM_LABEL, ASSISTANT_RECORD_ID, RANKS_RECORD_ID, groupSkillsBySystem,
     skillRecord, systemRecord, draftRecord, assistantRecord, ranksRecord, addGapDraft,
   } from './competences.svelte.js';
+  import { creationRulesState, CREATION_RECORD_ID, creationRulesRecord } from './creationRules.svelte.js';
 
   let { onSelect } = $props();
 
@@ -54,6 +56,14 @@
      onclick={() => onSelect(ranksRecord())} onkeydown={(ev) => onKey(ev, ranksRecord())}>
   <div class="ali-name">Rangs du monde</div>
   <div class="ali-meta">{competencesState.ranks.map((r) => r.label).join(' → ')}</div>
+</div>
+<div class="author-list-item {creationState.selectedRecordId === CREATION_RECORD_ID ? 'active' : ''}"
+     role="button" tabindex="0"
+     onclick={() => onSelect(creationRulesRecord())} onkeydown={(ev) => onKey(ev, creationRulesRecord())}>
+  <div class="ali-name">Création de personnage</div>
+  {#if creationRulesState.rules}
+    <div class="ali-meta">Réserve {creationRulesState.rules.pool} · au plus {creationRulesState.rules.max_master_skills} compétence(s) à maître</div>
+  {/if}
 </div>
 
 <div class="lieux-bucket-head">Brouillons</div>
