@@ -1,0 +1,47 @@
+{
+  "ticket": "TICKET-0124-world-premise",
+  "when": "2026-10-22T15:13:40.999694+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "world_sheet.py",
+      "status": "PASS",
+      "msg": "PASS: world_sheet -- a world has a nullable tone; create stores it stripped; GET/PUT read and edit one world without touching its activation or phase; the \u00ab Monde \u00bb page edits the active world's name, description, tone and laws, and the create modal asks the tone"
+    },
+    {
+      "check": "world_premise.py",
+      "status": "PASS",
+      "msg": "PASS: world_premise -- 47 usages hold the 14/15/18 regime partition; the premise is built per regime, the player regime carries no state or skill system, and premised_prompt and call_json fill {world_premise} without touching the stored text; 34 render calls in 31 functions read through premised_prompt, 18 functions stay on current_prompt; the seed and the delivery put {world_premise} at the head of every creator and player text, and the edit and restore routes refuse a text without it"
+    },
+    {
+      "check": "world_extras.py",
+      "status": "PASS",
+      "msg": "PASS: world_extras -- a create writes the states, social links and ticked germs the creator kept in its own transaction, approved germs as creator_draft with their origin; any refusal is a 422 that leaves nothing; an update carries none"
+    },
+    {
+      "check": "germ_attach.py",
+      "status": "PASS",
+      "msg": "PASS: germ_attach -- a Journ\u00e9e germ keeps its sentence and its place's name, the brief names the place, the pending list names the source, a germ lists the characters it could be and joins one without a new entity, and the Germes metric counts it"
+    },
+    {
+      "check": "draft_world.py",
+      "status": "PASS",
+      "msg": "PASS: draft_world -- a draft is asked the states, links, same person and entities to create its world calls for, with the names it may cite; code resolves every state, link and name against the world's rows, turns an unknown name into an entity to create, caps them at three, and a creation germ's origin leads its links"
+    },
+    {
+      "check": "creation_layout.py",
+      "status": "PASS",
+      "msg": "PASS: creation_layout -- no pending strip in the right column; germs are the list's group, opened alone in the germ panel (npc, lieux, factions) with Rattacher and Cr\u00e9er et lier and no dialog; the skill sheet is the Comp\u00e9tences pane of the sheet and takes the column"
+    },
+    {
+      "check": "draft_panel.py",
+      "status": "PASS",
+      "msg": "PASS: draft_panel -- a new sheet shows the draft's world block (states and links kept, entities to create unticked, the same-person attach) and its create sends the kept ones"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u2014 183 check(s) discovered, 183 executed, 183 passed"
+    }
+  ]
+}

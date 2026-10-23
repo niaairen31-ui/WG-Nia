@@ -14,5 +14,7 @@ embeds every RECON finding and contract it relies on; its lot header
    /close-step in the same turn when the verdict is CLEAN or ATTENTION.
    Stop only on VIOLATION. Commits are pre-authorized: /close-step commits
    without waiting for approval.
-5. Never push to main. When the brief's commits are done, run /verify for
-   this ticket.
+5. Never push to main. When the brief's commits are done, confirm the
+   checks of its Done means and `corpus_gate.py` pass. Run /verify for this
+   ticket only when this command runs alone; under /pipeline, /verify runs
+   once, after the ticket's last brief (pipeline.md Step 1).

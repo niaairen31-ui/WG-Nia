@@ -45,9 +45,13 @@ observes and records.
   chain from where it left off.
 - Eligible for `exec` -> run the `/brief-exec` protocol for each brief in
   the order of the ticket's `brief_ids` (A before B), then run `/verify`
-  for this ticket. Every commit goes `/review-step` then `/close-step` in
-  the same turn, exactly as `/brief-exec` states; commits are
-  pre-authorized.
+  for this ticket ONCE, after the last brief. Under this command a brief
+  never runs `/verify` itself (`/brief-exec` step 5): until the last brief
+  lands, the checks of later briefs are `MISSING` and the verdict is red
+  by construction, never a V1 failure. Each brief is gated instead by the
+  checks of its Done means plus `corpus_gate.py`. Every commit goes
+  `/review-step` then `/close-step` in the same turn, exactly as
+  `/brief-exec` states; commits are pre-authorized.
 
 ## Step 2 — verify outcome (V1)
 
@@ -62,12 +66,21 @@ observes and records.
 
 ## Step 3 — open the PR (PR1)
 
-1. `git push origin ticket/NNNN`.
-2. `gh pr create --base main --head ticket/NNNN` with title
+1. Land the pipeline artifacts, BEFORE the push: set `status: live-gate`
+   in the ticket front-matter, then commit on `ticket/NNNN`, in one
+   commit (`chore(tooling): commit TICKET-NNNN pipeline artifacts and
+   green verdict; to live-gate`): the ticket `tooling/tickets/TICKET-NNNN-*.md`,
+   its lot `tooling/lots/LOT-NNNN-*.md`, every `tooling/briefs/BRIEF-NNNN-*.md`,
+   every `AMENDMENT-NNNN-*.md`, and the verdict
+   `tooling/verify/results/<full-slug>.json`. Then
+   `git status --short tooling/` must list none of these paths; one still
+   untracked or modified is a STOP, never a PR. The PR is the only way
+   they reach `main`: a merged PR cannot be amended.
+2. `git push origin ticket/NNNN`.
+3. `gh pr create --base main --head ticket/NNNN` with title
    `TICKET-NNNN: <ticket title>` and a body containing: the ticket id,
    the brief id(s) executed, and the verdict JSON inline (fenced code
    block).
-3. Set `status: live-gate` in the ticket front-matter.
 4. Report the PR URL, stop.
 
 Never push to `main`; never merge — merging is Nia's gate, always.
