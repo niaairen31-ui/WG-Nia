@@ -417,6 +417,7 @@
 - `conversation_summary_usage.py` — G1 check for TICKET-0050 (BRIEF-0050-c) — `conversation_summary` prompt usage wiring (standard idiom, vacuous-proof).
 - `conversation_window_config.py` — G1 check for TICKET-0050 (BRIEF-0050-a) — `conversation_window_config` table shape, on the schema_0025.py / location_type_classified.py FAILURES idiom (zero parsed criteria is never a vacuous pass).
 - `corpus_gate.py` — G1 check: corpus gate -- every check in tooling/verify/checks/ runs, or this gate is red (TICKET-0060, BRIEF-0060-d, B1).
+- `creation_budget.py` — G1 check for TICKET-0126 (BRIEF-0126-C) -- one function judges a character-creation sheet, over rules the creator reads and writes.
 - `creation_container_sizing.py` — G1 check: every single-container Création tab sizes its container (TICKET-0099, BRIEF-0099-a).
 - `creation_island.py` — G1 check: the Creation island-mount seam (TICKET-0058, BRIEF-0058-d, amended by BRIEF-0058-e; re-anchored by TICKET-0059, BRIEF-0059-l commit 1, D1).
 - `creation_layout.py` — G1 check for TICKET-0124 -- nothing stacks in Création's right column: germs are a group of the list, the skill sheet a pane of the sheet.

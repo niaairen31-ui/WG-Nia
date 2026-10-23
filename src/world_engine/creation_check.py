@@ -66,6 +66,39 @@ def _cost(costs: tuple[int, ...], start_rank: int, rank: int) -> int:
     return 0
 
 
+def _choice_violations(choices: Mapping[str, Any], by_key: Mapping[str, Any]) -> list[Violation]:
+    """Step 1: every key not on the sheet, then every rank not an int in 0..5."""
+    found = [Violation("unknown_skill", key, f"Compétence inconnue : {key}.")
+             for key in choices if key not in by_key]
+    for key, value in choices.items():
+        if not _valid_rank(value):
+            name = by_key[key].name if key in by_key else key
+            found.append(Violation("rank_out_of_range", key, f"« {name} » : le rang doit être entre 0 et 5."))
+    return found
+
+
+def _system_violations(db: Session, sheet: tuple, ranks: Mapping[str, int], labels: list[str]) -> list[Violation]:
+    """Step 6: each system of the sheet, by name -- its raised, then its held skills."""
+    found: list[Violation] = []
+    system_ids = {line.system_id for line in sheet if line.system_id is not None}
+    systems = sorted((s for s in (db.get(SkillSystem, i) for i in system_ids) if s is not None),
+                     key=lambda s: (s.name, s.id))
+    for system in systems:
+        members = [line for line in sheet if line.system_id == system.id]
+        raised = sum(1 for line in members if ranks[line.skill_key] > DEFAULT_RANK)
+        held = sum(1 for line in members if ranks[line.skill_key] >= 1)
+        if system.cap_raised_at_creation is not None and raised > system.cap_raised_at_creation:
+            found.append(Violation(
+                "over_system_raised", None,
+                f"Système « {system.name} » : au plus {system.cap_raised_at_creation} compétence(s) "
+                f"au-dessus de {labels[DEFAULT_RANK]}."))
+        if system.cap_held_at_creation is not None and held > system.cap_held_at_creation:
+            found.append(Violation(
+                "over_system_held", None,
+                f"Système « {system.name} » : au plus {system.cap_held_at_creation} compétence(s) détenue(s)."))
+    return found
+
+
 def check_creation(db: Session, world_id: str, choices: Mapping[str, Any], *,
                    enforce_visibility: bool) -> CreationVerdict:
     """Judge a sheet: `choices` maps a skill key to a wanted rank; an absent
@@ -77,14 +110,7 @@ def check_creation(db: Session, world_id: str, choices: Mapping[str, Any], *,
     violations: list[Violation] = []
 
     # 1. Unknown keys, then ranks out of range (those keep their start rank).
-    for key in choices:
-        if key not in by_key:
-            violations.append(Violation("unknown_skill", key, f"Compétence inconnue : {key}."))
-    for key, value in choices.items():
-        if not _valid_rank(value):
-            name = by_key[key].name if key in by_key else key
-            violations.append(Violation("rank_out_of_range", key,
-                                        f"« {name} » : le rang doit être entre 0 et 5."))
+    violations.extend(_choice_violations(choices, by_key))
 
     # 2. Each line's rank and cost.
     ranks = {
@@ -129,22 +155,7 @@ def check_creation(db: Session, world_id: str, choices: Mapping[str, Any], *,
                                         f"Au plus {cap} compétence(s) au rang {labels[rank]}."))
 
     # 6. The caps per system, by system name.
-    system_ids = {line.system_id for line in sheet if line.system_id is not None}
-    systems = sorted((s for s in (db.get(SkillSystem, i) for i in system_ids) if s is not None),
-                     key=lambda s: (s.name, s.id))
-    for system in systems:
-        members = [line for line in sheet if line.system_id == system.id]
-        raised = sum(1 for line in members if ranks[line.skill_key] > DEFAULT_RANK)
-        held = sum(1 for line in members if ranks[line.skill_key] >= 1)
-        if system.cap_raised_at_creation is not None and raised > system.cap_raised_at_creation:
-            violations.append(Violation(
-                "over_system_raised", None,
-                f"Système « {system.name} » : au plus {system.cap_raised_at_creation} compétence(s) "
-                f"au-dessus de {labels[DEFAULT_RANK]}."))
-        if system.cap_held_at_creation is not None and held > system.cap_held_at_creation:
-            violations.append(Violation(
-                "over_system_held", None,
-                f"Système « {system.name} » : au plus {system.cap_held_at_creation} compétence(s) détenue(s)."))
+    violations.extend(_system_violations(db, sheet, ranks, labels))
 
     # 7. The pool.
     spent = sum(line.cost for line in lines)
