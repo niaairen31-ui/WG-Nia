@@ -17,5 +17,6 @@ step; lowering a held skill to Inexpérimenté gives back the Initié cost.
 - **INV-67** A character-creation skill sheet -- the player's, the
   designer's, the one submitted -- is judged only by
   `creation_check.check_creation`, over the rules read by
-  `creation_rules`; no other module reads a rank's creation cost.
+  `creation_rules`; no other module computes a sheet's cost or
+  verdict.
   -- enforced by `creation_budget.py`

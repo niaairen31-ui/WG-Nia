@@ -35,7 +35,12 @@ CS3 -- migration. The fixture drops the six new tables and recreates
    (b) at v2.31 it exits zero: the six tables and the six columns exist, the
        stored journal SQL holds `'creation_design'`, the three rows are kept
        with their ids and values, `schema_meta` reads v2.32;
-   (c) a second run exits zero and changes nothing.
+   (c) a second run exits zero and changes nothing;
+   (d) (AMENDMENT-0126-01) at v2.32, `pc_draft` recreated from the literal
+       `PC_DRAFT_BACKSTORY_DDL` (C-02's table at `a4cda95`, column
+       `backstory`) with one row: the script exits zero, the column is
+       `story` and `backstory` is gone, the row keeps its id and text; a
+       second run changes nothing.
 
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that collected nothing, or a
@@ -85,7 +90,7 @@ OVERRIDE_COLUMNS = {
 # table -> (columns, CHECK names, {index name: unique})
 DRAFT_TABLES: dict[str, tuple[set[str], set[str], dict[str, bool]]] = {
     "pc_draft": (
-        {"id", "world_id", "user_id", "status", "name", "backstory", "start_location_id",
+        {"id", "world_id", "user_id", "status", "name", "story", "start_location_id",
          "start_location_set_by", "creator_note", "submitted_at", "created_at", "updated_at"},
         {"ck_pc_draft_status", "ck_pc_draft_set_by"},
         {"idx_pc_draft_world": False, "idx_pc_draft_open": True},
@@ -115,7 +120,7 @@ DRAFT_TABLES: dict[str, tuple[set[str], set[str], dict[str, bool]]] = {
 }
 NEW_TABLES = ("creation_rules", *DRAFT_TABLES)
 C02_KEYS = {
-    "creation_subject": {"draft_id", "asked_by", "backstory", "names", "keywords", "error"},
+    "creation_subject": {"draft_id", "asked_by", "story", "names", "keywords", "error"},
     "creation_design": {"draft_id", "asked_by", "lore", "proposal", "violations", "notes", "error"},
 }
 
@@ -467,6 +472,33 @@ _ROW_SELECTS = {
 _EXPECTED_ROWS = {"skill_system": [SYSTEM_ROW], "skill_definition": [DEFINITION_ROW],
                   "lore_usage_event": [JOURNAL_ROW]}
 
+# C-02's pc_draft at a4cda95, before AMENDMENT-0126-01 renamed `backstory` to `story`.
+PC_DRAFT_BACKSTORY_DDL = """
+CREATE TABLE pc_draft (
+    id VARCHAR NOT NULL,
+    world_id VARCHAR NOT NULL,
+    user_id VARCHAR NOT NULL,
+    status VARCHAR DEFAULT 'draft' NOT NULL,
+    name VARCHAR DEFAULT '' NOT NULL,
+    backstory VARCHAR DEFAULT '' NOT NULL,
+    start_location_id VARCHAR,
+    start_location_set_by VARCHAR,
+    creator_note VARCHAR,
+    submitted_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT ck_pc_draft_status CHECK (status IN ('draft','submitted','returned','approved')),
+    CONSTRAINT ck_pc_draft_set_by CHECK (start_location_set_by IS NULL OR start_location_set_by IN ('player','designer')),
+    FOREIGN KEY(world_id) REFERENCES world (id),
+    FOREIGN KEY(user_id) REFERENCES user (id),
+    FOREIGN KEY(start_location_id) REFERENCES entity (id)
+);
+CREATE UNIQUE INDEX idx_pc_draft_open ON pc_draft (world_id, user_id) WHERE status <> 'approved';
+CREATE INDEX idx_pc_draft_world ON pc_draft (world_id);
+"""
+DRAFT_ROW = ("draft-cs3d", "world-cs3d", "user-cs3d", "Une histoire Ã©crite avant l'amendement.")
+
 
 def _reshape_to_v2_31(db_path: pathlib.Path) -> None:
     conn = sqlite3.connect(db_path)
@@ -567,7 +599,44 @@ def rule_cs3(engine, db_path: pathlib.Path) -> int:
     if _snapshot(db_path) != before:
         fail("CS3c the second run changed the database")
     reached += 1
-    return reached
+    return reached + _cs3d(db_path)
+
+
+def _draft_state(db_path: pathlib.Path) -> tuple[set[str], list[tuple]]:
+    conn = sqlite3.connect(db_path)
+    try:
+        columns = {r[1] for r in conn.execute("PRAGMA table_info(pc_draft)")}
+        text_column = "story" if "story" in columns else "backstory"
+        rows = [tuple(r) for r in conn.execute(f"SELECT id, {text_column} FROM pc_draft ORDER BY id")]
+    finally:
+        conn.close()
+    return columns, rows
+
+
+def _cs3d(db_path: pathlib.Path) -> int:
+    """(d) a database that ran v2.32 before AMENDMENT-0126-01: the column is renamed, the row kept."""
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("PRAGMA foreign_keys=OFF")
+        conn.execute("DROP TABLE pc_draft")
+        conn.executescript(PC_DRAFT_BACKSTORY_DDL)
+        conn.execute("INSERT INTO pc_draft (id, world_id, user_id, backstory) VALUES (?, ?, ?, ?)", DRAFT_ROW)
+        conn.commit()
+    finally:
+        conn.close()
+    if _run_migration() != 0:
+        fail("CS3d the migration exited non-zero on a pc_draft holding backstory")
+    columns, rows = _draft_state(db_path)
+    if "story" not in columns or "backstory" in columns:
+        fail(f"CS3d pc_draft columns after the migration are {sorted(columns)}")
+    if rows != [(DRAFT_ROW[0], DRAFT_ROW[3])]:
+        fail(f"CS3d pc_draft rows are {rows!r}, expected the row with its id and text")
+    before = _snapshot(db_path)
+    if _run_migration() != 0:
+        fail("CS3d the second run exited non-zero")
+    if _snapshot(db_path) != before or _draft_state(db_path) != (columns, rows):
+        fail("CS3d the second run changed the database")
+    return 1
 
 
 def main() -> int:
@@ -588,8 +657,8 @@ def main() -> int:
         reached = rule_cs3(engine, db_path)
     except Exception as exc:  # noqa: BLE001 -- fail-closed, reported below
         fail(f"CS3 raised {type(exc).__name__}: {exc}")
-    if reached != 3:
-        fail(f"CS3 reached {reached} of its 3 sub-rules")
+    if reached != 4:
+        fail(f"CS3 reached {reached} of its 4 sub-rules")
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")

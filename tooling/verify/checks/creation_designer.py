@@ -18,7 +18,7 @@ CD3 -- static. `creation_lore.py` and `creation_designer.py` hold none of
    `_world_id(`, `db.add(`, `.commit(`, `.flush(`, nor `facts_mentioning(`
    outside `public_facts_mentioning(`; neither imports from
    `lore_selectors`.
-CD4 -- `subject` then `design` on a draft added directly (status `draft`,
+CD4 -- `backstory_terms` then `design` on a draft added directly (status `draft`,
    two player sketches), `creation_designer.chat` stubbed:
    a. a subject, a design over the pool, a valid retry: two design calls,
       `violations == ()`, the retry's user message holds `Erreurs de ta
@@ -28,7 +28,7 @@ CD4 -- `subject` then `design` on a draft added directly (status `draft`,
    c. designs exercising every row of LOT-0126 case table (b)-3: each
       outcome and each note verbatim (skills, sketches, the start place
       matched / unknown / null, memberships, knowledge, notes);
-   d. an `OllamaError` reply propagates from `subject`; an unparsable
+   d. an `OllamaError` reply propagates from `backstory_terms`; an unparsable
       design reply raises `LlmParseError`.
 CD5 -- `PROMPT_REGISTRY` holds both usages with `premise == "player"` and
    C-09's call sites; `seed_pilot.CHARACTER_DESIGNER_PROMPT_HEADS` holds
@@ -266,7 +266,7 @@ def _add_skills_and_draft(engine, ids: dict) -> None:
         user = User(name="Joueuse")
         db.add(user)
         db.flush()
-        draft = PcDraft(world_id=wid, user_id=user.id, name="Ilan", backstory="Ilan a grandi au port.")
+        draft = PcDraft(world_id=wid, user_id=user.id, name="Ilan", story="Ilan a grandi au port.")
         db.add(draft)
         db.flush()
         for position, name in enumerate(("Sa mère", "Son frère")):
@@ -330,7 +330,7 @@ def _run(engine, ids: dict, replies, *, subject_first: bool = True):
     try:
         with Session(engine) as db:
             draft = db.get(PcDraft, ids["draft"])
-            names, keywords = cd.subject(db, draft, []) if subject_first else ((), ())
+            names, keywords = cd.backstory_terms(db, draft, []) if subject_first else ((), ())
             return cd.design(db, draft, names, keywords, []), stub
     finally:
         cd.chat = original
