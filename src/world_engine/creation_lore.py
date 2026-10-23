@@ -89,7 +89,7 @@ def gather_creation_lore(db: Session, world_id: str, *, names: list[str], keywor
     for entity_id in entity_ids:
         lines += [_dossier_line(row) for row in public_dossier(entity_id, world_id, view, db)]
         entity = db.get(Entity, entity_id)
-        if entity is not None and entity.type == "character" and entity_id in view.entity_ids:
+        if entity is not None and entity.type == "character":
             people.append({"entity_id": entity.id, "name": entity.name})
     for keyword in _distinct(keywords, MAX_KEYWORDS):
         lines += [f"• {row['content']}" for row in public_facts_mentioning(keyword, world_id, view, db)]
