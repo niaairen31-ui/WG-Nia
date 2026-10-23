@@ -8,6 +8,9 @@ Layout, by stratum:
                         (canon-domain writes, absent from [CANON_TABLES] by
                         a known governance gap — Nia's stratum escalation,
                         2026-07-15).
+    canon_skill.py   — the skill domain (SkillSystem, SkillDefinition,
+                        Skill, BASE_SKILL_DOMAINS), extracted from canon.py
+                        at TICKET-0126 for the module_budget cap.
     canon_faction.py — faction extension tables (Faction, FactionRole,
                         FactionMembership), extracted from canon.py at
                         TICKET-0048 for the module_budget cap.
@@ -48,7 +51,7 @@ This module re-exports the ENTIRE former public surface of the flat
 `models.py` — every class, constant, and the two module functions
 (`_uuid`, `_created_ts`) — so every existing `from .models import X` /
 `from world_engine.models import X` in `src/` and `scripts/` resolves
-unchanged. Import order (canon, canon_faction, canon_knowledge,
+unchanged. Import order (canon, canon_skill, canon_faction, canon_knowledge,
 canon_attribute, canon_event, config,
 ephemeral, pipeline, observation, quests) keeps table registration on
 `SQLModel.metadata` deterministic;
@@ -59,7 +62,6 @@ regardless of file order.
 from __future__ import annotations
 
 from .canon import (
-    BASE_SKILL_DOMAINS,
     Agenda,
     Artifact,
     Character,
@@ -81,13 +83,16 @@ from .canon import (
     NpcPrice,
     Obstacle,
     ObstacleVertex,
-    Skill,
-    SkillDefinition,
-    SkillSystem,
     World,
     WorldLaw,
     _created_ts,
     _uuid,
+)
+from .canon_skill import (
+    BASE_SKILL_DOMAINS,
+    Skill,
+    SkillDefinition,
+    SkillSystem,
 )
 from .canon_faction import (
     Faction,

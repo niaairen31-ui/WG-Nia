@@ -342,6 +342,7 @@
 - `canon_event.py` — Canon SQLModel table classes -- the event journal's vocabulary and its participants (TICKET-0114, BRIEF-0114-A, schema v2.24; decisions F1, B1, C1, D1, K-a, N1, V1 and W1 of the conditions series).
 - `canon_faction.py` — Canon SQLModel table classes — faction domain, extracted from ``canon.py`` (TICKET-0048, BRIEF-0048-a) to keep each stratum module under the `module_budget.py` line cap.
 - `canon_knowledge.py` — Canon SQLModel table classes — perception domain (what an entity holds about the world, and the typed links between entities), extracted from ``canon.py`` (TICKET-0082, BRIEF-0082-a) to keep each stratum module under the `module_budget.py` line cap.
+- `canon_skill.py` — Canon SQLModel table classes — skill domain, extracted from ``canon.py`` (TICKET-0126, BRIEF-0126-A) to keep each stratum module under the `module_budget.py` line cap.
 - `config.py` — Conversation-window curated config (TICKET-0050, BRIEF-0050-a); `AgendaStep` (TICKET-0075, BRIEF-0075-b); `condition` and `condition_node` (TICKET-0111, BRIEF-0111-C), which replaced `agenda_step_requirement`.
 - `ephemeral.py` — Ephemeral SQLModel table classes — session/scene-lifetime tables (TICKET-0028, BRIEF-0028-c — package split of the former flat ``models.py``, by schema stratum).
 - `observation.py` — Observation SQLModel table classes (TICKET-0051, schema v1.90).
