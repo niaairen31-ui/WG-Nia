@@ -13,6 +13,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any, Mapping, Optional, Sequence
 
+from sqlalchemy import null
 from sqlmodel import Session, select
 
 from ..models import CREATION_CAP_RANKS, CreationRules
@@ -56,7 +57,9 @@ def write_creation_rules(
     for rank, cost in enumerate(costs, start=1):
         setattr(row, f"cost_to_rank_{rank}", cost)
     for rank in CREATION_CAP_RANKS:
-        setattr(row, f"cap_at_rank_{rank}", caps[rank])
+        # null(): a None cap is written NULL (no cap) -- `cap_at_rank_0`'s
+        # column default would otherwise fill a None on the row's INSERT.
+        setattr(row, f"cap_at_rank_{rank}", caps[rank] if caps[rank] is not None else null())
     row.max_rank = max_rank
     row.max_master_skills = max_master_skills
     row.skills_visible = skills_visible

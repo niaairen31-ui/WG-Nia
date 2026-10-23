@@ -17,6 +17,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session as DbSession, select
 
+from ...creation_rules import rules_dict, world_creation_rules
 from ...db import get_session
 from ...entity_author import generate_npc_goals
 from ...gathering import close_open_memberships
@@ -26,6 +27,7 @@ from ...models import (
     Agenda,
     AgendaStep,
     BASE_SKILL_DOMAINS,
+    CREATION_CAP_RANKS,
     Character,
     DiscoverableDetail,
     Entity,
@@ -86,6 +88,7 @@ from ...writes import (
     write_skill_row,
 )
 
+from ...writes.creation_rules import write_creation_rules
 from ._router import router
 from ._shared import _get_entity, _iso, _world_id
 
@@ -157,6 +160,57 @@ def update_skill_ranks(body: SkillRanksBody, db: DbSession = Depends(get_session
         raise HTTPException(422, str(exc))
     db.commit()
     return [_rank_step_dict(step) for step in world_ladder(db, world_id)]
+
+
+@router.get("/creation-rules")
+def get_creation_rules(db: DbSession = Depends(get_session)) -> dict:
+    """The active world's character creation rules (TICKET-0126,
+    BRIEF-0126-C, C-06): its `creation_rules` row, else every default.
+    Read-only."""
+    return rules_dict(world_creation_rules(db, _world_id(db)))
+
+
+class CreationCostBody(BaseModel):
+    rank: int
+    cost: int
+
+
+class CreationCapBody(BaseModel):
+    rank: int
+    cap: Optional[int] = None
+
+
+class CreationRulesBody(BaseModel):
+    pool: int
+    costs: list[CreationCostBody]
+    caps: list[CreationCapBody]
+    max_rank: int
+    max_master_skills: int
+    skills_visible: bool
+
+
+@router.put("/creation-rules")
+def update_creation_rules(body: CreationRulesBody, db: DbSession = Depends(get_session)) -> dict:
+    """Creator edit of the active world's creation rules (C-06): every field
+    at once, each rank given once; the writer's French `ValueError` is a 422,
+    before any write."""
+    world_id = _world_id(db)
+    if (sorted(c.rank for c in body.costs) != [1, 2, 3, 4, 5]
+            or sorted(c.rank for c in body.caps) != sorted(CREATION_CAP_RANKS)):
+        raise HTTPException(422, "Chaque rang est donné une fois.")
+    try:
+        write_creation_rules(
+            db, world_id=world_id, pool=body.pool,
+            costs=[c.cost for c in sorted(body.costs, key=lambda c: c.rank)],
+            caps={c.rank: c.cap for c in body.caps},
+            max_rank=body.max_rank, max_master_skills=body.max_master_skills,
+            skills_visible=body.skills_visible,
+        )
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc))
+    db.commit()
+    return rules_dict(world_creation_rules(db, world_id))
 
 
 @router.get("/skills/player-characters")
@@ -311,6 +365,7 @@ def _skill_system_dict(s: SkillSystem, db: DbSession) -> dict:
         "description": s.description,
         "skill_count": skill_count,
         **_rank_points(s),
+        **_creation_overrides(s, SYSTEM_CREATION_COLUMNS),
         "updated_at": _iso(s.updated_at),
     }
 
@@ -352,9 +407,31 @@ def _set_rank_points(row: Any, body: RankPointsBody) -> None:
         setattr(row, column, getattr(body, column))
 
 
+# Character creation overrides (TICKET-0126, BRIEF-0126-C, C-06): None
+# inherits -- the definition, then its system, then the world's rules. A PUT
+# replaces them like every other field of its body.
+SYSTEM_CREATION_COLUMNS: tuple[str, ...] = (
+    "visible_at_creation", "max_rank_at_creation", "cap_raised_at_creation", "cap_held_at_creation",
+)
+DEFINITION_CREATION_COLUMNS: tuple[str, ...] = ("visible_at_creation", "max_rank_at_creation")
+
+
+def _creation_overrides(row: Any, columns: tuple[str, ...]) -> dict:
+    return {column: getattr(row, column) for column in columns}
+
+
+def _set_creation_overrides(row: Any, body: BaseModel, columns: tuple[str, ...]) -> None:
+    for column in columns:
+        setattr(row, column, getattr(body, column))
+
+
 class SkillSystemWriteBody(RankPointsBody):
     name: str
     description: Optional[str] = None
+    visible_at_creation: Optional[bool] = None
+    max_rank_at_creation: Optional[int] = Field(default=None, ge=1, le=5)
+    cap_raised_at_creation: Optional[int] = Field(default=None, ge=0)
+    cap_held_at_creation: Optional[int] = Field(default=None, ge=0)
 
 
 @router.post("/skill-systems", status_code=201)
@@ -373,6 +450,7 @@ def create_skill_system(
 
     system = SkillSystem(world_id=world_id, name=name, description=body.description)
     _set_rank_points(system, body)
+    _set_creation_overrides(system, body, SYSTEM_CREATION_COLUMNS)
     db.add(system)
     try:
         db.commit()
@@ -398,6 +476,7 @@ def update_skill_system(
     system.name = name
     system.description = body.description
     _set_rank_points(system, body)
+    _set_creation_overrides(system, body, SYSTEM_CREATION_COLUMNS)
     system.updated_at = datetime.now(UTC)
     db.add(system)
     try:
@@ -490,6 +569,7 @@ def _skill_definition_dict(d: SkillDefinition) -> dict:
         "description": d.description,
         "requires_master": d.requires_master,
         **_rank_points(d),
+        **_creation_overrides(d, DEFINITION_CREATION_COLUMNS),
         "updated_at": _iso(d.updated_at),
     }
 
@@ -513,6 +593,8 @@ class SkillDefinitionWriteBody(RankPointsBody):
     # TICKET-0107 (A2): learned only from a master -- no player character
     # holds a row for it until taught.
     requires_master: bool = False
+    visible_at_creation: Optional[bool] = None
+    max_rank_at_creation: Optional[int] = Field(default=None, ge=1, le=5)
 
 
 def _backfill_open_skill(db: DbSession, definition: SkillDefinition) -> None:
@@ -563,6 +645,7 @@ def create_skill_definition(
         requires_master=body.requires_master,
     )
     _set_rank_points(definition, body)
+    _set_creation_overrides(definition, body, DEFINITION_CREATION_COLUMNS)
     db.add(definition)
     try:
         db.flush()
@@ -617,6 +700,7 @@ def update_skill_definition(
     definition.system_id = body.system_id
     definition.description = body.description
     _set_rank_points(definition, body)
+    _set_creation_overrides(definition, body, DEFINITION_CREATION_COLUMNS)
     definition.updated_at = datetime.now(UTC)
     db.add(definition)
 
