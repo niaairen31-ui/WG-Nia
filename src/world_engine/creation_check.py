@@ -24,7 +24,7 @@ VIOLATION_CODES: tuple[str, ...] = (
     "over_master_count", "over_rank_cap", "over_system_raised", "over_system_held", "over_pool",
 )
 DRAFT_VIOLATION_CODES: tuple[str, ...] = (
-    "name_missing", "backstory_missing", "start_place_missing", "start_place_invalid",
+    "name_missing", "story_missing", "start_place_missing", "start_place_invalid",
     "too_many_sketches", "master_without_sketch", "sketch_existing_invalid",
     "membership_invalid", "pc_exists",
 )

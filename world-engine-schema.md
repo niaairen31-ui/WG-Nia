@@ -1411,7 +1411,7 @@ CREATE TABLE pc_draft (
   user_id                TEXT NOT NULL REFERENCES user(id),
   status                 TEXT NOT NULL DEFAULT 'draft',
   name                   TEXT NOT NULL DEFAULT '',
-  backstory              TEXT NOT NULL DEFAULT '',
+  story                  TEXT NOT NULL DEFAULT '',  -- the player's story (not `backstory`: lore_as_facts R1)
   start_location_id      TEXT REFERENCES entity(id),
   start_location_set_by  TEXT,
   creator_note           TEXT,

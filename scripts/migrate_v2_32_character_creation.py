@@ -10,18 +10,22 @@ Schema only; the one data write is the journal's copy:
   `cap_raised_at_creation`, `cap_held_at_creation` and
   `skill_definition.visible_at_creation`, `max_rank_at_creation` (nullable:
   NULL inherits);
+- renames `pc_draft.backstory` to `story` on a database that ran this
+  script before AMENDMENT-0126-01 (lore_as_facts R1 bans the name);
 - rebuilds `lore_usage_event` so its step CHECK admits `kind = 'creation'`
   with steps `creation_subject` and `creation_design`. Every row is copied
   unchanged.
 
 Refuses to run on a database whose `schema_meta.static_version` is older
 than v2.31. Idempotent: each step runs only while still needed (the table
-or the column is absent; the stored table SQL lacks `'creation'`). One raw
+or the column is absent; `pc_draft` still holds `backstory`; the stored
+table SQL lacks `'creation'`). One raw
 transaction (`foreign_keys` and `legacy_alter_table` set before it).
 
 Post-checks, before `schema_meta` moves: the six tables and the six columns
-exist; the stored `lore_usage_event` SQL holds `'creation_design'`; the
-journal's row count is unchanged. `schema_meta` then moves to v2.32.
+exist; `pc_draft` holds `story` and not `backstory`; the stored
+`lore_usage_event` SQL holds `'creation_design'`; the journal's row count
+is unchanged. `schema_meta` then moves to v2.32.
 
 Run from the project root:
 
@@ -135,9 +139,12 @@ def _rebuild(cursor, model, columns: str) -> None:
 
 
 def _plan() -> tuple[list, list[str], list[tuple]]:
-    """(models to create, ADD COLUMN statements, (model, copied columns) rebuilds) still to apply."""
+    """(models to create, ALTER statements, (model, copied columns) rebuilds) still to apply."""
     present = _tables()
     creates = [model for model in _NEW_TABLES if model.__tablename__ not in present]
+    renames = []
+    if "pc_draft" in present and "backstory" in _columns("pc_draft") and "story" not in _columns("pc_draft"):
+        renames.append("ALTER TABLE pc_draft RENAME COLUMN backstory TO story")
     adds = [
         f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}"
         for table, column, sql_type in _NEW_COLUMNS
@@ -146,7 +153,7 @@ def _plan() -> tuple[list, list[str], list[tuple]]:
     rebuilds: list[tuple] = []
     if "'creation'" not in _journal_sql():
         rebuilds.append((models.LoreUsageEvent, _JOURNAL_COLUMNS))
-    return creates, adds, rebuilds
+    return creates, renames + adds, rebuilds
 
 
 def _apply() -> list[str]:
@@ -177,7 +184,11 @@ def _apply() -> list[str]:
     finally:
         raw.close()
     created = [f"{model.__tablename__} created" for model in creates]
-    added = [f"{statement.split()[2]}.{statement.split()[5]} added" for statement in adds]
+    added = [
+        f"{statement.split()[2]}.{statement.split()[5]} renamed to {statement.split()[7]}"
+        if " RENAME COLUMN " in statement else f"{statement.split()[2]}.{statement.split()[5]} added"
+        for statement in adds
+    ]
     return created + added + [f"{model.__tablename__} rebuilt" for model, _ in rebuilds]
 
 
@@ -190,6 +201,8 @@ def _post_checks(journal_before: int) -> None:
     for table, column, _ in _NEW_COLUMNS:
         if column not in _columns(table):
             problems.append(f"{table} lacks {column}")
+    if "pc_draft" in present and ("story" not in _columns("pc_draft") or "backstory" in _columns("pc_draft")):
+        problems.append("pc_draft does not hold story in place of backstory")
     if "'creation_design'" not in _journal_sql():
         problems.append("lore_usage_event's step CHECK lacks 'creation_design'")
     journal_after = _journal_count()

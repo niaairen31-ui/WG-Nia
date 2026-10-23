@@ -89,7 +89,7 @@ class CreationDesign:
 
 
 def _subject_call(db: Session, draft: PcDraft, exchanges: list) -> dict:
-    values = {"character_name": draft.name, "backstory": draft.backstory}
+    values = {"character_name": draft.name, "backstory": draft.story}
     return prompt_call.call_json(db, SUBJECT_USAGE, values, exchanges, chat, world_id=draft.world_id)
 
 
@@ -103,8 +103,8 @@ def _strings(value: Any) -> tuple[str, ...]:
     return tuple(item.strip() for item in value if isinstance(item, str) and item.strip())
 
 
-def subject(db: Session, draft: PcDraft, exchanges: list) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """The backstory's proper names and distinguishing words."""
+def backstory_terms(db: Session, draft: PcDraft, exchanges: list) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """The proper names and distinguishing words of the draft's story."""
     reply = _subject_call(db, draft, exchanges)
     return _strings(reply.get("names")), _strings(reply.get("keywords"))
 
@@ -339,7 +339,7 @@ def design(db: Session, draft: PcDraft, names: tuple[str, ...], keywords: tuple[
     room = PC_SKETCH_MAX - len(player_sketches)
     values = {
         "character_name": draft.name,
-        "backstory": draft.backstory,
+        "backstory": draft.story,
         "skills": _skills_text(listing, labels),
         "player_choices": _player_choices_text(db, draft, listing, labels),
         "rules": _rules_text(db, listing, rules, labels),

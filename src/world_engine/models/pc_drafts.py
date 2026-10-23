@@ -48,7 +48,7 @@ class PcDraft(SQLModel, table=True):
     user_id: str = Field(foreign_key="user.id", nullable=False)
     status: str = Field(default="draft", sa_column_kwargs={"server_default": text("'draft'")})
     name: str = Field(default="", sa_column_kwargs={"server_default": text("''")})
-    backstory: str = Field(default="", sa_column_kwargs={"server_default": text("''")})
+    story: str = Field(default="", sa_column_kwargs={"server_default": text("''")})
     start_location_id: Optional[str] = Field(default=None, foreign_key="entity.id")
     start_location_set_by: Optional[str] = None
     creator_note: Optional[str] = None
