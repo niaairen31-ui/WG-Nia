@@ -1,0 +1,42 @@
+{
+  "ticket": "TICKET-0125-player-entry",
+  "when": "2026-10-22T23:56:18.733712+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u00e2\u20ac\u201d 189 check(s) discovered, 189 executed, 189 passed"
+    },
+    {
+      "check": "pc_resolution.py",
+      "status": "PASS",
+      "msg": "PASS: pc_resolution -- 0, 1 and 2 PCs in one world: refused, resolved, refused"
+    },
+    {
+      "check": "player_entry_schema.py",
+      "status": "PASS",
+      "msg": "PASS: player_entry_schema -- v2.31: world.open_to_players and the perspective journal kind, migration idempotent and refusing below v2.30"
+    },
+    {
+      "check": "player_worlds.py",
+      "status": "PASS",
+      "msg": "PASS: player_worlds -- a world is closed by default, opens and closes from the \u00c2\u00ab Monde \u00c2\u00bb page, and an omitted flag changes nothing"
+    },
+    {
+      "check": "perspective_isolation.py",
+      "status": "PASS",
+      "msg": "PASS: perspective_isolation -- public view, selectors, executor, audit and renderer: nothing creator-only, secret or non-public reaches the public answer"
+    },
+    {
+      "check": "player_routes.py",
+      "status": "PASS",
+      "msg": "PASS: player_routes -- profiles, open worlds and public questions for the player; the creator's perspective with its audit; every question journaled"
+    },
+    {
+      "check": "player_shell.py",
+      "status": "PASS",
+      "msg": "PASS: player_shell -- the Lore perspective tab is wired; the player shell calls only /api/joueur and imports nothing of the creator"
+    }
+  ]
+}
