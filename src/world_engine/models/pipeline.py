@@ -463,11 +463,13 @@ class LoreEntryRow(SQLModel, table=True):
 # `delete_world_cascade` by construction -- there is no `world_id` column.
 # `lore_entry_ref` likewise names, without a FK, the `lore_entry` a successful
 # commit wrote. Append-only: no UPDATE, no DELETE. Non-canon.
+# Character-designer calls (v2.32, TICKET-0126) are journaled as kind `creation`.
 # -----------------------------------------------------------------------------
 LORE_USAGE_STEPS: dict[str, tuple[str, ...]] = {
     "write": ("questions", "draft", "commit"),
     "consult": ("ask", "resolve"),
     "perspective": ("perspective_ask", "perspective_resolve"),
+    "creation": ("creation_subject", "creation_design"),
 }
 LORE_USAGE_OUTCOMES: tuple[str, ...] = ("ok", "unavailable", "parse_error", "refused")
 
@@ -480,7 +482,8 @@ class LoreUsageEvent(SQLModel, table=True):
         CheckConstraint(
             "(kind = 'write' AND step IN ('questions','draft','commit')) "
             "OR (kind = 'consult' AND step IN ('ask','resolve')) "
-            "OR (kind = 'perspective' AND step IN ('perspective_ask','perspective_resolve'))",
+            "OR (kind = 'perspective' AND step IN ('perspective_ask','perspective_resolve')) "
+            "OR (kind = 'creation' AND step IN ('creation_subject','creation_design'))",
             name="ck_lore_usage_event_step",
         ),
         CheckConstraint(

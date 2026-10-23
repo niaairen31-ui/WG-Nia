@@ -10,7 +10,8 @@ Layout, by stratum:
                         2026-07-15).
     canon_skill.py   — the skill domain (SkillSystem, SkillDefinition,
                         Skill, BASE_SKILL_DOMAINS), extracted from canon.py
-                        at TICKET-0126 for the module_budget cap.
+                        at TICKET-0126 for the module_budget cap;
+                        CreationRules (v2.32).
     canon_faction.py — faction extension tables (Faction, FactionRole,
                         FactionMembership), extracted from canon.py at
                         TICKET-0048 for the module_budget cap.
@@ -46,6 +47,8 @@ Layout, by stratum:
                         world's quest economy (QuestOfferTerm, QuestTerm,
                         QuestEconomy; TICKET-0109, v2.18), and debts
                         (Debt, DebtTerm; TICKET-0110, v2.19), canon.
+    pc_drafts.py    — a player's character draft (PcDraft and its four child
+                        tables; TICKET-0126, schema v2.32), non-canon, pending.
 
 This module re-exports the ENTIRE former public surface of the flat
 `models.py` — every class, constant, and the two module functions
@@ -53,7 +56,7 @@ This module re-exports the ENTIRE former public surface of the flat
 `from world_engine.models import X` in `src/` and `scripts/` resolves
 unchanged. Import order (canon, canon_skill, canon_faction, canon_knowledge,
 canon_attribute, canon_event, config,
-ephemeral, pipeline, observation, quests) keeps table registration on
+ephemeral, pipeline, observation, quests, pc_drafts) keeps table registration on
 `SQLModel.metadata` deterministic;
 cross-stratum foreign keys (string table-name references) resolve
 regardless of file order.
@@ -90,6 +93,10 @@ from .canon import (
 )
 from .canon_skill import (
     BASE_SKILL_DOMAINS,
+    CREATION_CAP_COLUMNS,
+    CREATION_CAP_RANKS,
+    CREATION_COST_COLUMNS,
+    CreationRules,
     Skill,
     SkillDefinition,
     SkillSystem,
@@ -205,6 +212,18 @@ from .quests import (
     QuestTerm,
     Debt,
     DebtTerm,
+)
+from .pc_drafts import (
+    PC_DRAFT_ORIGINS,
+    PC_DRAFT_STATUSES,
+    PC_KNOWLEDGE_LEVELS,
+    PC_SKETCH_KINDS,
+    PC_SKETCH_MAX,
+    PcDraft,
+    PcDraftKnowledge,
+    PcDraftMembership,
+    PcDraftSketch,
+    PcDraftSkill,
 )
 
 __all__ = [
@@ -332,4 +351,18 @@ __all__ = [
     "ObservationBeat",
     "ObservationIntent",
     "ObservationMutationLink",
+    "CreationRules",
+    "CREATION_COST_COLUMNS",
+    "CREATION_CAP_RANKS",
+    "CREATION_CAP_COLUMNS",
+    "PcDraft",
+    "PcDraftSkill",
+    "PcDraftSketch",
+    "PcDraftMembership",
+    "PcDraftKnowledge",
+    "PC_DRAFT_STATUSES",
+    "PC_DRAFT_ORIGINS",
+    "PC_SKETCH_KINDS",
+    "PC_KNOWLEDGE_LEVELS",
+    "PC_SKETCH_MAX",
 ]

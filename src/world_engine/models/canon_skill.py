@@ -56,6 +56,12 @@ class SkillSystem(SQLModel, table=True):
     trial_to_rank_3: Optional[bool] = None
     trial_to_rank_4: Optional[bool] = None
     trial_to_rank_5: Optional[bool] = None
+    # Character creation (v2.32, TICKET-0126, L2/Q-limits): NULL inherits -- the
+    # definition, then its system, then the world's creation_rules.
+    visible_at_creation: Optional[bool] = None
+    max_rank_at_creation: Optional[int] = None
+    cap_raised_at_creation: Optional[int] = None
+    cap_held_at_creation: Optional[int] = None
     created_at: datetime = _created_ts()
     updated_at: datetime = _created_ts()
 
@@ -106,6 +112,10 @@ class SkillDefinition(SQLModel, table=True):
     trial_to_rank_3: Optional[bool] = None
     trial_to_rank_4: Optional[bool] = None
     trial_to_rank_5: Optional[bool] = None
+    # Character creation (v2.32, TICKET-0126, L2/Q-limits): NULL inherits -- the
+    # definition, then its system, then the world's creation_rules.
+    visible_at_creation: Optional[bool] = None
+    max_rank_at_creation: Optional[int] = None
     # Learned only from a master (v2.16, TICKET-0107, A2): a player
     # character holds no row for it until taught, and cannot roll it.
     requires_master: bool = Field(default=False, sa_column_kwargs={"server_default": text("0")})
@@ -153,4 +163,49 @@ class Skill(SQLModel, table=True):
     # a master.
     taught_by_id: Optional[str] = Field(default=None, foreign_key="entity.id")
     created_at: datetime = _created_ts()
+    updated_at: datetime = _created_ts()
+
+
+# -----------------------------------------------------------------------------
+# creation_rules  (a world's character creation rules -- schema v2.32,
+# TICKET-0126, BRIEF-0126-B, J1')
+#
+# NOTE: One row per world; a missing row is every default. A cap of NULL is
+# no cap. Curated config, no change_history; written only by
+# `writes.creation_rules.write_creation_rules`, read only by
+# `creation_rules.py`, which never writes on read.
+# -----------------------------------------------------------------------------
+CREATION_COST_COLUMNS: tuple[str, ...] = tuple(f"cost_to_rank_{n}" for n in range(1, 6))
+CREATION_CAP_RANKS: tuple[int, ...] = (0, 2, 3, 4, 5)
+CREATION_CAP_COLUMNS: tuple[str, ...] = tuple(f"cap_at_rank_{r}" for r in CREATION_CAP_RANKS)
+CREATION_RULES_CHECK = " AND ".join(
+    ["pool >= 0", "max_rank BETWEEN 1 AND 5", "max_master_skills >= 0"]
+    + [f"{c} >= 0" for c in CREATION_COST_COLUMNS]
+    + [f"({c} IS NULL OR {c} >= 0)" for c in CREATION_CAP_COLUMNS]
+)
+
+
+class CreationRules(SQLModel, table=True):
+    __tablename__ = "creation_rules"
+    __table_args__ = (
+        Index("idx_creation_rules_world", "world_id", unique=True),
+        CheckConstraint(CREATION_RULES_CHECK, name="ck_creation_rules_values"),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    pool: int = Field(default=6, sa_column_kwargs={"server_default": text("6")})
+    cost_to_rank_1: int = Field(default=1, sa_column_kwargs={"server_default": text("1")})
+    cost_to_rank_2: int = Field(default=1, sa_column_kwargs={"server_default": text("1")})
+    cost_to_rank_3: int = Field(default=2, sa_column_kwargs={"server_default": text("2")})
+    cost_to_rank_4: int = Field(default=3, sa_column_kwargs={"server_default": text("3")})
+    cost_to_rank_5: int = Field(default=4, sa_column_kwargs={"server_default": text("4")})
+    cap_at_rank_0: Optional[int] = Field(default=2, sa_column_kwargs={"server_default": text("2")})
+    cap_at_rank_2: Optional[int] = None
+    cap_at_rank_3: Optional[int] = None
+    cap_at_rank_4: Optional[int] = None
+    cap_at_rank_5: Optional[int] = None
+    max_rank: int = Field(default=5, sa_column_kwargs={"server_default": text("5")})
+    max_master_skills: int = Field(default=1, sa_column_kwargs={"server_default": text("1")})
+    skills_visible: bool = Field(default=True, sa_column_kwargs={"server_default": text("1")})
     updated_at: datetime = _created_ts()

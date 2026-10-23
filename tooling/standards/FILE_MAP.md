@@ -125,6 +125,7 @@
 - `migrate_v2_29_rank_trials.py` — Migration v2.29 — a rank may ask a trial, and a trial is a quest (TICKET-0116, BRIEF-0116-A; decisions B1, D2, D2-d, F1-b).
 - `migrate_v2_30_world_tone.py` — Migration v2.30 — a world has a tone (TICKET-0124, BRIEF-0124-A; decision B2 of the world premise).
 - `migrate_v2_31_player_entry.py` — Migration v2.31 — a world opens to players; the Lore journal admits the perspective kind (TICKET-0125, BRIEF-0125-B; decisions C1, H1-c).
+- `migrate_v2_32_character_creation.py` — Migration v2.32 — a world's character creation rules, the creation overrides, a player's character draft, the creation journal kind (TICKET-0126, BRIEF-0126-B; decisions J1', L2, B1, U1).
 - `observation_metrics.py` — Observation run metrics (TICKET-0051, BRIEF-0051-g, decision J2/Q).
 - `preview_npc_schedule.py` — Preview `where_is` / `who_is_at` / `unresolved_npcs` — the concrete reader for `world.current_phase` (T-A1) and the live-gate instrument for TICKET-0074, BRIEF-0074-a.
 - `preview_tick_context.py` — Preview the full-interiority briefing a world tick would send to one NPC (TICKET-0014, BRIEF-0014-a; TICKET-0015, BRIEF-0015-a adds --interval) — the concrete reader for `assemble_tick_context` in this brief, and the live-gate instrument for the T1 review.
@@ -346,6 +347,7 @@
 - `config.py` — Conversation-window curated config (TICKET-0050, BRIEF-0050-a); `AgendaStep` (TICKET-0075, BRIEF-0075-b); `condition` and `condition_node` (TICKET-0111, BRIEF-0111-C), which replaced `agenda_step_requirement`.
 - `ephemeral.py` — Ephemeral SQLModel table classes — session/scene-lifetime tables (TICKET-0028, BRIEF-0028-c — package split of the former flat ``models.py``, by schema stratum).
 - `observation.py` — Observation SQLModel table classes (TICKET-0051, schema v1.90).
+- `pc_drafts.py` — A player's character draft (schema v2.32, TICKET-0126, BRIEF-0126-B, B1) -- non-canon, pending: nothing here reaches canon before the creator approves it (TICKET-0129).
 - `pipeline.py` — Pipeline-internal SQLModel table classes — prompt/pipeline/approval machinery (TICKET-0028, BRIEF-0028-c — package split of the former flat ``models.py``, by schema stratum).
 - `quests.py` — Quest offers and accepted quests (schema v2.17, TICKET-0108, BRIEF-0108-A).
 - `schedule.py` — NPC standing-schedule curated config (TICKET-0074, BRIEF-0074-a).
