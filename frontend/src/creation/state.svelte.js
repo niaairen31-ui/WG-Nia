@@ -96,6 +96,9 @@ export const creationState = $state({
   selectedGermId: null,
   sheetPane: 'fiche',
   germLinkTarget: null,
+  // TICKET-0126 (BRIEF-0126-I, W1'): the active world's submitted character drafts, and the one open in the column.
+  submittedDrafts: [],
+  selectedPcDraftId: null,
   // 'empty' | 'loading' | 'view' | 'error' | 'legacy' -- 'create' is a
   // sub-case of 'view' carrying sheetIsNew: true (same skeleton, blank data).
   sheetMode: 'empty',
