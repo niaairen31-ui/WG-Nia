@@ -35,8 +35,15 @@
 
    TICKET-0116 (BRIEF-0116-F): a skill, a system and each rank of the ladder
    say whether reaching a rank asks a trial (`RANK_TRIAL_KEYS`,
-   `trial_to_next`). */
+   `trial_to_next`).
+
+   TICKET-0126 (BRIEF-0126-E): a fourth record kind, 'creation', edits the
+   world's character-creation rules (creationRules.svelte.js); a skill and a
+   system record carry their creation overrides. */
 import { serverState } from '../lib/serverState.svelte.js';
+import {
+  loadCreationRules, saveCreationRules, creationOverrides, creationOverridesBody,
+} from './creationRules.svelte.js';
 
 export const competencesState = $state({
   draft: [],   // proposed rows awaiting Save: {key, name, base_domain, system_id, description}
@@ -124,6 +131,7 @@ export function skillRecord(row) {
     kind: 'skill', persisted: true, id: row.id, draftKey: null,
     name: row.name, base_domain: row.base_domain, system_id: row.system_id ?? null,
     description: row.description ?? '', requires_master: !!row.requires_master, ...rankPoints(row), ...rankTrials(row),
+    ...creationOverrides(row),
   };
 }
 
@@ -131,7 +139,7 @@ export function systemRecord(sys) {
   return {
     kind: 'system', persisted: true, id: sys.id,
     name: sys.name, description: sys.description ?? '', skill_count: sys.skill_count ?? 0,
-    ...rankPoints(sys), ...rankTrials(sys),
+    ...rankPoints(sys), ...rankTrials(sys), ...creationOverrides(sys),
   };
 }
 
@@ -147,6 +155,7 @@ export function draftRecord(d) {
     kind: 'skill', persisted: false, id: `draft:${d.key}`, draftKey: d.key,
     name: d.name ?? '', base_domain: d.base_domain ?? '', system_id: d.system_id ?? null,
     description: d.description ?? '', requires_master: false, ...rankPoints(null), ...rankTrials(null),
+    ...creationOverrides(null),
   };
 }
 
@@ -161,11 +170,13 @@ export function blankRecord(kind) {
   if (kind === 'system') {
     return {
       kind: 'system', persisted: false, id: null, name: '', description: '', skill_count: 0, ...rankPoints(null), ...rankTrials(null),
+      ...creationOverrides(null),
     };
   }
   return {
     kind: 'skill', persisted: false, id: null, draftKey: null,
     name: '', base_domain: 'physical', system_id: null, description: '', requires_master: false, ...rankPoints(null), ...rankTrials(null),
+    ...creationOverrides(null),
   };
 }
 
@@ -174,6 +185,7 @@ export function competenceSheetTitle(record) {
   if (!record) return '';
   if (record.kind === 'assistant') return 'Assistant de compétences';
   if (record.kind === 'ranks') return 'Rangs du monde';
+  if (record.kind === 'creation') return 'Création de personnage';
   if (record.kind === 'system') return record.persisted ? record.name : 'Nouveau système';
   return record.persisted ? record.name : 'Nouvelle compétence';
 }
@@ -196,6 +208,7 @@ export async function loadCatalogue() {
   competencesState.rows = rows;
   competencesState.systems = systems;
   competencesState.ranks = ranks;
+  await loadCreationRules();
   await loadGaps();
 }
 
@@ -292,6 +305,7 @@ async function saveSkill(record) {
   const body = JSON.stringify({
     name, base_domain: record.base_domain, system_id: record.system_id || null,
     description: record.description || '', requires_master: !!record.requires_master, ...pointsBody(record), ...trialsBody(record),
+    ...creationOverridesBody(record),
   });
   const saved = record.persisted
     ? await api(`/api/skill-definitions/${record.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
@@ -302,7 +316,10 @@ async function saveSkill(record) {
 
 async function saveSystem(record) {
   const name = requireName(record);
-  const body = JSON.stringify({ name, description: record.description || null, ...pointsBody(record), ...trialsBody(record) });
+  const body = JSON.stringify({
+    name, description: record.description || null, ...pointsBody(record), ...trialsBody(record),
+    ...creationOverridesBody(record),
+  });
   const saved = record.persisted
     ? await api(`/api/skill-systems/${record.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
     : await api('/api/skill-systems', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
@@ -333,6 +350,7 @@ export async function saveCompetenceRecord(record) {
   if (record.kind === 'skill') return saveSkill(record);
   if (record.kind === 'system') return saveSystem(record);
   if (record.kind === 'ranks') return saveRanks(record);
+  if (record.kind === 'creation') return saveCreationRules(record);
   throw new Error('Rien à enregistrer.');
 }
 

@@ -24,11 +24,19 @@
      « Épreuve », « Sans épreuve »); the ladder ticks the ranks whose next
      asks one.
 
+     TICKET-0126 (BRIEF-0126-E): the 'creation' record edits the world's
+     character-creation rules (CreationRulesFiche); a skill and a system
+     fiche carry their creation overrides (CreationOverrides) after the
+     thresholds.
+
      No scoped <style> block: like every other Creation island, classes
      come from frontend/public/creation.css / shared.css. */
   import { creationState } from './state.svelte.js';
   import { creationRefreshList } from './tabs.js';
   import Modal from './Modal.svelte';
+  import CreationRulesFiche from './CreationRulesFiche.svelte';
+  import CreationOverrides from './CreationOverrides.svelte';
+  import { creationRulesState } from './creationRules.svelte.js';
   import {
     competencesState, COMPETENCES_DOMAINS, NO_SYSTEM_LABEL, RANK_POINT_KEYS, RANK_TRIAL_KEYS, generateDraft,
     discardDraft, deleteSkill, deleteSystem, closeCompetenceSheet, inheritedPoints, inheritedTrial,
@@ -147,6 +155,8 @@
       {/each}
     </div>
   </div>
+{:else if rec && rec.kind === 'creation'}
+  <CreationRulesFiche ranks={competencesState.ranks} />
 {:else if rec && rec.kind === 'assistant'}
   <div class="field-section">
     <div class="field-row">
@@ -206,6 +216,8 @@
     </div>
   </div>
   {@render thresholds()}
+  <CreationOverrides record={rec} systems={competencesState.systems} ranks={competencesState.ranks}
+    rules={creationRulesState.rules} />
 {:else if rec && rec.kind === 'system'}
   {#if rec.persisted}
     <div style="display:flex; justify-content:flex-end; margin-bottom:8px;">
@@ -228,6 +240,8 @@
     {/if}
   </div>
   {@render thresholds()}
+  <CreationOverrides record={rec} systems={competencesState.systems} ranks={competencesState.ranks}
+    rules={creationRulesState.rules} />
 {/if}
 
 <Modal title={rec && rec.kind === 'system' ? 'Supprimer le système' : 'Supprimer la compétence'}

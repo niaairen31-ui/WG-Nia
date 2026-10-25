@@ -40,6 +40,7 @@
 - `apply_ticket_0121_designer_prompts.py` — One-shot, idempotent delivery of the TICKET-0121 quest designer's prompt heads (quest_subject, quest_design) onto the live DB (BRIEF-0121-E).
 - `apply_ticket_0121_select_prompt.py` — One-shot, idempotent delivery of the TICKET-0121 plan-selection prompt update onto the live DB (BRIEF-0121-D, K1): the selection answers a third thing -- `route`, "plan" or "quest" -- when the declaration attaches to no open plan, and is called on every declaration (an empty plan list included).
 - `apply_ticket_0124_world_premise.py` — One-shot, idempotent delivery of the TICKET-0124 world premise onto the live DB (BRIEF-0124-D, P1): one new version per creator or player template, `{world_premise}` at the head of its current system text, the creator's own edits kept.
+- `apply_ticket_0126_designer_prompts.py` — One-shot, idempotent delivery of the TICKET-0126 character designer's prompt heads (creation_subject, creation_design) onto the live DB (BRIEF-0126-F).
 - `backup.py` — Timestamped, rotated backup of the live world-engine database.
 - `cockpit.py` — Launch the World Engine Cockpit on 127.0.0.1:8000.
 - `export_lore_usage.py` — Export the Lore shell's usage journal as JSON Lines (TICKET-0103, BRIEF-0103-E, decision E1).
@@ -125,6 +126,7 @@
 - `migrate_v2_29_rank_trials.py` — Migration v2.29 — a rank may ask a trial, and a trial is a quest (TICKET-0116, BRIEF-0116-A; decisions B1, D2, D2-d, F1-b).
 - `migrate_v2_30_world_tone.py` — Migration v2.30 — a world has a tone (TICKET-0124, BRIEF-0124-A; decision B2 of the world premise).
 - `migrate_v2_31_player_entry.py` — Migration v2.31 — a world opens to players; the Lore journal admits the perspective kind (TICKET-0125, BRIEF-0125-B; decisions C1, H1-c).
+- `migrate_v2_32_character_creation.py` — Migration v2.32 — a world's character creation rules, the creation overrides, a player's character draft, the creation journal kind (TICKET-0126, BRIEF-0126-B; decisions J1', L2, B1, U1).
 - `observation_metrics.py` — Observation run metrics (TICKET-0051, BRIEF-0051-g, decision J2/Q).
 - `preview_npc_schedule.py` — Preview `where_is` / `who_is_at` / `unresolved_npcs` — the concrete reader for `world.current_phase` (T-A1) and the live-gate instrument for TICKET-0074, BRIEF-0074-a.
 - `preview_tick_context.py` — Preview the full-interiority briefing a world tick would send to one NPC (TICKET-0014, BRIEF-0014-a; TICKET-0015, BRIEF-0015-a adds --interval) — the concrete reader for `assemble_tick_context` in this brief, and the live-gate instrument for the T1 review.
@@ -152,6 +154,10 @@
 - `context.py` — NPC context assembly — the engine's structural control over what an NPC may say.
 - `context_describe.py` — Descriptive NPC/MJ context helpers (TICKET-0091 BRIEF-B move; BRIEF-G switched them to facts).
 - `context_window.py` — Sliding context window — shared seam for the played and observed lanes (TICKET-0050, BRIEF-0050-a/-b/-d; TICKET-0052, B1/I2).
+- `creation_check.py` — The one check of a character-creation skill sheet (TICKET-0126, BRIEF-0126-C; INV-67): the player's, the designer's and the one submitted are judged here and nowhere else.
+- `creation_designer.py` — The player-side character designer (TICKET-0126, BRIEF-0126-F; S1, T1, F'a-1, F-c).
+- `creation_lore.py` — What a character designer may read: what everybody knows of a backstory's names and words, the places a character can start in, the public factions (TICKET-0126, BRIEF-0126-F; F-c, D1, INV-66).
+- `creation_rules.py` — The character creation rules of a world and the start sheet a new character holds (TICKET-0126, BRIEF-0126-C; decisions J1', L2, Q, Q-limits, A1, P1).
 - `dashboard_deferrals.py` — The deferrals the creator watches: each rejected or deferred choice whose reactivation condition she approved, where it is declared, and the dashboard metric that watches it, if any (TICKET-0115, BRIEF-0115-D; decisions F2, K2 and L of the conditions series' dashboard).
 - `dashboard_export.py` — The dashboard's export: everything a deeper analysis needs, between two real-world dates, as one JSON document for a Claude Code session (TICKET-0115, BRIEF-0115-D; decisions E2, I1, J1 and M1 of the conditions series' dashboard).
 - `dashboard_metrics.py` — The creator's dashboard: a registry of metrics in code, each a question in French, its computation over relational columns, and the decision codes it watches (TICKET-0115, BRIEF-0115-D; decisions H1, D1, E2 and M1 of the conditions series' dashboard).
@@ -219,6 +225,7 @@
 - `observation_writes.py` — Single write chokepoint for `observation_*` tables (TICKET-0051, BRIEF-0051-a).
 - `ollama_client.py` — Minimal client for a local Ollama server (stdlib only — no new dependency).
 - `passages.py` — Place registry writer (TICKET-0105, BRIEF-0105-B, C-02).
+- `pc_draft_reads.py` — The read shape of a character draft, for the player (through the public view) and for the creator (TICKET-0126, BRIEF-0126-G).
 - `perspective_audit.py` — The public perspective's audit: every line a public answer withheld, and why (TICKET-0125, BRIEF-0125-D, C-07).
 - `perspective_query.py` — The public perspective's executor: a plan run over what everybody knows (TICKET-0125, BRIEF-0125-D, C-05, C-06).
 - `perspective_render.py` — The public perspective's renderer: the answer to a public question, in prose or by code (TICKET-0125, BRIEF-0125-D, C-08).
@@ -324,8 +331,10 @@
 - `mutations.py` — The mutation review queue: list/reject/approve/batch-review, the `_apply_mutation` thin dispatcher, the applied-duplicate guard, and mutation serialization.
 - `npc_agent.py` — NPC group agent — batch staging lifecycle, run driver, and commit routes (TICKET-0037, BRIEF-0037-a/b/c).
 - `observation.py` — Observation-run routes (TICKET-0051, BRIEF-0051-e/f).
+- `pc_drafts.py` — The creator's read of submitted character drafts (TICKET-0126, BRIEF-0126-I; W1').
 - `play.py` — Play-path routes: conversations, travel, world-tick.
 - `player.py` — The player's door (TICKET-0125, BRIEF-0125-E, C-11): profiles, open worlds, what everybody knows.
+- `player_creation.py` — The player's character creation (TICKET-0126, BRIEF-0126-G; E1', B2, S1, U1, V1).
 - `prompts.py` — Prompt dry-run preview routes (BRIEF-0008-b, C3): zero model calls, zero writes, reuse the real context assemblers and the real system-prompt construction so the preview never drifts from the live path.
 - `quest_requests.py` — The quest requests' routes (TICKET-0121, BRIEF-0121-E, C-12).
 - `quests.py` — Quest routes (TICKET-0108, BRIEF-0108-B, contracts C-03 to C-05).
@@ -342,9 +351,11 @@
 - `canon_event.py` — Canon SQLModel table classes -- the event journal's vocabulary and its participants (TICKET-0114, BRIEF-0114-A, schema v2.24; decisions F1, B1, C1, D1, K-a, N1, V1 and W1 of the conditions series).
 - `canon_faction.py` — Canon SQLModel table classes — faction domain, extracted from ``canon.py`` (TICKET-0048, BRIEF-0048-a) to keep each stratum module under the `module_budget.py` line cap.
 - `canon_knowledge.py` — Canon SQLModel table classes — perception domain (what an entity holds about the world, and the typed links between entities), extracted from ``canon.py`` (TICKET-0082, BRIEF-0082-a) to keep each stratum module under the `module_budget.py` line cap.
+- `canon_skill.py` — Canon SQLModel table classes — skill domain, extracted from ``canon.py`` (TICKET-0126, BRIEF-0126-A) to keep each stratum module under the `module_budget.py` line cap.
 - `config.py` — Conversation-window curated config (TICKET-0050, BRIEF-0050-a); `AgendaStep` (TICKET-0075, BRIEF-0075-b); `condition` and `condition_node` (TICKET-0111, BRIEF-0111-C), which replaced `agenda_step_requirement`.
 - `ephemeral.py` — Ephemeral SQLModel table classes — session/scene-lifetime tables (TICKET-0028, BRIEF-0028-c — package split of the former flat ``models.py``, by schema stratum).
 - `observation.py` — Observation SQLModel table classes (TICKET-0051, schema v1.90).
+- `pc_drafts.py` — A player's character draft (schema v2.32, TICKET-0126, BRIEF-0126-B, B1) -- non-canon, pending: nothing here reaches canon before the creator approves it (TICKET-0129).
 - `pipeline.py` — Pipeline-internal SQLModel table classes — prompt/pipeline/approval machinery (TICKET-0028, BRIEF-0028-c — package split of the former flat ``models.py``, by schema stratum).
 - `quests.py` — Quest offers and accepted quests (schema v2.17, TICKET-0108, BRIEF-0108-A).
 - `schedule.py` — NPC standing-schedule curated config (TICKET-0074, BRIEF-0074-a).
@@ -358,6 +369,7 @@
 - `condition_drafts.py` — The condition interpreter's journal writer (TICKET-0112, BRIEF-0112-B, decision IH1).
 - `conditions.py` — The condition writer and reader (TICKET-0111, BRIEF-0111-C, decisions O-a and I1): one `condition` row per owner and role, its tree as `condition_node` rows.
 - `config.py` — Full-replace curated-config canon-write chokepoints (TICKET-0028, BRIEF-0028-b — decomposed from `writes.py`).
+- `creation_rules.py` — The creation rules' writer (TICKET-0126, BRIEF-0126-C, C-05).
 - `debt_sources.py` — Where a debt comes from besides the creator's hand (TICKET-0110, BRIEF-0110-B, S2 and A2, contract C-05).
 - `debts.py` — Debts: the writers (TICKET-0110, BRIEF-0110-B, J2, C2, T1, F-a, F-b1, U1, V1, X1, contract C-03).
 - `entity_states.py` — The writer of the system states an event may change (TICKET-0119, BRIEF-0119-C; decision E1 of the conditions series): `character.vital_status` (`sys:vital_status`) and `entity.status` (`sys:status`), the two columns `writes.event_types.EFFECT_SYSTEM_KEYS` names.
@@ -373,6 +385,7 @@
 - `lore_usage.py` — The Lore shell's usage journal writer (TICKET-0103, BRIEF-0103-A, C-01).
 - `mentions.py` — `unresolved_mention` writer (TICKET-0091, BRIEF-0091-J, contract C-15).
 - `mutation_reviews.py` — The creator's review of a proposal, recorded round by round -- the one writer of `mutation_review`, `mutation_review_change` and `proposed_mutation.original_payload` (TICKET-0115, BRIEF-0115-B; decisions A3, C1 and H1a of the conditions series' dashboard).
+- `pc_drafts.py` — The one writer of a player's character draft (TICKET-0126, BRIEF-0126-G; B1, C1, V1, T1).
 - `pipeline.py` — `batch`/`pass_play` write primitives (TICKET-0075, BRIEF-0075-a — the declaration socle: plumbing only, no resolution, no model call; `write_pass_play_resolution` added BRIEF-0075-d — the first writer of `pass_play.history`, S5; `write_day_feasibility` added BRIEF-0075-g — the SECOND entry kind `pass_play.history` carries).
 - `prompts.py` — `prompt_version`/`prompt_variable` canon-write chokepoints (TICKET-0028, BRIEF-0028-b — decomposed from `writes.py`; moved for module hygiene, not policy — neither table is in `canon_write_policy.txt`'s CANON_TABLES).
 - `quest_requests.py` — The quest request's writer (TICKET-0121, BRIEF-0121-B, L1).
@@ -411,10 +424,14 @@
 - `conversation_summary_usage.py` — G1 check for TICKET-0050 (BRIEF-0050-c) — `conversation_summary` prompt usage wiring (standard idiom, vacuous-proof).
 - `conversation_window_config.py` — G1 check for TICKET-0050 (BRIEF-0050-a) — `conversation_window_config` table shape, on the schema_0025.py / location_type_classified.py FAILURES idiom (zero parsed criteria is never a vacuous pass).
 - `corpus_gate.py` — G1 check: corpus gate -- every check in tooling/verify/checks/ runs, or this gate is red (TICKET-0060, BRIEF-0060-d, B1).
+- `creation_budget.py` — G1 check for TICKET-0126 (BRIEF-0126-C) -- one function judges a character-creation sheet, over rules the creator reads and writes.
 - `creation_container_sizing.py` — G1 check: every single-container Création tab sizes its container (TICKET-0099, BRIEF-0099-a).
+- `creation_designer.py` — G1 check for TICKET-0126 (BRIEF-0126-F) -- the character designer reads only the public view of the chosen world, retries once against the one check, and keeps every rule of its resolution table.
 - `creation_island.py` — G1 check: the Creation island-mount seam (TICKET-0058, BRIEF-0058-d, amended by BRIEF-0058-e; re-anchored by TICKET-0059, BRIEF-0059-l commit 1, D1).
 - `creation_layout.py` — G1 check for TICKET-0124 -- nothing stacks in Création's right column: germs are a group of the list, the skill sheet a pane of the sheet.
 - `creation_return_nav.py` — G1 check for TICKET-0054 (BRIEF-0054-d): Creation surface cross-tab entity navigation with a single-slot return crumb.
+- `creation_rules_ui.py` — G1 check for TICKET-0126 (BRIEF-0126-E) -- Création > Compétences carries the creation rules and the overrides.
+- `creation_schema.py` — G1 check for TICKET-0126 (BRIEF-0126-B) -- schema v2.32: the creation rules, the overrides, the draft tables and the creation journal kind.
 - `creation_tab_switch.py` — G1 check: the tab-switch sheet reset (TICKET-0083, BRIEF-0083-a).
 - `dashboard_registry.py` — G1 check for TICKET-0115 -- the dashboard is a registry in code: its metrics read relational columns only, its deferrals point at the passage that declares them, and its export carries what the tab does not show.
 - `dashboard_tab.py` — G1 check for TICKET-0115 -- the « Suivi » tab shows the dashboard's metrics and deferrals, exports the same scope, and warns that the export holds secrets.
@@ -520,6 +537,7 @@
 - `pipeline_state.py` — Structural gate for ticket front-matter conformity (pipeline glue, BRIEF-0004), extended by BRIEF-0006-b (TICKET-0006) with sentinel checks on the command files -- moved to `session_config.py` by TICKET-0117 (BRIEF-0117-b), which owns the Claude Code session configuration.
 - `pipeline_wiring.py` — Structural gate for the day-declaration socle (TICKET-0075, BRIEF-0075-a).
 - `placement_unit.py` — G1 check: permanent regression guard for the sole placement/distance authority (TICKET-0031, BRIEF-0031-a).
+- `player_creation.py` — G1 check for TICKET-0126 (BRIEF-0126-G) -- the player's draft lives and is submitted only through the one check, and the creation routes stay in the public view.
 - `player_entry_schema.py` — G1 check for TICKET-0125 (BRIEF-0125-B) -- schema v2.31: a world opens to players and the Lore journal admits the perspective kind.
 - `player_routes.py` — G1 check for TICKET-0125 (BRIEF-0125-E) -- the perspective and player routes answer only what everybody knows, refuse a closed world, and journal every question.
 - `player_shell.py` — G1 check for TICKET-0125 -- the Lore perspective tab and the player shell are wired and confined.
@@ -570,6 +588,7 @@
 - `stream_session_readonly.py` — G1 check: the Play stream's request session is read-only (TICKET-0072, BRIEF-0072-d).
 - `stylesheet_partition.py` — G1 check: the cockpit stylesheet partition (TICKET-0063, BRIEF-0063-a).
 - `subject_resolution.py` — G1 check for TICKET-0087 (BRIEF-0087-b) — the `subject_entity_id` validation chokepoint on the `new_knowledge` apply path.
+- `submitted_drafts.py` — G1 check for TICKET-0126 (BRIEF-0126-I) -- the creator lists and reads the submitted character drafts of her active world, and writes nothing.
 - `summary_not_persisted.py` — G1 check for TICKET-0050 (BRIEF-0050-d) — the conversation summary is never persisted (C1, standard idiom, vacuous-proof).
 - `trait_ext_columns.py` — G1 check: trait ext-column derivation (BRIEF-0046-a, 0045-plane back-fill).
 - `trait_reader.py` — G1 check: "no structure without a reader" (E2), mechanized (C1, TICKET-0045, BRIEF-0045-c).

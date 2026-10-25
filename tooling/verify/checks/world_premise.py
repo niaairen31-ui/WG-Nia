@@ -3,7 +3,7 @@
 WP1 -- import. Every `PROMPT_REGISTRY` entry's `premise` is in
    `world_premise.PREMISE_REGIMES`; its `premise_reason` is non-empty exactly
    when `premise == "none"`; the keys of each regime equal this check's
-   literal `CREATOR` (14), `PLAYER` (15) and `NONE` (18) tuples (C-03).
+   literal `CREATOR` (14), `PLAYER` (17) and `NONE` (18) tuples (C-03).
 WP2 -- fixture. One active world `Aestia` (description, tone, two laws
    through `write_world_laws`), skill systems `Magie` and `Alchimie`, four
    states through `write_attribute_definition` (`Rang`, `Esprit lié`, the
@@ -80,7 +80,7 @@ PLAYER = (
     "npc_dialogue", "npc_initiative_act", "player_narration", "mj_interpretation",
     "mj_arbitration", "mj_establishment", "mj_gathering", "mj_initiative", "observation_intent",
     "observation_narration", "world_tick", "world_tick_events", "day_plan", "day_narration",
-    "day_rewrite",
+    "day_rewrite", "creation_subject", "creation_design",
 )
 NONE = (
     "world_generation", "room_batch_coherence", "npc_link_coherence", "npc_batch_placement",
@@ -613,7 +613,7 @@ def main() -> int:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
         return 1
-    print("PASS: world_premise -- 47 usages hold the 14/15/18 regime partition; the premise is "
+    print("PASS: world_premise -- 49 usages hold the 14/17/18 regime partition; the premise is "
           "built per regime, the player regime carries no state or skill system, and "
           "premised_prompt and call_json fill {world_premise} without touching the stored text; "
           "34 render calls in 31 functions read through premised_prompt, 18 functions stay on "

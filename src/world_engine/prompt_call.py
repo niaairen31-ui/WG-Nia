@@ -7,7 +7,8 @@ user template's `{name}` variables, records the exchange when the caller
 keeps a list (`model_exchange.begin`; the raw reply is kept before parsing,
 so a reply that does not parse is still recorded), calls the model and
 parses one JSON object (`llm_parse.extract_object`). Both texts are filled
-with the world premise first (`world_premise.fill`, TICKET-0124, BRIEF-0124-B).
+with the world premise first (`world_premise.fill`, TICKET-0124, BRIEF-0124-B),
+of `world_id`'s world when given, else the active world (TICKET-0126).
 
 The model client is a parameter: each caller passes the `chat` it imported,
 so a check that replaces `<caller module>.chat` still reaches the call
@@ -29,11 +30,12 @@ from .world_premise import fill
 def call_json(
     db: Session, usage: str, values: dict[str, str],
     exchanges: Optional[list[model_exchange.ModelExchange]], chat: Callable[..., str],
+    *, world_id: Optional[str] = None,
 ) -> dict:
     """One model call for `usage`, its template filled with `values`."""
     spec = prompt_load.load(db, usage)
-    system_prompt = fill(spec.system_prompt, db, usage)
-    user_message = fill(spec.user_template, db, usage)
+    system_prompt = fill(spec.system_prompt, db, usage, world_id=world_id)
+    user_message = fill(spec.user_template, db, usage, world_id=world_id)
     for key, value in values.items():
         user_message = user_message.replace("{" + key + "}", value)
     exchange = model_exchange.begin(exchanges, usage, spec, system_prompt, user_message)

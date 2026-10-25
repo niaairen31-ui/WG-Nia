@@ -55,6 +55,7 @@
   import { creationState } from './state.svelte.js';
   import { CREATION_TABS, creationSelectRecord, selectGerm } from './tabs.js';
   import { selectEntity } from './sheetState.svelte.js';
+  import { selectPcDraft } from './pcDrafts.svelte.js';
   import { loadAgendas } from './intrigues.svelte.js';
   import { loadCatalogue } from './competences.svelte.js';
   import CompetencesList from './CompetencesList.svelte';
@@ -304,6 +305,12 @@
     return !!CREATION_TABS[creationState.activeTabKey]?.showPendingCreations && creationState.pendingCreations.length > 0;
   }
 
+  // TICKET-0126 (BRIEF-0126-I, W1'): the submitted character drafts, a group of the list on the
+  // tabs that show them; a click opens one in PcDraftPanel.svelte.
+  function showSubmitted() {
+    return !!CREATION_TABS[creationState.activeTabKey]?.showSubmittedDrafts && creationState.submittedDrafts.length > 0;
+  }
+
   function lieuxToggleExpanded(id) {
     const next = new Set(lieuxExpanded);
     if (next.has(id)) next.delete(id);
@@ -327,12 +334,28 @@
   {/if}
 {/snippet}
 
+{#snippet submittedGroup()}
+  {#if showSubmitted()}
+    <div class="lieux-bucket-head">Soumis ({creationState.submittedDrafts.length})</div>
+    {#each creationState.submittedDrafts as d (d.id)}
+      <div class="author-list-item {d.id === creationState.selectedPcDraftId ? 'active' : ''}"
+           role="button" tabindex="0"
+           onclick={() => selectPcDraft(d.id)}
+           onkeydown={(ev) => { if (ev.key === 'Enter') selectPcDraft(d.id); }}>
+        <div class="ali-name">{d.name || '(sans nom)'}</div>
+        <div class="ali-meta">{d.player_name} · soumis</div>
+      </div>
+    {/each}
+  {/if}
+{/snippet}
+
 {#if mode === 'loading'}
   <div class="empty"><span class="spin">⟳</span></div>
 {:else if mode === 'error'}
   <div class="empty">{errorMessage}</div>
 {:else if mode === 'flat'}
   {@render germGroup()}
+  {@render submittedGroup()}
   {#if creationState.activeTabKey === 'npc'}
     <div class="row-card" style="margin-bottom:8px;">
       <button class="btn-ghost" style="font-size:12px; width:100%;" onclick={backfillNpcGoals}>Générer les buts manquants</button>

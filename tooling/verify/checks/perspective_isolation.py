@@ -8,7 +8,7 @@ PI1 -- static isolation. `perspective_selectors.py`, `perspective_query.py`,
    `world_factions` from `lore_selectors`. `perspective_render.py` contains
    no `Session` and no `select(`.
 PI2 -- tables. `PERSPECTIVE_SELECTORS`, `_PERSPECTIVE_LOOKUPS`,
-   `PERSPECTIVE_DESCRIPTIONS` have the same four keys, in the tuple's order;
+   `PERSPECTIVE_DESCRIPTIONS` have the same five keys, in the tuple's order;
    every `SelectorSpec` has a non-zero `row_cap`; every `context_sections`
    string is a `"section"` literal of `perspective_selectors.py`.
 PI3 -- closed verdicts. The string literals assigned to `verdict` in
@@ -42,6 +42,16 @@ PI4 -- fixture (sanctioned writers). One world: Hero (public character),
 PI5 -- render, `chat` stubbed. Each non-`answered` verdict renders its
    constant, renderer `deterministic`, no model call; `answered` makes
    exactly one call.
+PI6 -- skills (BRIEF-0126-D). A world of its own: system `Visible`
+   (default) and system `Cachée` (`visible_at_creation = False`); `Lame` in
+   `Visible`, `Ombre` in `Cachée`, `Voix` in `Cachée` with
+   `visible_at_creation = True` and `requires_master`. Exact sets:
+   `public_view(...).skill_ids == {Lame, Voix}`; `public_skills` returns
+   `Voix` (system `Cachée`) then `Lame` (system `Visible`), each row's keys
+   exactly C-07's, none forbidden; `withheld` of `public_skills($world)` is
+   exactly `[skill_not_visible Ombre "Ombre"]`; the plan is `answered`; its
+   serialized rows hold `- Voix (Cachée, composure) ; exige un maître` and
+   `- Lame (Visible, agility)`.
 
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A case not reached is a FAILURE.
@@ -128,8 +138,8 @@ def rule_pi2() -> None:
     from world_engine import perspective_selectors as ps
 
     names = ps.PERSPECTIVE_SELECTORS
-    if len(names) != 4:
-        fail(f"PI2 PERSPECTIVE_SELECTORS holds {len(names)} names, expected 4")
+    if len(names) != 5:
+        fail(f"PI2 PERSPECTIVE_SELECTORS holds {len(names)} names, expected 5")
     if tuple(ps._PERSPECTIVE_LOOKUPS) != names or tuple(ps.PERSPECTIVE_DESCRIPTIONS) != names:
         fail("PI2 the three tables do not share PERSPECTIVE_SELECTORS's keys in its order")
     text = _read("perspective_selectors.py") or ""
@@ -409,6 +419,71 @@ def rule_pi5() -> int:
     return reached
 
 
+SKILL_KEYS = {"section", "skill_id", "name", "base_domain", "system", "description", "requires_master"}
+
+
+def rule_pi6(engine) -> int:
+    from sqlmodel import Session
+
+    from world_engine import lore_render
+    from world_engine.models import SkillDefinition, SkillSystem, World
+    from world_engine.perspective_audit import withheld
+    from world_engine.perspective_query import execute_public_plan
+    from world_engine.perspective_selectors import public_skills, public_view
+
+    reached = 0
+    with Session(engine) as db:
+        world = World(name="PI6 World")
+        db.add(world)
+        db.flush()
+        wid = world.id
+        visible = SkillSystem(world_id=wid, name="Visible")
+        hidden = SkillSystem(world_id=wid, name="Cachée", visible_at_creation=False)
+        db.add(visible)
+        db.add(hidden)
+        db.flush()
+        lame = SkillDefinition(world_id=wid, name="Lame", base_domain="agility", system_id=visible.id)
+        ombre = SkillDefinition(world_id=wid, name="Ombre", base_domain="perception", system_id=hidden.id)
+        voix = SkillDefinition(world_id=wid, name="Voix", base_domain="composure", system_id=hidden.id,
+                               visible_at_creation=True, requires_master=True)
+        for definition in (lame, ombre, voix):
+            db.add(definition)
+        db.commit()
+
+        view = public_view(db, wid)
+        if set(view.skill_ids) != {lame.id, voix.id}:
+            fail(f"PI6 public skill ids {sorted(view.skill_ids)} != Lame, Voix")
+        reached += 1
+
+        rows = public_skills(wid, view, db)
+        if [(r["name"], r["system"]) for r in rows] != [("Voix", "Cachée"), ("Lame", "Visible")]:
+            fail(f"PI6 public_skills rows are {[(r.get('name'), r.get('system')) for r in rows]}")
+        for row in rows:
+            if set(row) != SKILL_KEYS:
+                fail(f"PI6 a skill row's keys are {sorted(row)}")
+            if set(row) & FORBIDDEN_KEYS:
+                fail(f"PI6 a skill row holds forbidden key(s) {sorted(set(row) & FORBIDDEN_KEYS)}")
+        reached += 1
+
+        plan = _plan("public_skills")
+        got = withheld(plan, wid, db)
+        if got != [{"reason": "skill_not_visible", "subject": "Ombre", "content": "Ombre"}]:
+            fail(f"PI6 the audit of public_skills is {got!r}")
+        reached += 1
+
+        result = execute_public_plan(plan, wid, db)
+        if result.verdict != "answered":
+            fail(f"PI6 public_skills is {result.verdict!r}, expected 'answered'")
+        text = lore_render._serialize_rows_by_section(result.rows)
+        for line in ("- Voix (Cachée, composure) ; exige un maître", "- Lame (Visible, agility)"):
+            if line not in text.splitlines():
+                fail(f"PI6 the render lacks {line!r}: {text!r}")
+        if "Ombre" in text:
+            fail("PI6 the hidden skill Ombre reaches the render")
+        reached += 1
+    return reached
+
+
 def main() -> int:
     engine = _fresh_engine()
     for rule in (rule_pi1, rule_pi2, rule_pi3):
@@ -416,7 +491,7 @@ def main() -> int:
             rule()
         except Exception as exc:  # noqa: BLE001 -- fail-closed, reported below
             fail(f"{rule.__name__} raised {type(exc).__name__}: {exc}")
-    for rule, count, args in ((rule_pi4, 8, (engine,)), (rule_pi5, 4, ())):
+    for rule, count, args in ((rule_pi4, 8, (engine,)), (rule_pi5, 4, ()), (rule_pi6, 4, (engine,))):
         reached = 0
         try:
             reached = rule(*args)

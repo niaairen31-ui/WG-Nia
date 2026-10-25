@@ -73,6 +73,7 @@
    Creation.svelte except App.svelte), the same late-bound-seam shape this
    codebase already uses wherever a static import would otherwise cycle. */
 import { creationState } from './state.svelte.js';
+import { loadSubmittedDrafts } from './pcDrafts.svelte.js';
 import { replace } from '../lib/router.js';
 
 let _triggerPrimaryActionImpl = null;
@@ -222,7 +223,8 @@ export const CREATION_TABS = {
     containers: ['creation-editor-area'],
     loader: null,
     state: { onTabEnter: null, onWorldSwitch: null },
-    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }, { key: 'pjSkillFiche', containerId: 'creation-pj-skill' }],
+    islands: [{ key: 'entityList', containerId: 'author-entity-list' }, { key: 'entitySheet', containerId: 'author-main' }, { key: 'pjSkillFiche', containerId: 'creation-pj-skill' }, { key: 'pcDraftPanel', containerId: 'creation-pc-draft-panel' }],
+    showSubmittedDrafts: true,
     type: 'character',
     entityFilter: (entities) => entities.filter(e => e.type === 'character' && creationState.playerCharIds.has(e.id)),
     createPanel: null,
@@ -508,6 +510,7 @@ function _creationActivateTab() {
   const entry = CREATION_TABS[creationState.activeTabKey];
   if (!entry) return;
   creationState.selectedGermId = null;
+  creationState.selectedPcDraftId = null;
   creationState.sheetPane = 'fiche';
   creationState.germLinkTarget = null;
   creationRefreshList();
@@ -517,6 +520,11 @@ function _creationActivateTab() {
     loadPendingCreations();
   } else {
     creationState.pendingCreations = [];
+  }
+  if (entry.showSubmittedDrafts) {
+    loadSubmittedDrafts();
+  } else {
+    creationState.submittedDrafts = [];
   }
 }
 

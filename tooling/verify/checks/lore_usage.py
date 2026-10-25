@@ -137,7 +137,8 @@ _NAMING_FILES: frozenset[str] = frozenset({
 _WRITER_CALLERS: frozenset[str] = frozenset({"writes/lore_usage.py", "lore_usage.py"})
 _ROUTES = ("cockpit/routes/lore.py", "cockpit/routes/lore_write.py")
 _SCRIPTS: frozenset[str] = frozenset({"migrate_v2_13_lore_usage.py", "export_lore_usage.py",
-                                     "migrate_v2_31_player_entry.py"})
+                                     "migrate_v2_31_player_entry.py",
+                                     "migrate_v2_32_character_creation.py"})
 EXPORT = ROOT / "scripts" / "export_lore_usage.py"
 _PIPELINE = {"lore_selectors", "lore_query", "lore_plan", "lore_render", "lore_prompt"}
 _PANEL = {"lore_write_apply", "lore_write_draft", "lore_write_read", "lore_mentions_read",

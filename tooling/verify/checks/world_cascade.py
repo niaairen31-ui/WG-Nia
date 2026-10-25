@@ -20,7 +20,9 @@ W3 -- fixture completeness. `_FIXTURE` names exactly the cascaded tables
 W4 -- delete. Two worlds carry one fixture row per cascaded table. The
    cascade on one world commits; `PRAGMA foreign_key_check` is empty;
    every table is back to the counts it had before the doomed world was
-   built; `schema_reconcile.unaccounted_tables` is empty.
+   built, but `user`, which is not a world table: each fixture world adds
+   one player (`pc_draft.user_id`, v2.32) and the cascade deletes none;
+   `schema_reconcile.unaccounted_tables` is empty.
 W5 -- refusal. A fixture world that also holds an `entity_type` row, and
    one that also holds its own `prompt_template` with a `prompt_version`,
    each make the cascade raise `WorldDeleteRefused` with the exact message
@@ -207,6 +209,16 @@ _FIXTURE: tuple[tuple[str, dict], ...] = (
     ("quest_request", {"id": "qr-{w}", "world_id": "{w}", "character_id": "{w}-char",
                        "pass_play_id": "pp-{w}", "agenda_step_id": "ags-{w}", "trigger": "route",
                        "declaration": "d", "status": "new"}),
+    ("creation_rules", {"id": "cr-{w}", "world_id": "{w}"}),
+    ("pc_draft", {"id": "pcd-{w}", "world_id": "{w}", "user_id": "u-{w}", "status": "draft"}),
+    ("pc_draft_skill", {"id": "pcds-{w}", "draft_id": "pcd-{w}", "world_id": "{w}",
+                        "skill_key": "agility", "player_rank": 2}),
+    ("pc_draft_sketch", {"id": "pcdk-{w}", "draft_id": "pcd-{w}", "world_id": "{w}", "position": 0,
+                         "name": "N", "kind": "family", "origin": "player"}),
+    ("pc_draft_membership", {"id": "pcdm-{w}", "draft_id": "pcd-{w}", "world_id": "{w}",
+                             "faction_id": "{w}-fac", "origin": "player"}),
+    ("pc_draft_knowledge", {"id": "pcdn-{w}", "draft_id": "pcd-{w}", "world_id": "{w}", "position": 0,
+                            "level": "rumor", "content": "c", "origin": "player"}),
     ("skill", {"id": "sk-{w}", "character_id": "{w}-char", "domain": "agility",
                "skill_definition_id": "sd-{w}"}),
     ("skill_resolution", {"id": "sr-{w}", "world_id": "{w}", "conversation_id": "co-{w}",
@@ -340,6 +352,9 @@ def _build_world(engine, world_id: str) -> None:
     with Session(engine) as db:
         db.execute(text("INSERT INTO world (id, name, is_active) VALUES (:w, :w, 0)"),
                    {"w": world_id})
+        # pc_draft.user_id needs a user; `user` is not a world table (W1, W4).
+        db.execute(text("INSERT INTO user (id, name, role) VALUES (:u, :u, 'player')"),
+                   {"u": f"u-{world_id}"})
         for table, row in _FIXTURE:
             _insert(db, table, row, world_id)
         db.commit()
@@ -392,9 +407,10 @@ def rule_w4(engine, tables) -> None:
     with Session(engine) as db:
         after = _counts(db, names)
         for table in names:
-            if after[table] != before[table]:
+            expected = grown[table] if table == "user" else before[table]
+            if after[table] != expected:
                 fail(f"W4 {table}: {after[table]} rows after the cascade, "
-                     f"expected {before[table]}")
+                     f"expected {expected}")
         leftover = unaccounted_tables(engine, db)
         if leftover:
             fail(f"W4 unaccounted tables after the cascade: {leftover}")

@@ -373,6 +373,24 @@ PROMPT_REGISTRY: dict[str, PromptSpec] = {
         default_model=_author_model,
         premise="creator",
     ),
+    # TICKET-0126 (BRIEF-0126-F): the player-side character designer -- the backstory's subject, then the
+    # proposal. Player regime: it reads what everybody knows.
+    "creation_subject": PromptSpec(
+        surface="authoring",
+        world_scoped=False,
+        dry_run_capable=True,
+        call_sites=("src/world_engine/creation_designer.py:_subject_call",),
+        default_model=_author_model,
+        premise="player",
+    ),
+    "creation_design": PromptSpec(
+        surface="authoring",
+        world_scoped=False,
+        dry_run_capable=True,
+        call_sites=("src/world_engine/creation_designer.py:_design_call",),
+        default_model=_author_model,
+        premise="player",
+    ),
     "world_tick": PromptSpec(
         surface="play",
         world_scoped=False,

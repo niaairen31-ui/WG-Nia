@@ -13,6 +13,20 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.32** — TICKET-0126, BRIEF-0126-B: a world sets its character
+  creation rules, and a player's character draft is stored relationally.
+  New `creation_rules` (one row per world: the pool, the cost to reach
+  each rank, a cap per rank for Inexpérimenté and Apprenti to Maître, the
+  maximum rank, the number of skills that require a master, whether
+  skills are visible by default; a missing row is every default).
+  `skill_system` gains `visible_at_creation`, `max_rank_at_creation`,
+  `cap_raised_at_creation`, `cap_held_at_creation`; `skill_definition`
+  gains `visible_at_creation`, `max_rank_at_creation` (nullable: NULL
+  inherits). New `pc_draft`, `pc_draft_skill`, `pc_draft_sketch`,
+  `pc_draft_membership`, `pc_draft_knowledge` (non-canon, pending). The
+  Lore journal is rebuilt: its step CHECK admits `kind = 'creation'`
+  with `creation_subject` and `creation_design`; rows are copied
+  unchanged. `migrate_v2_32_character_creation.py` writes no other data.
 - **v2.31** — TICKET-0125, BRIEF-0125-B: a world opens to players, and
   the Lore journal admits the perspective kind. `world` gains
   `open_to_players` (BOOLEAN NOT NULL DEFAULT 0, C1). `lore_usage_event` is

@@ -36,6 +36,12 @@ PAYLOAD_KEYS: dict[str, frozenset[str]] = {
     "perspective_resolve": frozenset({
         "question", "perspective", "asked_by", "plan", "bindings", "response", "withheld", "error",
     }),
+    # creation steps (TICKET-0126): the draft, who asked (`player:<user_id>`), what the designer
+    # read and proposed, the violations left and the notes.
+    "creation_subject": frozenset({"draft_id", "asked_by", "story", "names", "keywords", "error"}),
+    "creation_design": frozenset({
+        "draft_id", "asked_by", "lore", "proposal", "violations", "notes", "error",
+    }),
 }
 
 

@@ -180,8 +180,13 @@ def _shape(conn, table: str) -> list[tuple]:
 # migrated to v2.16 lacks them. A2b leaves them out of the models' shape, and
 # `_catch_up` adds them before the later rules write into the migrated file.
 # TICKET-0116 (BRIEF-0116-A, v2.29): whether reaching a rank asks a trial.
-_LATER_COLUMNS: dict[str, tuple[str, ...]] = {
-    "skill_definition": tuple(f"trial_to_rank_{n}" for n in range(1, 6)),
+# TICKET-0126 (BRIEF-0126-B, v2.32): the definition's creation overrides.
+_LATER_COLUMNS: dict[str, dict[str, str]] = {
+    "skill_definition": {
+        **{f"trial_to_rank_{n}": "BOOLEAN" for n in range(1, 6)},
+        "visible_at_creation": "BOOLEAN",
+        "max_rank_at_creation": "INTEGER",
+    },
 }
 
 
@@ -193,9 +198,9 @@ def _catch_up(db_path: str) -> None:
     with sqlite3.connect(db_path) as conn:
         for table, columns in _LATER_COLUMNS.items():
             present = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
-            for column in columns:
+            for column, sql_type in columns.items():
                 if column not in present:
-                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} BOOLEAN")
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}")
 
 
 def _seed_v215(db_path: str) -> dict:

@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.31
+Current schema version: v2.32
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -1221,7 +1221,9 @@ Kept for an offline analysis of the tool: its sole reader is
 `scripts/export_lore_usage.py`; nothing in the application reads it back.
 Perspective questions (v2.31, TICKET-0125) are journaled as kind
 `perspective`, steps `perspective_ask` / `perspective_resolve`, with who
-asked and the lines withheld.
+asked and the lines withheld. Character-designer calls (v2.32, TICKET-0126)
+are journaled as kind `creation`, steps `creation_subject` /
+`creation_design`.
 
 Not a world's table (I1): `world_ref` and `world_name` record the world the
 step ran in, without a FK, so the journal outlives a deleted world and stays
@@ -1245,7 +1247,8 @@ CREATE TABLE lore_usage_event (
   CONSTRAINT ck_lore_usage_event_step CHECK (
     (kind = 'write' AND step IN ('questions','draft','commit'))
     OR (kind = 'consult' AND step IN ('ask','resolve'))
-    OR (kind = 'perspective' AND step IN ('perspective_ask','perspective_resolve'))),
+    OR (kind = 'perspective' AND step IN ('perspective_ask','perspective_resolve'))
+    OR (kind = 'creation' AND step IN ('creation_subject','creation_design'))),
   CONSTRAINT ck_lore_usage_event_outcome CHECK (
     outcome IN ('ok','unavailable','parse_error','refused')),
   CONSTRAINT ck_lore_usage_event_entry CHECK (
@@ -1383,6 +1386,152 @@ CREATE TABLE quest_request (
 CREATE INDEX idx_quest_request_world ON quest_request(world_id, created_at);
 CREATE UNIQUE INDEX idx_quest_request_step ON quest_request(agenda_step_id);
 CREATE INDEX idx_quest_request_trial ON quest_request(world_id, skill_key, target_rank);
+```
+
+-----
+
+### `pc_draft`
+
+A player's character draft (schema v2.32, TICKET-0126, BRIEF-0126-B, B1):
+one draft per player and world while it is not approved
+(`idx_pc_draft_open`). `status` is `draft` (the player writes it),
+`submitted` (waits for the creator), `returned` (sent back with
+`creator_note`) or `approved`. `start_location_set_by` says who chose the
+start location: the `player` or the `designer`.
+
+Non-canon, pending: nothing here reaches canon before the creator approves
+it (TICKET-0129). Relational by INV-20: the player sees and edits every
+row. Written only by `writes/pc_drafts.py`, which never commits; deleted
+with its world (`delete_world_cascade`). No `change_history`.
+
+```sql
+CREATE TABLE pc_draft (
+  id                     TEXT PRIMARY KEY NOT NULL,
+  world_id               TEXT NOT NULL REFERENCES world(id),
+  user_id                TEXT NOT NULL REFERENCES user(id),
+  status                 TEXT NOT NULL DEFAULT 'draft',
+  name                   TEXT NOT NULL DEFAULT '',
+  story                  TEXT NOT NULL DEFAULT '',  -- the player's story (not `backstory`: lore_as_facts R1)
+  start_location_id      TEXT REFERENCES entity(id),
+  start_location_set_by  TEXT,
+  creator_note           TEXT,
+  submitted_at           DATETIME,
+  created_at             DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at             DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT ck_pc_draft_status CHECK (
+    status IN ('draft','submitted','returned','approved')),
+  CONSTRAINT ck_pc_draft_set_by CHECK (
+    start_location_set_by IS NULL OR start_location_set_by IN ('player','designer'))
+);
+CREATE INDEX idx_pc_draft_world ON pc_draft(world_id);
+CREATE UNIQUE INDEX idx_pc_draft_open ON pc_draft(world_id, user_id)
+  WHERE status <> 'approved';
+```
+
+-----
+
+### `pc_draft_skill`
+
+A skill rank of a draft (schema v2.32, TICKET-0126): asked by the player
+(`player_rank`, with its `justification`) and/or set by the designer
+(`designer_rank`, with its `designer_reason`). `skill_key` is a base domain
+or a `skill_definition` id, without a FK (the `quest_request` precedent): a
+deleted definition leaves a key the creation check reports. One row per
+(draft, skill).
+
+```sql
+CREATE TABLE pc_draft_skill (
+  id               TEXT PRIMARY KEY NOT NULL,
+  draft_id         TEXT NOT NULL REFERENCES pc_draft(id),
+  world_id         TEXT NOT NULL REFERENCES world(id),
+  skill_key        TEXT NOT NULL,
+  player_rank      INTEGER,
+  designer_rank    INTEGER,
+  justification    TEXT,
+  designer_reason  TEXT,
+  CONSTRAINT ck_pc_draft_skill_ranks CHECK (
+    (player_rank IS NULL OR player_rank BETWEEN 0 AND 5)
+    AND (designer_rank IS NULL OR designer_rank BETWEEN 0 AND 5)),
+  CONSTRAINT ck_pc_draft_skill_some CHECK (
+    player_rank IS NOT NULL OR designer_rank IS NOT NULL)
+);
+CREATE UNIQUE INDEX idx_pc_draft_skill_key ON pc_draft_skill(draft_id, skill_key);
+```
+
+-----
+
+### `pc_draft_sketch`
+
+A person of a draft's backstory (schema v2.32, TICKET-0126): `family`, a
+`master` who taught a skill (`skill_key` set exactly then), a `faction`
+contact, or `other`; `existing_entity_id` when it names a character already
+in the world. `origin` is `player` or `designer`.
+
+```sql
+CREATE TABLE pc_draft_sketch (
+  id                  TEXT PRIMARY KEY NOT NULL,
+  draft_id            TEXT NOT NULL REFERENCES pc_draft(id),
+  world_id            TEXT NOT NULL REFERENCES world(id),
+  position            INTEGER NOT NULL,
+  name                TEXT NOT NULL,
+  role                TEXT NOT NULL DEFAULT '',
+  sentence            TEXT NOT NULL DEFAULT '',
+  group_label         TEXT NOT NULL DEFAULT '',
+  kind                TEXT NOT NULL,
+  skill_key           TEXT,
+  existing_entity_id  TEXT REFERENCES entity(id),
+  origin              TEXT NOT NULL,
+  CONSTRAINT ck_pc_draft_sketch_kind CHECK (
+    kind IN ('family','master','faction','other')),
+  CONSTRAINT ck_pc_draft_sketch_master CHECK (
+    (kind = 'master') = (skill_key IS NOT NULL)),
+  CONSTRAINT ck_pc_draft_sketch_origin CHECK (origin IN ('player','designer'))
+);
+CREATE INDEX idx_pc_draft_sketch_draft ON pc_draft_sketch(draft_id);
+```
+
+-----
+
+### `pc_draft_membership`
+
+A faction a draft's character would belong to (schema v2.32, TICKET-0126),
+with an optional `role`. One row per (draft, faction).
+
+```sql
+CREATE TABLE pc_draft_membership (
+  id          TEXT PRIMARY KEY NOT NULL,
+  draft_id    TEXT NOT NULL REFERENCES pc_draft(id),
+  world_id    TEXT NOT NULL REFERENCES world(id),
+  faction_id  TEXT NOT NULL REFERENCES entity(id),
+  role        TEXT,
+  origin      TEXT NOT NULL,
+  CONSTRAINT ck_pc_draft_membership_origin CHECK (origin IN ('player','designer'))
+);
+CREATE UNIQUE INDEX idx_pc_draft_membership_faction
+  ON pc_draft_membership(draft_id, faction_id);
+```
+
+-----
+
+### `pc_draft_knowledge`
+
+A line a draft's character would know (schema v2.32, TICKET-0126), at a
+level: `rumor`, `suspicious`, `partial` or `knows`.
+
+```sql
+CREATE TABLE pc_draft_knowledge (
+  id        TEXT PRIMARY KEY NOT NULL,
+  draft_id  TEXT NOT NULL REFERENCES pc_draft(id),
+  world_id  TEXT NOT NULL REFERENCES world(id),
+  position  INTEGER NOT NULL,
+  level     TEXT NOT NULL,
+  content   TEXT NOT NULL,
+  origin    TEXT NOT NULL,
+  CONSTRAINT ck_pc_draft_knowledge_level CHECK (
+    level IN ('rumor','suspicious','partial','knows')),
+  CONSTRAINT ck_pc_draft_knowledge_origin CHECK (origin IN ('player','designer'))
+);
+CREATE INDEX idx_pc_draft_knowledge_draft ON pc_draft_knowledge(draft_id);
 ```
 
 -----
@@ -2068,6 +2217,10 @@ CREATE TABLE skill_system (
   trial_to_rank_3  BOOLEAN,
   trial_to_rank_4  BOOLEAN,
   trial_to_rank_5  BOOLEAN,
+  visible_at_creation     BOOLEAN,     -- creation (v2.32): NULL = inherited
+  max_rank_at_creation    INTEGER,
+  cap_raised_at_creation  INTEGER,
+  cap_held_at_creation    INTEGER,
   created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT ck_skill_system_rank_points CHECK (
@@ -2115,6 +2268,8 @@ CREATE TABLE skill_definition (
   trial_to_rank_3  BOOLEAN,
   trial_to_rank_4  BOOLEAN,
   trial_to_rank_5  BOOLEAN,
+  visible_at_creation   BOOLEAN,       -- creation (v2.32): NULL = inherited
+  max_rank_at_creation  INTEGER,
   requires_master   BOOLEAN NOT NULL DEFAULT 0,  -- learned only from a master (v2.16)
   created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -2228,6 +2383,57 @@ CREATE UNIQUE INDEX idx_skill_rank_world_rank ON skill_rank(world_id, rank);
 -- NOTE: curated config, no change_history; written only by
 -- `writes.upsert_skill_rank` (creator CRUD), read by
 -- `skill_ranks.world_ladder`, which never writes on read.
+-----
+
+### `creation_rules`
+
+A world's character creation rules (schema v2.32, TICKET-0126,
+BRIEF-0126-B, J1'): the `pool` of points a player spends, the cost to reach
+each rank (`cost_to_rank_1..5`), a cap on how many skills may sit at each
+rank (`cap_at_rank_0` for Inexpérimenté, `cap_at_rank_2..5` for Apprenti to
+Maître; NULL = no cap), the highest rank a new character may hold
+(`max_rank`), how many skills that require a master it may hold
+(`max_master_skills`), and whether skills are visible at creation by
+default (`skills_visible`). One row per world; a missing row is every
+default. A skill system's `visible_at_creation`, `max_rank_at_creation`,
+`cap_raised_at_creation`, `cap_held_at_creation` and a skill definition's
+`visible_at_creation`, `max_rank_at_creation` override them, NULL
+inheriting: the definition, then its system, then this row.
+
+```sql
+CREATE TABLE creation_rules (
+  id                 TEXT PRIMARY KEY NOT NULL,
+  world_id           TEXT NOT NULL REFERENCES world(id),
+  pool               INTEGER NOT NULL DEFAULT 6,
+  cost_to_rank_1     INTEGER NOT NULL DEFAULT 1,
+  cost_to_rank_2     INTEGER NOT NULL DEFAULT 1,
+  cost_to_rank_3     INTEGER NOT NULL DEFAULT 2,
+  cost_to_rank_4     INTEGER NOT NULL DEFAULT 3,
+  cost_to_rank_5     INTEGER NOT NULL DEFAULT 4,
+  cap_at_rank_0      INTEGER DEFAULT 2,   -- NULL = no cap
+  cap_at_rank_2      INTEGER,
+  cap_at_rank_3      INTEGER,
+  cap_at_rank_4      INTEGER,
+  cap_at_rank_5      INTEGER,
+  max_rank           INTEGER NOT NULL DEFAULT 5,
+  max_master_skills  INTEGER NOT NULL DEFAULT 1,
+  skills_visible     BOOLEAN NOT NULL DEFAULT 1,
+  updated_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT ck_creation_rules_values CHECK (
+    pool >= 0 AND max_rank BETWEEN 1 AND 5 AND max_master_skills >= 0
+    AND cost_to_rank_1 >= 0 AND cost_to_rank_2 >= 0 AND cost_to_rank_3 >= 0
+    AND cost_to_rank_4 >= 0 AND cost_to_rank_5 >= 0
+    AND (cap_at_rank_0 IS NULL OR cap_at_rank_0 >= 0) AND (cap_at_rank_2 IS NULL OR cap_at_rank_2 >= 0)
+    AND (cap_at_rank_3 IS NULL OR cap_at_rank_3 >= 0) AND (cap_at_rank_4 IS NULL OR cap_at_rank_4 >= 0)
+    AND (cap_at_rank_5 IS NULL OR cap_at_rank_5 >= 0))
+);
+CREATE UNIQUE INDEX idx_creation_rules_world ON creation_rules(world_id);
+```
+
+-- NOTE: One row per world; a missing row is every default. A cap of NULL
+-- is no cap. Curated config, no change_history; written only by
+-- `writes.creation_rules.write_creation_rules`, read only by
+-- `creation_rules.py`, which never writes on read.
 -----
 
 ### `discoverable_detail`
@@ -3563,6 +3769,17 @@ CREATE INDEX idx_agenda_owner_status ON agenda(owner_entity_id, status);
 CREATE INDEX idx_agenda_step_agenda ON agenda_step(agenda_id, step_order);
 CREATE UNIQUE INDEX idx_agenda_step_one_active
   ON agenda_step(agenda_id) WHERE status = 'active';
+
+-- character creation (v2.32)
+CREATE UNIQUE INDEX idx_creation_rules_world ON creation_rules(world_id);
+CREATE INDEX idx_pc_draft_world ON pc_draft(world_id);
+CREATE UNIQUE INDEX idx_pc_draft_open ON pc_draft(world_id, user_id)
+  WHERE status <> 'approved';
+CREATE UNIQUE INDEX idx_pc_draft_skill_key ON pc_draft_skill(draft_id, skill_key);
+CREATE INDEX idx_pc_draft_sketch_draft ON pc_draft_sketch(draft_id);
+CREATE UNIQUE INDEX idx_pc_draft_membership_faction
+  ON pc_draft_membership(draft_id, faction_id);
+CREATE INDEX idx_pc_draft_knowledge_draft ON pc_draft_knowledge(draft_id);
 ```
 
 -----

@@ -47,9 +47,10 @@ import Debts from './Debts.svelte';
 import Vocabulary from './Vocabulary.svelte';
 import Dashboard from './Dashboard.svelte';
 import GermPanel from './GermPanel.svelte';
+import PcDraftPanel from './PcDraftPanel.svelte';
 import WorldSheet from './WorldSheet.svelte';
 
-const COMPONENTS = { constructeur: Constructeur, entityList: EntityList, entitySheet: Sheet, region: Region, batch: RoomBatch, npcAgent: NpcAgent, linkAgent: LinkAgent, artefacts: Artefacts, registre: Registre, prompts: Prompts, pjSkillFiche: PjSkillFiche, queueFilters: QueueFilters, queue: Queue, queueBatchBar: QueueBatchBar, subjectWorklist: SubjectWorklist, questOffers: QuestOffers, debts: Debts, vocabulary: Vocabulary, dashboard: Dashboard, germPanel: GermPanel, worldSheet: WorldSheet };
+const COMPONENTS = { constructeur: Constructeur, entityList: EntityList, entitySheet: Sheet, region: Region, batch: RoomBatch, npcAgent: NpcAgent, linkAgent: LinkAgent, artefacts: Artefacts, registre: Registre, prompts: Prompts, pjSkillFiche: PjSkillFiche, queueFilters: QueueFilters, queue: Queue, queueBatchBar: QueueBatchBar, subjectWorklist: SubjectWorklist, questOffers: QuestOffers, debts: Debts, vocabulary: Vocabulary, dashboard: Dashboard, germPanel: GermPanel, pcDraftPanel: PcDraftPanel, worldSheet: WorldSheet };
 
 const live = {}; // key -> { node, instance }
 

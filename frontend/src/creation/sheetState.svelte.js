@@ -108,6 +108,7 @@ async function api(path, options) {
  *  at -l. */
 export async function selectEntity(legacyDoc, id) {
   creationState.selectedGermId = null;
+  creationState.selectedPcDraftId = null;
   creationState.sheetMode = 'loading';
   try {
     const detail = await api(`/api/entities/${encodeURIComponent(id)}`);

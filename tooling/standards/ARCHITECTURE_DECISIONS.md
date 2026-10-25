@@ -20861,6 +20861,33 @@ import out of `frontend/src/joueur/` but `svelte`, the page wired and kept
 out of `_SHELL_ROUTES`), with `perspective_isolation.py` and
 `player_routes.py`.
 
+## TICKET-0126 — the player creates a character (BRIEF-0126-a, BRIEF-0126-b, BRIEF-0126-c, BRIEF-0126-d, BRIEF-0126-e, BRIEF-0126-f, BRIEF-0126-g, BRIEF-0126-h, BRIEF-0126-i, schema v2.32)
+
+A player creates his character in `/jouer`: a story, a skill sheet under
+the world's creation rules (one `creation_rules` row per world, overrides
+on systems and skills; J1'), a designer that reads only the public view
+and counter-proposes (S1, F-c), people drawn from the story (T1), a
+starting place, memberships and knowledge; he corrects it and submits.
+The draft is relational (B1) and nothing reaches canon before the
+creator's review (TICKET-0129). The skills visible at creation joined the
+public view, and the Lore planner can ask for them (N2).
+
+**INV-66** (amended). A player surface learns about the world only through
+the public view; a skill is in it only when visible at creation; the
+creation rules are game rules, read through `creation_rules`; every
+perspective question and every designer call is journaled. Held in
+`.claude/rules/player-surface.md`.
+
+**INV-67.** One function, `creation_check.check_creation`, judges every
+creation sheet; a draft is submitted only when `check_draft` finds
+nothing; no draft row reaches canon before the creator approves it.
+Held in `.claude/rules/character-creation.md`. Gates: `creation_budget.py`,
+`player_creation.py`.
+
+Deferred: the review and the write to canon, NPC batches anchored on the
+character, masters, encounters, G2, K1-b (TICKET-0129); dated encounters
+(TICKET-0120).
+
 ---
 
 *Co-built with Claude, June 2026.*

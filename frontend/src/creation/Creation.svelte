@@ -187,8 +187,10 @@
       {/if}
       <!-- The germPanel island's mount point. Empty by construction. -->
       <div id="creation-germ-panel" style:display={creationState.selectedGermId ? '' : 'none'}></div>
+      <!-- The pcDraftPanel island's mount point (TICKET-0126). Empty by construction. -->
+      <div id="creation-pc-draft-panel" style:display={creationState.selectedPcDraftId ? '' : 'none'}></div>
 
-      <div class="transcript-panel" style="border-bottom:none" style:display={(creationState.selectedGermId || creationState.sheetPane === 'competences') ? 'none' : ''}>
+      <div class="transcript-panel" style="border-bottom:none" style:display={(creationState.selectedGermId || creationState.selectedPcDraftId || creationState.sheetPane === 'competences') ? 'none' : ''}>
         <div class="panel-head">
           <h2 id="author-sheet-title">Sélectionner une entité</h2>
           <button class="btn-ghost" id="author-return-btn" onclick={() => creationReturnToOrigin()}
@@ -205,7 +207,7 @@
            (BRIEF-0005-b), rendered by default on tab activation, outside
            the create gate. Empty by construction, same as every other
            island's container. -->
-      <div id="creation-pj-skill" style:display={(containerVisible('creation-pj-skill') && creationState.sheetPane === 'competences' && !creationState.selectedGermId) ? '' : 'none'}></div>
+      <div id="creation-pj-skill" style:display={(containerVisible('creation-pj-skill') && creationState.sheetPane === 'competences' && !creationState.selectedGermId && !creationState.selectedPcDraftId) ? '' : 'none'}></div>
     </div><!-- .right-col -->
   </div><!-- #creation-editor-area -->
 

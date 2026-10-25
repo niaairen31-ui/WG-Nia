@@ -594,6 +594,13 @@ export const CREATION_ISLANDS = Object.freeze({
     origin: 'new',
     createdBy: 'TICKET-0124',
   }),
+  // TICKET-0126 (BRIEF-0126-I, W1'): one submitted draft, opened from the PJ list -- created directly as an island.
+  pcDraftPanel: Object.freeze({
+    containerId: 'creation-pc-draft-panel',
+    component: 'PcDraftPanel.svelte',
+    origin: 'new',
+    createdBy: 'TICKET-0126',
+  }),
   // TICKET-0124 (BRIEF-0124-J, W1): the active world's sheet -- a new island.
   worldSheet: Object.freeze({
     containerId: 'creation-monde',
