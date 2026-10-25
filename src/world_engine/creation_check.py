@@ -6,6 +6,12 @@ against the wanted ranks and lists the violations in a fixed order (C-04):
 the per-line codes, the master count, the rank caps, the system caps, the
 pool. A cost is per step reached; lowering a held skill to Inexpérimenté
 gives back the Initié cost.
+
+`check_draft` judges a whole draft before its submission (BRIEF-0126-G):
+the sheet through `check_creation`, then what only a draft carries -- a
+name, a story, a public starting place that is not a zone, a master for
+every skill that requires one, people and factions everybody knows, and
+no character of the player already in the world.
 """
 
 from __future__ import annotations
@@ -13,11 +19,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from .creation_rules import start_sheet, world_creation_rules
-from .models import CREATION_CAP_RANKS, SkillSystem
+from .models import (
+    CREATION_CAP_RANKS, PC_SKETCH_MAX, Character, Entity, PcDraft, PcDraftMembership, PcDraftSketch,
+    PcDraftSkill, SkillSystem,
+)
+from .perspective_selectors import public_view
 from .skill_ranks import DEFAULT_RANK, world_ladder
+from .zone_rules import zone_ids
 
 VIOLATION_CODES: tuple[str, ...] = (
     "unknown_skill", "rank_out_of_range", "not_visible", "above_max_rank",
@@ -179,4 +190,68 @@ def verdict_dict(verdict: CreationVerdict, violations: tuple[Violation, ...]) ->
     }
 
 
-# check_draft: BRIEF-0126-G (C-04).
+def _public_of_type(db: Session, entity_id: Optional[str], world_id: str, entity_type: str,
+                    public_ids: frozenset[str]) -> bool:
+    """True when `entity_id` is an active entity of `world_id`, of `entity_type`, in the public view."""
+    if entity_id is None or entity_id not in public_ids:
+        return False
+    entity = db.get(Entity, entity_id)
+    return (entity is not None and entity.world_id == world_id and entity.type == entity_type
+            and entity.status == "active")
+
+
+def check_draft(db: Session, draft: PcDraft) -> tuple[Violation, ...]:
+    """Every reason `draft` cannot be submitted, in C-04's order: its name,
+    story and starting place, its sheet (`check_creation`, visibility
+    enforced), its people, factions, and the user's existing character.
+    Reads only; the world is read through its public view (INV-66)."""
+    world_id = draft.world_id
+    view = public_view(db, world_id)
+    found: list[Violation] = []
+    if not draft.name.strip():
+        found.append(Violation("name_missing", None, "Le personnage n'a pas de nom."))
+    if not draft.story.strip():
+        found.append(Violation("story_missing", None, "L'histoire du personnage est vide."))
+    if draft.start_location_id is None:
+        found.append(Violation("start_place_missing", None, "Choisis un lieu de départ."))
+    elif (not _public_of_type(db, draft.start_location_id, world_id, "location", view.entity_ids)
+          or draft.start_location_id in zone_ids(db, world_id)):
+        found.append(Violation("start_place_invalid", None, "Ce lieu de départ ne peut pas être choisi."))
+
+    skills = db.exec(select(PcDraftSkill).where(PcDraftSkill.draft_id == draft.id)).all()
+    choices = {row.skill_key: row.player_rank for row in skills if row.player_rank is not None}
+    verdict = check_creation(db, world_id, choices, enforce_visibility=True)
+    found.extend(verdict.violations)
+
+    sketches = db.exec(
+        select(PcDraftSketch).where(PcDraftSketch.draft_id == draft.id)
+        .order_by(PcDraftSketch.position, PcDraftSketch.id)
+    ).all()
+    if len(sketches) > PC_SKETCH_MAX:
+        found.append(Violation("too_many_sketches", None, f"Au plus {PC_SKETCH_MAX} personnes d'ancrage."))
+    taught = {s.skill_key for s in sketches if s.kind == "master"}
+    names = {line.skill_key: line for line in start_sheet(db, world_id)}
+    for line in verdict.lines:
+        start = names.get(line.skill_key)
+        if start is not None and start.requires_master and line.rank >= 1 and line.skill_key not in taught:
+            found.append(Violation(
+                "master_without_sketch", line.skill_key,
+                f"« {start.name} » exige un maître : ajoute la personne qui te l'a enseignée."))
+    for sketch in sketches:
+        if sketch.existing_entity_id is not None and not _public_of_type(
+                db, sketch.existing_entity_id, world_id, "character", view.entity_ids):
+            found.append(Violation("sketch_existing_invalid", None,
+                                   f"« {sketch.name} » : la personne choisie n'est pas connue de tous."))
+
+    memberships = db.exec(select(PcDraftMembership).where(PcDraftMembership.draft_id == draft.id)).all()
+    for membership in memberships:
+        if not _public_of_type(db, membership.faction_id, world_id, "faction", view.entity_ids):
+            found.append(Violation("membership_invalid", None, "Cette faction ne peut pas être choisie."))
+
+    pc = db.exec(select(Character.id).where(
+        Character.world_id == world_id, Character.user_id == draft.user_id,
+        Character.character_type == "player",
+    )).first()
+    if pc is not None:
+        found.append(Violation("pc_exists", None, "Ce joueur a déjà un personnage dans ce monde."))
+    return tuple(found)

@@ -225,6 +225,7 @@
 - `observation_writes.py` — Single write chokepoint for `observation_*` tables (TICKET-0051, BRIEF-0051-a).
 - `ollama_client.py` — Minimal client for a local Ollama server (stdlib only — no new dependency).
 - `passages.py` — Place registry writer (TICKET-0105, BRIEF-0105-B, C-02).
+- `pc_draft_reads.py` — The read shape of a character draft, for the player (through the public view) and for the creator (TICKET-0126, BRIEF-0126-G).
 - `perspective_audit.py` — The public perspective's audit: every line a public answer withheld, and why (TICKET-0125, BRIEF-0125-D, C-07).
 - `perspective_query.py` — The public perspective's executor: a plan run over what everybody knows (TICKET-0125, BRIEF-0125-D, C-05, C-06).
 - `perspective_render.py` — The public perspective's renderer: the answer to a public question, in prose or by code (TICKET-0125, BRIEF-0125-D, C-08).
@@ -382,6 +383,7 @@
 - `lore_usage.py` — The Lore shell's usage journal writer (TICKET-0103, BRIEF-0103-A, C-01).
 - `mentions.py` — `unresolved_mention` writer (TICKET-0091, BRIEF-0091-J, contract C-15).
 - `mutation_reviews.py` — The creator's review of a proposal, recorded round by round -- the one writer of `mutation_review`, `mutation_review_change` and `proposed_mutation.original_payload` (TICKET-0115, BRIEF-0115-B; decisions A3, C1 and H1a of the conditions series' dashboard).
+- `pc_drafts.py` — The one writer of a player's character draft (TICKET-0126, BRIEF-0126-G; B1, C1, V1, T1).
 - `pipeline.py` — `batch`/`pass_play` write primitives (TICKET-0075, BRIEF-0075-a — the declaration socle: plumbing only, no resolution, no model call; `write_pass_play_resolution` added BRIEF-0075-d — the first writer of `pass_play.history`, S5; `write_day_feasibility` added BRIEF-0075-g — the SECOND entry kind `pass_play.history` carries).
 - `prompts.py` — `prompt_version`/`prompt_variable` canon-write chokepoints (TICKET-0028, BRIEF-0028-b — decomposed from `writes.py`; moved for module hygiene, not policy — neither table is in `canon_write_policy.txt`'s CANON_TABLES).
 - `quest_requests.py` — The quest request's writer (TICKET-0121, BRIEF-0121-B, L1).
