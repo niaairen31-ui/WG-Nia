@@ -387,3 +387,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 20750 | The public perspective (BRIEF-0125-d, no schema change) | BRIEF-0125-d |  |
 | 20801 | Player profiles and the player's door (BRIEF-0125-e, no schema change) | BRIEF-0125-e |  |
 | 20838 | The player shell (BRIEF-0125-g, no schema change) | BRIEF-0125-g |  |
+| 20864 | TICKET-0126 — the player creates a character (BRIEF-0126-a, BRIEF-0126-b, BRIEF-0126-c, BRIEF-0126-d, BRIEF-0126-e, BRIEF-0126-f, BRIEF-0126-g, BRIEF-0126-h, BRIEF-0126-i, schema v2.32) | BRIEF-0126-a, BRIEF-0126-b, BRIEF-0126-c, BRIEF-0126-d, BRIEF-0126-e, BRIEF-0126-f, BRIEF-0126-g, BRIEF-0126-h, BRIEF-0126-i | v2.32 |
