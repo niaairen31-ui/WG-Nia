@@ -7,6 +7,7 @@ paths:
   - "src/world_engine/creation_rules.py"
   - "src/world_engine/creation_lore.py"
   - "src/world_engine/creation_designer.py"
+  - "src/world_engine/cockpit/routes/player_creation.py"
 ---
 
 # The player surface
@@ -28,4 +29,4 @@ never on `world.is_active`.
   selectors read `faction_membership` with the `read_public_memberships`
   WHERE triplet, keyed by faction (a third sanctioned reader, INV-03).
   -- enforced by `perspective_isolation.py`, `player_routes.py`,
-  `player_shell.py`, `creation_designer.py`
+  `player_shell.py`, `creation_designer.py`, `player_creation.py`

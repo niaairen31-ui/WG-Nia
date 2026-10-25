@@ -3,6 +3,9 @@ paths:
   - "src/world_engine/creation_rules.py"
   - "src/world_engine/creation_check.py"
   - "src/world_engine/writes/creation_rules.py"
+  - "src/world_engine/writes/pc_drafts.py"
+  - "src/world_engine/pc_draft_reads.py"
+  - "src/world_engine/cockpit/routes/player_creation.py"
 ---
 
 # Character creation
@@ -18,5 +21,7 @@ step; lowering a held skill to Inexpérimenté gives back the Initié cost.
   designer's, the one submitted -- is judged only by
   `creation_check.check_creation`, over the rules read by
   `creation_rules`; no other module computes a sheet's cost or
-  verdict.
-  -- enforced by `creation_budget.py`
+  verdict. A draft is submitted only when `creation_check.check_draft`
+  finds nothing, and no draft row reaches canon before the creator
+  approves it.
+  -- enforced by `creation_budget.py`, `player_creation.py`

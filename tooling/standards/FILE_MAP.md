@@ -536,6 +536,7 @@
 - `pipeline_state.py` — Structural gate for ticket front-matter conformity (pipeline glue, BRIEF-0004), extended by BRIEF-0006-b (TICKET-0006) with sentinel checks on the command files -- moved to `session_config.py` by TICKET-0117 (BRIEF-0117-b), which owns the Claude Code session configuration.
 - `pipeline_wiring.py` — Structural gate for the day-declaration socle (TICKET-0075, BRIEF-0075-a).
 - `placement_unit.py` — G1 check: permanent regression guard for the sole placement/distance authority (TICKET-0031, BRIEF-0031-a).
+- `player_creation.py` — G1 check for TICKET-0126 (BRIEF-0126-G) -- the player's draft lives and is submitted only through the one check, and the creation routes stay in the public view.
 - `player_entry_schema.py` — G1 check for TICKET-0125 (BRIEF-0125-B) -- schema v2.31: a world opens to players and the Lore journal admits the perspective kind.
 - `player_routes.py` — G1 check for TICKET-0125 (BRIEF-0125-E) -- the perspective and player routes answer only what everybody knows, refuse a closed world, and journal every question.
 - `player_shell.py` — G1 check for TICKET-0125 -- the Lore perspective tab and the player shell are wired and confined.
