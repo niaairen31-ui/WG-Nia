@@ -331,6 +331,7 @@
 - `mutations.py` — The mutation review queue: list/reject/approve/batch-review, the `_apply_mutation` thin dispatcher, the applied-duplicate guard, and mutation serialization.
 - `npc_agent.py` — NPC group agent — batch staging lifecycle, run driver, and commit routes (TICKET-0037, BRIEF-0037-a/b/c).
 - `observation.py` — Observation-run routes (TICKET-0051, BRIEF-0051-e/f).
+- `pc_drafts.py` — The creator's read of submitted character drafts (TICKET-0126, BRIEF-0126-I; W1').
 - `play.py` — Play-path routes: conversations, travel, world-tick.
 - `player.py` — The player's door (TICKET-0125, BRIEF-0125-E, C-11): profiles, open worlds, what everybody knows.
 - `player_creation.py` — The player's character creation (TICKET-0126, BRIEF-0126-G; E1', B2, S1, U1, V1).
@@ -587,6 +588,7 @@
 - `stream_session_readonly.py` — G1 check: the Play stream's request session is read-only (TICKET-0072, BRIEF-0072-d).
 - `stylesheet_partition.py` — G1 check: the cockpit stylesheet partition (TICKET-0063, BRIEF-0063-a).
 - `subject_resolution.py` — G1 check for TICKET-0087 (BRIEF-0087-b) — the `subject_entity_id` validation chokepoint on the `new_knowledge` apply path.
+- `submitted_drafts.py` — G1 check for TICKET-0126 (BRIEF-0126-I) -- the creator lists and reads the submitted character drafts of her active world, and writes nothing.
 - `summary_not_persisted.py` — G1 check for TICKET-0050 (BRIEF-0050-d) — the conversation summary is never persisted (C1, standard idiom, vacuous-proof).
 - `trait_ext_columns.py` — G1 check: trait ext-column derivation (BRIEF-0046-a, 0045-plane back-fill).
 - `trait_reader.py` — G1 check: "no structure without a reader" (E2), mechanized (C1, TICKET-0045, BRIEF-0045-c).
