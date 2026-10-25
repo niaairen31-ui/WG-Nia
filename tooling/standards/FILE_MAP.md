@@ -333,6 +333,7 @@
 - `observation.py` — Observation-run routes (TICKET-0051, BRIEF-0051-e/f).
 - `play.py` — Play-path routes: conversations, travel, world-tick.
 - `player.py` — The player's door (TICKET-0125, BRIEF-0125-E, C-11): profiles, open worlds, what everybody knows.
+- `player_creation.py` — The player's character creation (TICKET-0126, BRIEF-0126-G; E1', B2, S1, U1, V1).
 - `prompts.py` — Prompt dry-run preview routes (BRIEF-0008-b, C3): zero model calls, zero writes, reuse the real context assemblers and the real system-prompt construction so the preview never drifts from the live path.
 - `quest_requests.py` — The quest requests' routes (TICKET-0121, BRIEF-0121-E, C-12).
 - `quests.py` — Quest routes (TICKET-0108, BRIEF-0108-B, contracts C-03 to C-05).
