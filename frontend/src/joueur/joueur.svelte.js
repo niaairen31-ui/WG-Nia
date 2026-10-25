@@ -5,6 +5,8 @@
    is remembered under localStorage `wg-joueur-profile` and travels in the
    request body. */
 
+import { closeCreation } from './character.svelte.js';
+
 const PROFILE_KEY = 'wg-joueur-profile';
 
 export const joueurState = $state({
@@ -20,7 +22,7 @@ export const joueurState = $state({
   attemptId: '',
 });
 
-async function call(url, options = {}) {
+export async function call(url, options = {}) {
   const response = await fetch(url, options);
   let body = null;
   try {
@@ -35,9 +37,17 @@ async function call(url, options = {}) {
   return body;
 }
 
-function postJson(url, payload) {
+export function postJson(url, payload) {
   return call(url, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function putJson(url, payload) {
+  return call(url, {
+    method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
@@ -111,6 +121,7 @@ export async function loadWorlds() {
 export function openWorld(w) {
   joueurState.world = w;
   clearQuestion();
+  closeCreation();
 }
 
 export async function askSavoir() {
