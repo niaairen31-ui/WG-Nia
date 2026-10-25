@@ -18,6 +18,16 @@ PSH4 -- `frontend/vite.config.js` names `jouer.html` as an input;
    `frontend/jouer.html` loads `/src/joueur/main.js`;
    `src/world_engine/cockpit/app.py` holds the `/jouer` decorator route
    reading `jouer.html`; `/jouer` is not in `_SHELL_ROUTES`.
+PSH5 -- (TICKET-0126, BRIEF-0126-H) `WorldPage.svelte` no longer holds
+   `Créer mon personnage (bientôt)` and holds `<CharacterCreation`;
+   `character.svelte.js` holds the literal `/api/joueur/creation/<name>`
+   for each of `catalogue`, `brouillon`, `verifier`, `concepteur`,
+   `soumettre`, and no `/api/` path outside `/api/joueur/`; the three
+   creation components together hold `Points restants`, `Demander au
+   concepteur`, `Soumettre mon personnage`, `Soumis à la créatrice — en
+   attente de sa revue.` and `8 personnes au plus.`; a built asset under
+   `src/world_engine/cockpit/static/assets` carries `Soumettre mon
+   personnage`.
 
 A missing file, or a rule that collected nothing, is a FAILURE.
 """
@@ -34,6 +44,13 @@ JOUEUR = ROOT / "frontend" / "src" / "joueur"
 VITE_CONFIG = ROOT / "frontend" / "vite.config.js"
 JOUER_HTML = ROOT / "frontend" / "jouer.html"
 APP_PY = ROOT / "src" / "world_engine" / "cockpit" / "app.py"
+ASSETS = ROOT / "src" / "world_engine" / "cockpit" / "static" / "assets"
+CREATION_STATE = JOUEUR / "character.svelte.js"
+CREATION_COMPONENTS = ("CharacterCreation.svelte", "CharacterSkills.svelte", "CharacterAnchors.svelte")
+CREATION_ROUTES = ("catalogue", "brouillon", "verifier", "concepteur", "soumettre")
+CREATION_TEXTS = ("Points restants", "Demander au concepteur", "Soumettre mon personnage",
+                  "Soumis à la créatrice — en attente de sa revue.", "8 personnes au plus.")
+API_PATH_RE = re.compile(r"/api/[A-Za-z0-9_/-]*")
 
 # A fetch( or call( whose first argument is a string literal (quote or backtick).
 URL_CALL_RE = re.compile(r"\b(?:fetch|call)\(\s*(['\"`])([^'\"`]*)\1")
@@ -159,8 +176,36 @@ def rule_psh4() -> None:
         fail("PSH4: /jouer is a _SHELL_ROUTES surface")
 
 
+def rule_psh5() -> None:
+    page = _read(JOUEUR / "WorldPage.svelte")
+    if page is not None:
+        if "Créer mon personnage (bientôt)" in page:
+            fail("PSH5: WorldPage.svelte still holds the disabled creation button")
+        if "<CharacterCreation" not in page:
+            fail("PSH5: WorldPage.svelte does not render <CharacterCreation")
+    state = _read(CREATION_STATE)
+    if state is not None:
+        for name in CREATION_ROUTES:
+            if f"/api/joueur/creation/{name}" not in state:
+                fail(f"PSH5: character.svelte.js does not call /api/joueur/creation/{name}")
+        for path in API_PATH_RE.findall(state):
+            if not path.startswith("/api/joueur/"):
+                fail(f"PSH5: character.svelte.js names {path}, outside /api/joueur/")
+    texts = [t for t in (_read(JOUEUR / name) for name in CREATION_COMPONENTS) if t is not None]
+    if len(texts) == len(CREATION_COMPONENTS):
+        joined = "\n".join(texts)
+        for text in CREATION_TEXTS:
+            if text not in joined:
+                fail(f"PSH5: the creation components do not hold {text!r}")
+    built = sorted(ASSETS.glob("*.js")) if ASSETS.is_dir() else []
+    if not built:
+        fail("PSH5: no built asset under static/assets")
+    elif not any("Soumettre mon personnage" in p.read_text(encoding="utf-8") for p in built):
+        fail("PSH5: no built asset carries « Soumettre mon personnage »")
+
+
 def main() -> int:
-    for rule in (rule_psh1, rule_psh2, rule_psh3, rule_psh4):
+    for rule in (rule_psh1, rule_psh2, rule_psh3, rule_psh4, rule_psh5):
         try:
             rule()
         except Exception as exc:  # noqa: BLE001 -- fail-closed, reported below
@@ -170,7 +215,8 @@ def main() -> int:
             print(f"FAIL: {msg}")
         return 1
     print("PASS: player_shell -- the Lore perspective tab is wired; "
-          "the player shell calls only /api/joueur and imports nothing of the creator")
+          "the player shell calls only /api/joueur and imports nothing of the creator; "
+          "the creation screen is wired to /api/joueur/creation and built")
     return 0
 
 
