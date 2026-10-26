@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.32
+Current schema version: v2.33
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -1416,6 +1416,8 @@ CREATE TABLE pc_draft (
   start_location_set_by  TEXT,
   creator_note           TEXT,
   submitted_at           DATETIME,
+  review_location_id     TEXT REFERENCES entity(id),  -- the creator's starting place; NULL keeps the player's (v2.33, TICKET-0129)
+  character_id           TEXT REFERENCES entity(id),  -- the character the approval wrote; NULL until then (v2.33, TICKET-0129)
   created_at             DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at             DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT ck_pc_draft_status CHECK (
@@ -1481,11 +1483,22 @@ CREATE TABLE pc_draft_sketch (
   skill_key           TEXT,
   existing_entity_id  TEXT REFERENCES entity(id),
   origin              TEXT NOT NULL,
+  review_action       TEXT,                          -- NULL undecided, else create | attach | drop (v2.33, TICKET-0129)
+  review_entity_id    TEXT REFERENCES entity(id),    -- the existing character an `attach` names (v2.33, TICKET-0129)
+  review_relation_type TEXT NOT NULL DEFAULT 'ally', -- the relation the approval writes (v2.33, TICKET-0129)
+  review_intensity    INTEGER NOT NULL DEFAULT 60,   -- that relation's intensity, 1-100 (v2.33, TICKET-0129)
   CONSTRAINT ck_pc_draft_sketch_kind CHECK (
     kind IN ('family','master','faction','other')),
   CONSTRAINT ck_pc_draft_sketch_master CHECK (
     (kind = 'master') = (skill_key IS NOT NULL)),
-  CONSTRAINT ck_pc_draft_sketch_origin CHECK (origin IN ('player','designer'))
+  CONSTRAINT ck_pc_draft_sketch_origin CHECK (origin IN ('player','designer')),
+  -- v2.33, TICKET-0129: the creator's review choice, its entity, its intensity
+  CONSTRAINT ck_pc_draft_sketch_review_action CHECK (
+    review_action IS NULL OR review_action IN ('create','attach','drop')),
+  CONSTRAINT ck_pc_draft_sketch_review_entity CHECK (
+    (review_action IS 'attach') = (review_entity_id IS NOT NULL)),
+  CONSTRAINT ck_pc_draft_sketch_review_intensity CHECK (
+    review_intensity BETWEEN 1 AND 100)
 );
 CREATE INDEX idx_pc_draft_sketch_draft ON pc_draft_sketch(draft_id);
 ```
@@ -1505,6 +1518,7 @@ CREATE TABLE pc_draft_membership (
   faction_id  TEXT NOT NULL REFERENCES entity(id),
   role        TEXT,
   origin      TEXT NOT NULL,
+  review_dropped BOOLEAN NOT NULL DEFAULT 0,  -- the creator dropped it from the approval (v2.33, TICKET-0129)
   CONSTRAINT ck_pc_draft_membership_origin CHECK (origin IN ('player','designer'))
 );
 CREATE UNIQUE INDEX idx_pc_draft_membership_faction
@@ -2668,8 +2682,9 @@ every existing row with its own time. NOT a canon
 table (`canon_write_policy.txt`) — non-canon bookkeeping like `visit`, with
 one writer (`encounters.py`). Read by the `rencontre` scope of
 `fact_default`. `source` in `ENCOUNTER_SOURCES` (`models/ephemeral.py`):
-`visit`, `gathering`, `conversation`, `schedule`, `relation`; `source_ref`
-is the id of that row.
+`visit`, `gathering`, `conversation`, `schedule`, `relation`, `pc_creation`
+(an approved character's backstory people, v2.33, TICKET-0129; a tuple, no
+CHECK); `source_ref` is the id of that row.
 
 ```sql
 CREATE TABLE rencontre (
@@ -3428,6 +3443,10 @@ last 2) is legal by construction -- the append-only generation
 journal under ~/.world_engine/npc_agent_journal/ carries long
 memory. History-is-sacred governs canon, not this plumbing.
 
+A batch with `pc_draft_id` is a creator review batch (v2.33, TICKET-0129):
+one open per draft and group (`idx_npc_batch_review_open`), written to canon
+only by the character approval.
+
 ```sql
 CREATE TABLE npc_batch (
   id          TEXT PRIMARY KEY,
@@ -3442,8 +3461,13 @@ CREATE TABLE npc_batch (
   npcs_total  INTEGER NOT NULL DEFAULT 0,
   npcs_done   INTEGER NOT NULL DEFAULT 0,
   created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
-  closed_at   DATETIME
+  closed_at   DATETIME,
+  pc_draft_id    TEXT REFERENCES pc_draft(id),  -- set only on a review batch (v2.33, TICKET-0129)
+  pc_group_label TEXT                           -- the sketches' group_label (v2.33, TICKET-0129)
 );
+-- one open review batch per draft and group (v2.33, TICKET-0129)
+CREATE UNIQUE INDEX idx_npc_batch_review_open ON npc_batch(pc_draft_id, pc_group_label)
+  WHERE status = 'open' AND pc_draft_id IS NOT NULL;
 ```
 
 -----
@@ -3466,7 +3490,8 @@ CREATE TABLE npc_batch_row (
   row_status  TEXT NOT NULL DEFAULT 'proposed',
               -- proposed | edited | rejected | committed
   created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+  updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+  pc_draft_sketch_id TEXT  -- the sketch a review row develops; no FK (v2.33, TICKET-0129)
 );
 CREATE INDEX idx_npc_batch_row_batch ON npc_batch_row(batch_id);
 ```

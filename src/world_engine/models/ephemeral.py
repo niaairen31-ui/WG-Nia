@@ -164,7 +164,7 @@ class Visit(SQLModel, table=True):
 # non-canon bookkeeping like visit/gathering, with its own writer
 # (`encounters.py`, BRIEF-0091-C). No JSON column.
 # -----------------------------------------------------------------------------
-ENCOUNTER_SOURCES = ("visit", "gathering", "conversation", "schedule", "relation")
+ENCOUNTER_SOURCES = ("visit", "gathering", "conversation", "schedule", "relation", "pc_creation")
 
 
 class Rencontre(SQLModel, table=True):
@@ -278,9 +278,20 @@ class LinkBatchRow(SQLModel, table=True):
 # closed batches (retention: last 2) is legal by construction -- the
 # append-only generation journal under ~/.world_engine/npc_agent_journal/
 # carries long memory. History-is-sacred governs canon, not this plumbing.
+# TICKET-0129 (BRIEF-0129-B, D2): a batch with `pc_draft_id` is a creator review
+# batch, one open per draft and group; it is written to canon only by the
+# character approval. `npc_batch_row.pc_draft_sketch_id` names the sketch a
+# review row develops, without an FK: a returned draft's sketches may be
+# deleted while an abandoned batch still names them.
 # -----------------------------------------------------------------------------
 class NpcBatch(SQLModel, table=True):
     __tablename__ = "npc_batch"
+    __table_args__ = (
+        Index(
+            "idx_npc_batch_review_open", "pc_draft_id", "pc_group_label",
+            unique=True, sqlite_where=text("status = 'open' AND pc_draft_id IS NOT NULL"),
+        ),
+    )
 
     id: str = Field(default_factory=_uuid, primary_key=True)
     world_id: str = Field(foreign_key="world.id", nullable=False)
@@ -298,6 +309,10 @@ class NpcBatch(SQLModel, table=True):
     )
     created_at: datetime = _created_ts()
     closed_at: Optional[datetime] = None
+    # set only on a review batch
+    pc_draft_id: Optional[str] = Field(default=None, foreign_key="pc_draft.id")
+    # the sketches' group_label of a review batch
+    pc_group_label: Optional[str] = None
 
 
 class NpcBatchRow(SQLModel, table=True):
@@ -316,3 +331,5 @@ class NpcBatchRow(SQLModel, table=True):
     )  # proposed | edited | rejected | committed
     created_at: datetime = _created_ts()
     updated_at: datetime = _created_ts()
+    # the sketch a review row develops; no FK (TICKET-0129)
+    pc_draft_sketch_id: Optional[str] = None
