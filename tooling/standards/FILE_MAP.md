@@ -227,6 +227,7 @@
 - `ollama_client.py` — Minimal client for a local Ollama server (stdlib only — no new dependency).
 - `passages.py` — Place registry writer (TICKET-0105, BRIEF-0105-B, C-02).
 - `pc_draft_reads.py` — The read shape of a character draft, for the player (through the public view) and for the creator (TICKET-0126, BRIEF-0126-G).
+- `pc_review_reads.py` — The creator's review of a character draft, as the screens read it (TICKET-0129, BRIEF-0129-C).
 - `perspective_audit.py` — The public perspective's audit: every line a public answer withheld, and why (TICKET-0125, BRIEF-0125-D, C-07).
 - `perspective_query.py` — The public perspective's executor: a plan run over what everybody knows (TICKET-0125, BRIEF-0125-D, C-05, C-06).
 - `perspective_render.py` — The public perspective's renderer: the answer to a public question, in prose or by code (TICKET-0125, BRIEF-0125-D, C-08).
@@ -334,6 +335,7 @@
 - `npc_agent.py` — NPC group agent — batch staging lifecycle, run driver, and commit routes (TICKET-0037, BRIEF-0037-a/b/c).
 - `observation.py` — Observation-run routes (TICKET-0051, BRIEF-0051-e/f).
 - `pc_drafts.py` — The creator's read of submitted character drafts (TICKET-0126, BRIEF-0126-I; W1').
+- `pc_review.py` — The creator's review of a submitted character draft (TICKET-0129): her choices, the check of her final version, the return to the player, the approval.
 - `play.py` — Play-path routes: conversations, travel, world-tick.
 - `player.py` — The player's door (TICKET-0125, BRIEF-0125-E, C-11): profiles, open worlds, what everybody knows.
 - `player_creation.py` — The player's character creation (TICKET-0126, BRIEF-0126-G; E1', B2, S1, U1, V1).

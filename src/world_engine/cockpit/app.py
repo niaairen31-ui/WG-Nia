@@ -74,6 +74,7 @@ from .routes import play as _routes_play
 from .routes import player as _routes_player
 from .routes import player_creation as _routes_player_creation
 from .routes import pc_drafts as _routes_pc_drafts
+from .routes import pc_review as _routes_pc_review
 from .routes import prompts as _routes_prompts
 from .routes import quest_requests as _routes_quest_requests
 from .routes import quests as _routes_quests
@@ -153,6 +154,7 @@ app.include_router(_routes_lore_perspective.router)
 app.include_router(_routes_player.router)
 app.include_router(_routes_player_creation.router)
 app.include_router(_routes_pc_drafts.router)
+app.include_router(_routes_pc_review.router)
 app.include_router(_routes_quests.router)
 app.include_router(_routes_quest_requests.router)
 app.include_router(_routes_conditions.router)

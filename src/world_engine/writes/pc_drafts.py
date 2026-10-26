@@ -365,7 +365,7 @@ def save_review(db: Session, draft: PcDraft, *, review_location_id: Optional[str
     draft.review_location_id = _known_entity(db, review_location_id)
     rows = {row.id: row for row in _sketches(db, draft)}
     for item in sketches:
-        row = rows.get(item.get("id"))
+        row: Optional[PcDraftSketch] = rows.get(item.get("id"))
         if row is None:
             raise ValueError("Personne inconnue.")
         action = item.get("action")
@@ -381,11 +381,11 @@ def save_review(db: Session, draft: PcDraft, *, review_location_id: Optional[str
         db.add(row)
     held = {row.id: row for row in _memberships(db, draft)}
     for item in memberships:
-        row = held.get(item.get("id"))
-        if row is None:
+        membership: Optional[PcDraftMembership] = held.get(item.get("id"))
+        if membership is None:
             raise ValueError("Appartenance inconnue.")
-        row.review_dropped = bool(item.get("dropped"))
-        db.add(row)
+        membership.review_dropped = bool(item.get("dropped"))
+        db.add(membership)
     draft.updated_at = _now()
     db.add(draft)
     db.flush()
