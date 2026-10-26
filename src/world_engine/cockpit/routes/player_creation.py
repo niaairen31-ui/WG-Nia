@@ -26,7 +26,7 @@ from ...creation_lore import public_places
 from ...creation_rules import rules_dict, start_sheet, world_creation_rules
 from ...db import get_session
 from ...llm_parse import LlmParseError
-from ...models import PcDraft, PcDraftSkill
+from ...models import Character, Entity, PcDraft, PcDraftSkill
 from ...pc_draft_reads import draft_view, open_draft_of
 from ...perspective_selectors import public_factions, public_skills, public_view
 from ...skill_ranks import world_ladder
@@ -185,7 +185,14 @@ def get_draft(profile_id: str, world_id: str, db: Session = Depends(get_session)
     _door(profile_id, world_id, db)
     draft = open_draft_of(db, world_id=world_id, user_id=profile_id)
     if draft is None:
-        return {"draft": None, "verdict": None}
+        character_name = db.exec(
+            select(Entity.name).join(Character, Character.id == Entity.id).where(
+                Character.world_id == world_id,
+                Character.user_id == profile_id,
+                Character.character_type == "player",
+            )
+        ).first()
+        return {"draft": None, "verdict": None, "character_name": character_name}
     return _draft_body(db, draft)
 
 

@@ -84,6 +84,11 @@ CR5 -- the review batches (BRIEF-0129-D). `npc_group_author`'s
    one `lot_missing` for `""`; a `Famille` row rejected (`PATCH`) gives
    `row_missing` for its sketch; with `""` reopened, `renvoyer` abandons
    both review batches and leaves the agent batch open.
+CR6 -- the player's accepted state (BRIEF-0129-G). After CR5, Ana's draft is
+   approved with the player character `Héros` of the world, Ana's: her `GET
+   /api/joueur/creation/brouillon` answers exactly `{"draft": None,
+   "verdict": None, "character_name": "Héros"}`; Cleo's, a profile with no
+   draft and no character (Bea holds a draft), `character_name` null.
 
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A case not reached is a FAILURE.
@@ -732,6 +737,55 @@ def rule_cr5(engine, client, ids: dict, draft_id: str) -> int:
          npc_group_author.JOURNAL_DIR) = saved
 
 
+# --- CR6 -----------------------------------------------------------------------
+
+
+def _player_draft(client, ids: dict, profile_id: str) -> dict:
+    resp = client.get("/api/joueur/creation/brouillon",
+                      params={"profile_id": profile_id, "world_id": ids["world"]})
+    if resp.status_code != 200:
+        fail(f"CR6 the player's GET brouillon answered {resp.status_code}: {resp.text[:200]}")
+        return {}
+    return resp.json()
+
+
+def _cr6_accepted(engine, client, ids: dict, draft_id: str) -> int:
+    from sqlmodel import Session
+
+    from world_engine.models import Character, PcDraft
+    from world_engine.writes.users import create_player_profile
+
+    with Session(engine) as db:
+        draft = db.get(PcDraft, draft_id)
+        _set(db, draft, status="approved", character_id=ids["heros"])
+        _set(db, db.get(Character, ids["heros"]), user_id=ids["ana"])
+        ids["cleo"] = create_player_profile(db, "Cleo").id
+        db.commit()
+    got = _player_draft(client, ids, ids["ana"])
+    if got != {"draft": None, "verdict": None, "character_name": "Héros"}:
+        fail(f"CR6 Ana's GET brouillon reads {got!r}")
+    got = _player_draft(client, ids, ids["cleo"])
+    if got != {"draft": None, "verdict": None, "character_name": None}:
+        fail(f"CR6 Cleo's GET brouillon reads {got!r}")
+    return 1
+
+
+def rule_cr6(engine, client, ids: dict, draft_id: str) -> int:
+    from sqlmodel import Session
+
+    from world_engine.models import Character, User
+
+    with Session(engine) as db:
+        creator = User(name="Créatrice", role="creator")
+        db.add(creator)
+        db.flush()
+        ids["creator"] = creator.id
+        ids["heros"] = _entity(db, ids["world"], "character", "Héros")
+        db.add(Character(id=ids["heros"], world_id=ids["world"], character_type="player", user_id=creator.id))
+        db.commit()
+    return _cr6_accepted(engine, client, ids, draft_id)
+
+
 # --- CR4 -----------------------------------------------------------------------
 
 
@@ -804,7 +858,8 @@ def main() -> int:
         plan = [("CR1", lambda: rule_cr1(engine, ids, draft_id)),
                 ("CR2", lambda: rule_cr2(client, ids, draft_id)),
                 ("CR3", lambda: rule_cr3(engine, client, ids, draft_id)),
-                ("CR5", lambda: rule_cr5(engine, client, ids, draft_id))] + plan
+                ("CR5", lambda: rule_cr5(engine, client, ids, draft_id)),
+                ("CR6", lambda: rule_cr6(engine, client, ids, draft_id))] + plan
     except Exception as exc:  # noqa: BLE001 -- fail-closed, reported below
         fail(f"fixture raised {type(exc).__name__}: {exc}")
     reached = 0
@@ -817,8 +872,8 @@ def main() -> int:
         if got != 1:
             fail(f"{name} was not reached")
         reached += got
-    if reached != 5:
-        fail(f"{reached} of 5 rules reached")
+    if reached != 6:
+        fail(f"{reached} of 6 rules reached")
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
@@ -826,7 +881,8 @@ def main() -> int:
     print("PASS: creator_review -- the one check of the creator's final version, every review code "
           "reached with its message, all the lore read; her choices beside the player's version; the "
           "return with a note reopens the draft to its player, who never reads a review column; one "
-          "review batch per group, anchored on the character")
+          "review batch per group, anchored on the character; a profile holding a character reads its "
+          "name")
     return 0
 
 

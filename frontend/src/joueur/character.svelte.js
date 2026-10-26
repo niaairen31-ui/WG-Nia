@@ -15,6 +15,7 @@ export const characterState = $state({
   busy: false,
   error: '',
   form: null,
+  characterName: null,
 });
 
 function key() {
@@ -115,6 +116,8 @@ export async function openCreation() {
   await run(async () => {
     characterState.catalogue = await call(`/api/joueur/creation/catalogue?${query()}`);
     let body = await call(`/api/joueur/creation/brouillon?${query()}`);
+    characterState.characterName = body.character_name || null;
+    if (characterState.characterName) return;
     if (!body.draft) body = await postJson('/api/joueur/creation/brouillon', key());
     take(body);
   });
@@ -185,5 +188,6 @@ export function closeCreation() {
   characterState.verdict = null;
   characterState.designer = null;
   characterState.form = null;
+  characterState.characterName = null;
   characterState.error = '';
 }

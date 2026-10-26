@@ -2,14 +2,16 @@
   /* TICKET-0126 (BRIEF-0126-H). The character creation frame: name and
      story, the skills, the people and anchors, then the designer and the
      submission. Everything shown comes from /api/joueur/creation/ (INV-66);
-     a submitted draft is read-only (C1). */
+     a submitted draft is read-only (C1). A returned draft is the
+     player's again, with the creator's note; once accepted, the screen
+     names his character (TICKET-0129, BRIEF-0129-G). */
   import CharacterSkills from './CharacterSkills.svelte';
   import CharacterAnchors from './CharacterAnchors.svelte';
   import {
     characterState, saveDraft, askDesigner, submitDraft, closeCreation,
   } from './character.svelte.js';
 
-  const locked = $derived(characterState.draft && characterState.draft.status !== 'draft');
+  const locked = $derived(characterState.draft && characterState.draft.status === 'submitted');
 </script>
 
 <section class="creation">
@@ -22,10 +24,18 @@
     <div class="r-err">{characterState.error}</div>
   {/if}
 
-  {#if characterState.form}
+  {#if characterState.characterName}
+    <p>Ton personnage {characterState.characterName} a été accepté dans ce monde.</p>
+  {:else if characterState.form}
     {@const form = characterState.form}
     {#if locked}
       <p class="locked">Soumis à la créatrice — en attente de sa revue.</p>
+    {/if}
+    {#if characterState.draft.status === 'returned'}
+      <div class="returned">
+        <p>Renvoyé par la créatrice.</p>
+        <p class="note">{characterState.draft.creator_note}</p>
+      </div>
     {/if}
     <label class="field">
       Nom
@@ -86,6 +96,8 @@
   input, textarea { font: inherit; box-sizing: border-box; width: 100%; }
   .actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
   .locked { font-style: italic; }
+  .returned { border-left: 3px solid var(--border); padding-left: 8px; }
+  .note { white-space: pre-wrap; }
   .violations, .r-err { color: var(--red); }
   ul { padding-left: 18px; }
 </style>
