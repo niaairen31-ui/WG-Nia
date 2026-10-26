@@ -40,7 +40,7 @@ A4 -- the carrure at creation (fixture and static). Creating a character
    writes no row, with 9 clamps to rank 3; `write_skill_row` refuses a
    second row for the same skill, both or neither of domain/definition, and
    rank 6, each before any write. No `.physical_tier` attribute under `src/`
-   (AST); `npc_agent.py` passes `carrure=`; `play_physical.py` calls
+   (AST); `npc_group_commit.py` passes `carrure=`; `play_physical.py` calls
    `skill_access.opposition_modifier(` and `skill_access.player_skill(`.
 
 B1 -- the flag (BRIEF-0107-B, fixture, A2). `POST /api/skill-definitions`
@@ -408,8 +408,8 @@ def check_a4(engine) -> None:
                 fail(f"A4: .physical_tier read at {path.relative_to(ROOT)}:{node.lineno}")
     if scanned == 0:
         fail("A4: no file scanned")
-    if "carrure=" not in (SRC / "cockpit" / "routes" / "npc_agent.py").read_text(encoding="utf-8"):
-        fail("A4: npc_agent.py does not pass the carrure")
+    if "carrure=" not in (SRC / "cockpit" / "npc_group_commit.py").read_text(encoding="utf-8"):
+        fail("A4: npc_group_commit.py does not pass the carrure")
     play = (SRC / "cockpit" / "play_physical.py").read_text(encoding="utf-8")
     if "skill_access.opposition_modifier(" not in play or "skill_access.player_skill(" not in play:
         fail("A4: play_physical.py does not read its rows through skill_access")
