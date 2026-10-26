@@ -8,7 +8,9 @@ sibling) and the groups of people she creates. `PUT` writes her choices
 (`writes/pc_drafts.save_review`); `POST .../renvoyer` sends the draft back
 to its player with a note (`return_draft`), abandoning its review
 batches. `POST .../lots` opens the review batch of one group of people to
-create (`cockpit/pc_approval.prepare_group_lot`, BRIEF-0129-D). Each write
+create (`cockpit/pc_approval.prepare_group_lot`, BRIEF-0129-D). `POST
+.../approuver` writes the draft to canon in one transaction
+(`cockpit/pc_approval.approve_draft`, BRIEF-0129-E). Each write
 commits once, then journals. A draft of another world, or not submitted,
 answers 404.
 """
@@ -19,6 +21,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from ...creation_check import check_creation, check_review, verdict_dict
@@ -33,7 +36,8 @@ from ...skill_ranks import world_ladder
 from ...writes.pc_drafts import DraftLocked, return_draft, save_review
 from ..crud._shared import RELATION_TYPES, _world_id
 from ..pc_approval import (
-    abandon_review_lots, lot_view, open_review_lots, prepare_group_lot, review_blockers, review_groups,
+    APPROVAL_REFUSED, ApprovalRefused, abandon_review_lots, approve_draft, lot_view, open_review_lots,
+    prepare_group_lot, review_blockers, review_groups,
 )
 
 router = APIRouter()
@@ -160,3 +164,24 @@ def create_review_lot(draft_id: str, body: PcLotBody, db: Session = Depends(get_
     db.refresh(batch)
     journal_append(batch.id, {"event": "batch_created", "scope": batch.scope, "pc_draft_id": draft.id})
     return {"batch_id": batch.id, "npcs_total": batch.npcs_total}
+
+
+@router.post("/api/pc-reviews/{draft_id}/approuver")
+def approve_review(draft_id: str, db: Session = Depends(get_session)) -> dict:
+    draft = _submitted(draft_id, db)
+    try:
+        written = approve_draft(db, draft)
+    except (ApprovalRefused, DraftLocked) as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=APPROVAL_REFUSED) from exc
+    except (ValueError, IntegrityError) as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except HTTPException:
+        db.rollback()
+        raise
+    db.commit()
+    for lot_id in written["lot_ids"]:
+        journal_append(lot_id, {"event": "commit_by_approval", "pc_draft_id": draft_id,
+                                "character_id": written["character_id"]})
+    return {"ok": True, "character_id": written["character_id"], "name": written["name"]}
