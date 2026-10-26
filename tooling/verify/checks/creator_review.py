@@ -54,6 +54,22 @@ CR4 -- static (code tokens). `pc_draft_reads.py` and
    no `chat(` and no `public_view(`; the body of `check_review` (by `ast`)
    calls no `public_view`; `app.py` holds
    `app.include_router(_routes_pc_review.router)`.
+CR5 -- the review batches (BRIEF-0129-D). `npc_group_author`'s
+   `generate_entity_draft`, `generate_npc_goals` and `JOURNAL_DIR` are
+   replaced by assignment (a draft named `Autre nom`, a failing goals call, a
+   temp directory) and restored in `finally`. On CR1's draft, resubmitted
+   by CR3 and reviewed so that the master and the family sketches are
+   `create` in group `Famille` and a third sketch `create` in group `""`:
+   (functions) `prepare_group_lot` for `Famille` opens one batch with
+   `pc_draft_id`, `pc_group_label`, `npcs_total == 2` and one line per
+   sketch in order with C-09's keys, the review place, C-09's descriptions
+   (the master's « Maître en ») and a brief holding the draft's name and
+   story; a second `Famille` lot and a group with no one to create are
+   refused with C-09's messages; `review_blockers` reads `lot_incomplete`
+   for `Famille` and `lot_missing` for `""`; two `run_next_npc` give rows
+   named as their sketches (not `Autre nom`) with their sketch ids, then
+   only `lot_missing` remains; a rejected row gives `row_missing` for its
+   sketch; `abandon_review_lots` closes the batch.
 
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A case not reached is a FAILURE.
@@ -494,6 +510,125 @@ def rule_cr3(engine, client, ids: dict, draft_id: str) -> int:
     return 1
 
 
+# --- CR5 -----------------------------------------------------------------------
+
+
+def _stub_draft(entity_type, brief, db):
+    return {"ok": True, "draft": {"public": {"name": "Autre nom", "physical_tier": 0},
+                                  "secret": {"knowledge": []}, "facets": {}}, "notes": []}
+
+
+def _stub_goals(*args, **kwargs):
+    return {"ok": False, "error": "stub"}
+
+
+def _review_for_lots(engine, ids: dict, draft_id: str) -> None:
+    """Master and family `create` in `Famille`, a third sketch `create` in `""`."""
+    from sqlmodel import Session
+
+    from world_engine.models import PcDraft, PcDraftSketch
+
+    with Session(engine) as db:
+        draft = db.get(PcDraft, draft_id)
+        for key in ("master_sketch", "family_sketch"):
+            _set(db, _sketch(db, ids, key), group_label="Famille", review_action="create",
+                 review_entity_id=None)
+        third = PcDraftSketch(draft_id=draft.id, world_id=draft.world_id, position=2, name="Cousine",
+                              kind="family", origin="player", review_action="create")
+        db.add(third)
+        db.commit()
+        ids["third_sketch"] = third.id
+
+
+def _expected_lines(ids: dict, place: str) -> list[dict]:
+    return [
+        {"count": 1, "faction_id": None, "location_id": place, "name": "Maître Os",
+         "pc_draft_sketch_id": ids["master_sketch"],
+         "description": "Maître Os, une personne de son histoire. Maître en « Nécromancie », il a enseigné "
+                        "cette compétence à Ilse."},
+        {"count": 1, "faction_id": None, "location_id": place, "name": "Sœur",
+         "pc_draft_sketch_id": ids["family_sketch"],
+         "description": "Sœur, une personne de son histoire."},
+    ]
+
+
+def _codes(blockers: list[dict]) -> list[tuple]:
+    return [(b["code"], b["label"], b["sketch_id"]) for b in blockers]
+
+
+def _cr5_functions(engine, ids: dict, draft_id: str) -> int:
+    from sqlmodel import Session, select
+
+    from world_engine import npc_group_author
+    from world_engine.cockpit.pc_approval import (
+        abandon_review_lots, prepare_group_lot, review_blockers,
+    )
+    from world_engine.creation_check import review_place_id
+    from world_engine.models import NpcBatch, NpcBatchRow, PcDraft
+
+    with Session(engine) as db:
+        draft = db.get(PcDraft, draft_id)
+        batch = prepare_group_lot(db, draft, "Famille")
+        db.commit()
+        place = review_place_id(draft)
+        if (batch.pc_draft_id != draft_id or batch.pc_group_label != "Famille" or batch.npcs_total != 2
+                or batch.scope.get("lines") != _expected_lines(ids, place)):
+            fail(f"CR5 the Famille lot reads {batch.pc_draft_id!r}, {batch.pc_group_label!r}, "
+                 f"{batch.npcs_total}, {batch.scope.get('lines')!r}")
+        brief = batch.scope.get("group_brief", "")
+        if "Ilse" not in brief or draft.story not in brief or "Groupe : Famille." not in brief:
+            fail(f"CR5 the group brief reads {brief!r}")
+        for label, group, message in (("a second Famille lot", "Famille", "Un lot est déjà ouvert pour ce groupe."),
+                                      ("a group with no one to create", "Personne",
+                                       "Ce groupe n'a personne à créer.")):
+            try:
+                prepare_group_lot(db, draft, group)
+                fail(f"CR5 {label} was admitted")
+            except ValueError as exc:
+                if str(exc) != message:
+                    fail(f"CR5 {label} refused with {exc!s}")
+            db.rollback()
+        expected = [("lot_incomplete", "Famille", ids["master_sketch"]), ("lot_missing", "", ids["third_sketch"])]
+        if _codes(review_blockers(db, draft)) != expected:
+            fail(f"CR5 blockers before the run {_codes(review_blockers(db, draft))}")
+        for _ in range(2):
+            npc_group_author.run_next_npc(db, db.get(NpcBatch, batch.id))
+        rows = db.exec(select(NpcBatchRow).where(NpcBatchRow.batch_id == batch.id)
+                       .order_by(NpcBatchRow.line_index)).all()
+        got = [(r.payload["draft"]["public"]["name"], r.pc_draft_sketch_id) for r in rows]
+        if got != [("Maître Os", ids["master_sketch"]), ("Sœur", ids["family_sketch"])]:
+            fail(f"CR5 the review rows read {got!r}")
+        if _codes(review_blockers(db, draft)) != [("lot_missing", "", ids["third_sketch"])]:
+            fail(f"CR5 blockers after the run {_codes(review_blockers(db, draft))}")
+        rows[1].row_status = "rejected"
+        db.add(rows[1])
+        db.flush()
+        if ("row_missing", "Famille", ids["family_sketch"]) not in _codes(review_blockers(db, draft)):
+            fail(f"CR5 a rejected row gives {_codes(review_blockers(db, draft))}")
+        if abandon_review_lots(db, draft) != [batch.id]:
+            fail("CR5 abandon_review_lots did not close the Famille lot")
+        db.commit()
+        if db.get(NpcBatch, batch.id).status != "abandoned":
+            fail("CR5 the abandoned lot is still open")
+    return 1
+
+
+def rule_cr5(engine, client, ids: dict, draft_id: str) -> int:
+    from world_engine import npc_group_author
+
+    saved = (npc_group_author.generate_entity_draft, npc_group_author.generate_npc_goals,
+             npc_group_author.JOURNAL_DIR)
+    npc_group_author.generate_entity_draft = _stub_draft
+    npc_group_author.generate_npc_goals = _stub_goals
+    npc_group_author.JOURNAL_DIR = pathlib.Path(tempfile.mkdtemp())
+    try:
+        _review_for_lots(engine, ids, draft_id)
+        return _cr5_functions(engine, ids, draft_id)
+    finally:
+        (npc_group_author.generate_entity_draft, npc_group_author.generate_npc_goals,
+         npc_group_author.JOURNAL_DIR) = saved
+
+
 # --- CR4 -----------------------------------------------------------------------
 
 
@@ -565,7 +700,8 @@ def main() -> int:
         client = TestClient(app, base_url="http://127.0.0.1")
         plan = [("CR1", lambda: rule_cr1(engine, ids, draft_id)),
                 ("CR2", lambda: rule_cr2(client, ids, draft_id)),
-                ("CR3", lambda: rule_cr3(engine, client, ids, draft_id))] + plan
+                ("CR3", lambda: rule_cr3(engine, client, ids, draft_id)),
+                ("CR5", lambda: rule_cr5(engine, client, ids, draft_id))] + plan
     except Exception as exc:  # noqa: BLE001 -- fail-closed, reported below
         fail(f"fixture raised {type(exc).__name__}: {exc}")
     reached = 0
@@ -578,15 +714,16 @@ def main() -> int:
         if got != 1:
             fail(f"{name} was not reached")
         reached += got
-    if reached != 4:
-        fail(f"{reached} of 4 rules reached")
+    if reached != 5:
+        fail(f"{reached} of 5 rules reached")
     if FAILURES:
         for msg in FAILURES:
             print(f"FAIL: {msg}")
         return 1
     print("PASS: creator_review -- the one check of the creator's final version, every review code "
           "reached with its message, all the lore read; her choices beside the player's version; the "
-          "return with a note reopens the draft to its player, who never reads a review column")
+          "return with a note reopens the draft to its player, who never reads a review column; one "
+          "review batch per group, anchored on the character")
     return 0
 
 

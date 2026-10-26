@@ -281,6 +281,7 @@
 - `mutations.py` — Per-mutation-type canon appliers (TICKET-0027, BRIEF-0027-c).
 - `npc_group_commit.py` — The NPC group agent's row commit (TICKET-0129, BRIEF-0129-A): one staged row written to canon through the creator-direct cores, in the caller's transaction; shared by the agent's batch commit and the character approval.
 - `origin_guard.py` — Origin guard for every write route (TICKET-0098, BRIEF-0098-A, decision I1).
+- `pc_approval.py` — The creator's approval of a character draft (TICKET-0129): the review batches, one per group of people to create, and the one transaction that writes the draft to canon.
 - `perspective_flow.py` — The shared public-perspective flow behind two doors (TICKET-0125, BRIEF-0125-E, C-15).
 - `play.py` — The `say`/`_stream` play path (BRIEF-0027-b/-d): mode interpretation, NPC selection/run, mutation-proposal assembly, narration streaming.
 - `play_discovery.py` — Engine discovery proposal (TICKET-0091 BRIEF-B, pure move).

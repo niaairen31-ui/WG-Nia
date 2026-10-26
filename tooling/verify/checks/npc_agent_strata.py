@@ -15,11 +15,13 @@ no analogue here, since this agent stages knowledge payloads verbatim from
      named) ONLY from the narrow module set that legitimately touches this
      stratum: `cockpit/routes/npc_agent.py`, `npc_group_author.py`,
      `cockpit/npc_group_commit.py` (TICKET-0129, BRIEF-0129-A),
+     `cockpit/pc_approval.py` (TICKET-0129, BRIEF-0129-D),
      `models/ephemeral.py` (definition), `models/__init__.py` (package
      re-export surface, same as every other model), and `cockpit/app.py`
      (the retention purge).
-  3. BRIEF-0037-c: `cockpit/routes/npc_agent.py`, `npc_group_author.py`
-     and `cockpit/npc_group_commit.py` (TICKET-0129, BRIEF-0129-A) contain no direct `db.add(Entity(...))` / `db.add(Character(...))` /
+  3. BRIEF-0037-c: `cockpit/routes/npc_agent.py`, `npc_group_author.py`,
+     `cockpit/npc_group_commit.py` (TICKET-0129, BRIEF-0129-A) and
+     `cockpit/pc_approval.py` (TICKET-0129, BRIEF-0129-D) contain no direct `db.add(Entity(...))` / `db.add(Character(...))` /
      `db.add(FactionMembership(...))` / `db.add(Knowledge(...))` /
      `db.add(NpcGoal(...))` and no raw SQL INSERT/UPDATE touching those
      tables — the commit path (`_commit_npc_batch`/`_commit_npc_row`) is
@@ -46,6 +48,7 @@ POLICY_FILE = ROOT / "tooling" / "verify" / "canon_write_policy.txt"
 MODELS_FILE = SRC / "world_engine" / "models" / "ephemeral.py"
 NPC_AGENT_ROUTES_FILE = SRC / "world_engine" / "cockpit" / "routes" / "npc_agent.py"
 NPC_GROUP_COMMIT_FILE = SRC / "world_engine" / "cockpit" / "npc_group_commit.py"
+PC_APPROVAL_FILE = SRC / "world_engine" / "cockpit" / "pc_approval.py"
 NPC_GROUP_AUTHOR_FILE = SRC / "world_engine" / "npc_group_author.py"
 
 STRATA_TABLES = ("npc_batch", "npc_batch_row")
@@ -54,6 +57,7 @@ STRATA_MODELS = {"NpcBatch", "NpcBatchRow"}
 ALLOWED_REFERENCE_FILES = {
     "src/world_engine/cockpit/routes/npc_agent.py",
     "src/world_engine/cockpit/npc_group_commit.py",
+    "src/world_engine/cockpit/pc_approval.py",
     "src/world_engine/npc_group_author.py",
     "src/world_engine/models/ephemeral.py",
     "src/world_engine/models/__init__.py",
@@ -70,6 +74,7 @@ DIRECT_WRITE_SCAN_FILES = {
     "src/world_engine/cockpit/routes/npc_agent.py": NPC_AGENT_ROUTES_FILE,
     "src/world_engine/npc_group_author.py": NPC_GROUP_AUTHOR_FILE,
     "src/world_engine/cockpit/npc_group_commit.py": NPC_GROUP_COMMIT_FILE,
+    "src/world_engine/cockpit/pc_approval.py": PC_APPROVAL_FILE,
 }
 _CANON_MODEL_NAMES = {"Entity", "Character", "FactionMembership", "Knowledge", "NpcGoal"}
 

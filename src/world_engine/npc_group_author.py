@@ -380,6 +380,10 @@ def run_next_npc(db: Session, batch: NpcBatch) -> dict:
     faction_id = line.get("faction_id")
     if faction_id is not None:
         draft["public"]["faction_id"] = faction_id
+    # A review line (TICKET-0129, C-10) names its person; an agent line has no name.
+    name_override = (line.get("name") or "").strip()
+    if name_override:
+        draft["public"]["name"] = name_override
     notes.extend(result.get("notes", []))
 
     name = draft["public"].get("name") or ""
@@ -390,7 +394,8 @@ def run_next_npc(db: Session, batch: NpcBatch) -> dict:
     goals = _generate_row_goals(db, draft, notes)
 
     payload = {"draft": draft, "location_id": location_id, "goals": goals, "notes": notes}
-    row = NpcBatchRow(batch_id=batch.id, line_index=line_index, kind="draft", payload=payload, row_status="proposed")
+    row = NpcBatchRow(batch_id=batch.id, line_index=line_index, kind="draft", payload=payload, row_status="proposed",
+                      pc_draft_sketch_id=line.get("pc_draft_sketch_id"))
     db.add(row)
     batch.npcs_done += 1
     db.add(batch)
