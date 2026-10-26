@@ -13,6 +13,10 @@ create (`cockpit/pc_approval.prepare_group_lot`, BRIEF-0129-D). `POST
 (`cockpit/pc_approval.approve_draft`, BRIEF-0129-E). Each write
 commits once, then journals. A draft of another world, or not submitted,
 answers 404.
+
+`GET/PUT /api/pc-profiles` (BRIEF-0129-G, K1-b) read and set the profile a
+player character of the active world belongs to: a player profile, or the
+creator (`writes/player_characters.set_player_profile`).
 """
 
 from __future__ import annotations
@@ -27,13 +31,14 @@ from sqlmodel import Session, select
 from ...creation_check import check_creation, check_review, verdict_dict
 from ...creation_rules import start_sheet
 from ...db import get_session
-from ...models import PcDraft, PcDraftSkill, User
+from ...models import Character, PcDraft, PcDraftSkill, User
 from ...npc_group_author import journal_append
 from ...pc_draft_reads import draft_view
 from ...pc_review_reads import review_choices, review_view
 from ...relation_orientation import is_social
 from ...skill_ranks import world_ladder
 from ...writes.pc_drafts import DraftLocked, return_draft, save_review
+from ...writes.player_characters import set_player_profile
 from ..crud._shared import RELATION_TYPES, _world_id
 from ..pc_approval import (
     APPROVAL_REFUSED, ApprovalRefused, abandon_review_lots, approve_draft, lot_view, open_review_lots,
@@ -43,6 +48,9 @@ from ..pc_approval import (
 router = APIRouter()
 
 DRAFT_NOT_FOUND = "Brouillon introuvable."
+CHARACTER_NOT_FOUND = "Personnage introuvable."
+NO_CREATOR = "Aucune créatrice."
+PROFILE_TAKEN = "Ce profil a déjà un personnage dans ce monde."
 
 
 class PcReviewSketchItem(BaseModel):
@@ -70,6 +78,10 @@ class PcReturnBody(BaseModel):
 
 class PcLotBody(BaseModel):
     group_label: str = ""
+
+
+class PcProfileBody(BaseModel):
+    profile_id: Optional[str] = None
 
 
 def _submitted(draft_id: str, db: Session) -> PcDraft:
@@ -185,3 +197,51 @@ def approve_review(draft_id: str, db: Session = Depends(get_session)) -> dict:
         journal_append(lot_id, {"event": "commit_by_approval", "pc_draft_id": draft_id,
                                 "character_id": written["character_id"]})
     return {"ok": True, "character_id": written["character_id"], "name": written["name"]}
+
+
+def _world_character(character_id: str, db: Session, *, player: bool) -> Character:
+    """The active world's character `character_id` (a player character when
+    `player`), else 404."""
+    world_id = _world_id(db)
+    character = db.get(Character, character_id)
+    if (character is None or character.world_id != world_id
+            or (player and character.character_type != "player")):
+        raise HTTPException(status_code=404, detail=CHARACTER_NOT_FOUND)
+    return character
+
+
+def _profiles_body(db: Session, character: Character) -> dict:
+    players = db.exec(select(User).where(User.role == "player", User.is_active == True)  # noqa: E712
+                      .order_by(User.name)).all()
+    holder = db.get(User, character.user_id) if character.user_id else None
+    return {
+        "profiles": [{"id": user.id, "name": user.name} for user in players],
+        "current_profile_id": holder.id if holder is not None and holder.role == "player" else None,
+    }
+
+
+@router.get("/api/pc-profiles")
+def get_profiles(character_id: str, db: Session = Depends(get_session)) -> dict:
+    return _profiles_body(db, _world_character(character_id, db, player=True))
+
+
+@router.put("/api/pc-profiles/{character_id}")
+def put_profile(character_id: str, body: PcProfileBody, db: Session = Depends(get_session)) -> dict:
+    # A non-player character reaches set_player_profile, which refuses it (NOT_A_PC).
+    character = _world_character(character_id, db, player=False)
+    user_id = body.profile_id
+    if user_id is None:
+        creator = db.exec(select(User).where(User.role == "creator")).first()
+        if creator is None:
+            raise HTTPException(status_code=422, detail=NO_CREATOR)
+        user_id = creator.id
+    try:
+        set_player_profile(db, character_id=character.id, user_id=user_id)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=PROFILE_TAKEN) from exc
+    db.commit()
+    return _profiles_body(db, db.get(Character, character.id))

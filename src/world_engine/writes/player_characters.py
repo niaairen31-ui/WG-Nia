@@ -9,6 +9,9 @@ the place -- its callers do.
 `ranks` and `teachers` (TICKET-0129, BRIEF-0129-E): the approval writes the
 player's ranks, and each skill that requires a master with its teacher; the
 route passes neither. `write_master_rank` sets a master's skill to Maître.
+
+`set_player_profile` (TICKET-0129, BRIEF-0129-G, K1-b) attaches a player
+character to a player profile, or gives it back to the creator.
 """
 
 from __future__ import annotations
@@ -17,11 +20,15 @@ from typing import Mapping, Optional
 
 from sqlmodel import Session, select
 
-from ..models import BASE_SKILL_DOMAINS, Character, Entity, Skill, SkillDefinition
+from ..models import BASE_SKILL_DOMAINS, Character, Entity, PcDraft, Skill, SkillDefinition, User
 from ..skill_ranks import DEFAULT_RANK, MAX_RANK
 from .characters import write_skill_rank, write_skill_row
 from .facets import write_entity_facets
 from .knowledge import KNOWLEDGE_LEVELS, write_knowledge
+
+PROFILE_UNKNOWN = "Profil inconnu."
+NOT_A_PC = "Ce personnage n'est pas un personnage joueur."
+PROFILE_CREATING = "Ce profil crée déjà un personnage dans ce monde."
 
 
 def _pc_custom_skill_defs(world_id: str, db: Session) -> list[SkillDefinition]:
@@ -137,3 +144,25 @@ def write_master_rank(db: Session, *, character_id: str, skill_key: str) -> Skil
     skill = write_skill_rank(db, skill_id=row.id, rank=MAX_RANK, changed_by="creator")
     db.add(skill)
     return skill
+
+
+def set_player_profile(db: Session, *, character_id: str, user_id: str) -> Character:
+    """Bind the player character `character_id` to `user_id`, a player
+    profile or the creator. A player still creating a character in that
+    world is refused; a profile already holding one fails on
+    `idx_character_one_pc_per_user_world` (the `IntegrityError` propagates).
+    Never commits."""
+    character = db.get(Character, character_id)
+    if character is None or character.character_type != "player":
+        raise ValueError(NOT_A_PC)
+    user = db.get(User, user_id)
+    if user is None or user.role not in ("player", "creator"):
+        raise ValueError(PROFILE_UNKNOWN)
+    if user.role == "player" and db.exec(select(PcDraft).where(
+        PcDraft.world_id == character.world_id, PcDraft.user_id == user.id, PcDraft.status != "approved",
+    )).first() is not None:
+        raise ValueError(PROFILE_CREATING)
+    character.user_id = user.id
+    db.add(character)
+    db.flush()
+    return character

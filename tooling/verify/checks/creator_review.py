@@ -84,8 +84,16 @@ CR5 -- the review batches (BRIEF-0129-D). `npc_group_author`'s
    one `lot_missing` for `""`; a `Famille` row rejected (`PATCH`) gives
    `row_missing` for its sketch; with `""` reopened, `renvoyer` abandons
    both review batches and leaves the agent batch open.
-CR6 -- the player's accepted state (BRIEF-0129-G). After CR5, Ana's draft is
-   approved with the player character `Héros` of the world, Ana's: her `GET
+CR6 -- K1-b and the player's accepted state (BRIEF-0129-G). After CR5, a
+   creator user and a player character `Héros` of the world bound to her;
+   Ana's draft approved with Héros. `GET /api/pc-profiles?character_id=` ->
+   profiles Ana and Bea, `current_profile_id` null; `PUT` Ana -> 200,
+   `Character.user_id` Ana, `current_profile_id` Ana; `PUT` null -> the
+   creator user; Bea, holding an open draft in the world -> 422
+   `PROFILE_CREATING`; Ana holding Héros, `PUT` of a second player
+   character to Ana -> 409 « Ce profil a déjà un personnage dans ce
+   monde. »; an NPC id -> 422 `NOT_A_PC`; an unknown id -> 404 `Personnage
+   introuvable.`. Once Héros is Ana's, her `GET
    /api/joueur/creation/brouillon` answers exactly `{"draft": None,
    "verdict": None, "character_name": "Héros"}`; Cleo's, a profile with no
    draft and no character (Bea holds a draft), `character_name` null.
@@ -749,16 +757,63 @@ def _player_draft(client, ids: dict, profile_id: str) -> dict:
     return resp.json()
 
 
-def _cr6_accepted(engine, client, ids: dict, draft_id: str) -> int:
+def _profiles(client, character_id: str) -> dict:
+    resp = client.get("/api/pc-profiles", params={"character_id": character_id})
+    if resp.status_code != 200:
+        fail(f"CR6 GET pc-profiles answered {resp.status_code}: {resp.text[:200]}")
+        return {}
+    return resp.json()
+
+
+def _holder(engine, character_id: str) -> str | None:
     from sqlmodel import Session
 
-    from world_engine.models import Character, PcDraft
+    from world_engine.models import Character
+
+    with Session(engine) as db:
+        return db.get(Character, character_id).user_id
+
+
+def _cr6_routes(engine, client, ids: dict) -> int:
+    from world_engine.writes.player_characters import NOT_A_PC, PROFILE_CREATING
+
+    url = f"/api/pc-profiles/{ids['heros']}"
+    body = _profiles(client, ids["heros"])
+    names = [p["name"] for p in body.get("profiles", [])]
+    if names != ["Ana", "Bea"] or body.get("current_profile_id") is not None:
+        fail(f"CR6 GET pc-profiles reads {body!r}")
+    resp = client.put(url, json={"profile_id": ids["ana"]})
+    if resp.status_code != 200 or resp.json().get("current_profile_id") != ids["ana"]:
+        fail(f"CR6 PUT Ana answered {resp.status_code}: {resp.text[:200]}")
+    if _holder(engine, ids["heros"]) != ids["ana"]:
+        fail("CR6 Héros is not Ana's after PUT Ana")
+    resp = client.put(url, json={"profile_id": None})
+    if resp.status_code != 200 or _holder(engine, ids["heros"]) != ids["creator"]:
+        fail(f"CR6 PUT null answered {resp.status_code}, holder {_holder(engine, ids['heros'])!r}")
+    resp = client.put(url, json={"profile_id": ids["bea"]})
+    if resp.status_code != 422 or resp.json().get("detail") != PROFILE_CREATING:
+        fail(f"CR6 PUT Bea answered {resp.status_code}: {resp.text[:200]}")
+    client.put(url, json={"profile_id": ids["ana"]})
+    resp = client.put(f"/api/pc-profiles/{ids['autre']}", json={"profile_id": ids["ana"]})
+    if resp.status_code != 409 or resp.json().get("detail") != "Ce profil a déjà un personnage dans ce monde.":
+        fail(f"CR6 a second character for Ana answered {resp.status_code}: {resp.text[:200]}")
+    resp = client.put(f"/api/pc-profiles/{ids['vieux']}", json={"profile_id": ids["ana"]})
+    if resp.status_code != 422 or resp.json().get("detail") != NOT_A_PC:
+        fail(f"CR6 PUT on an NPC answered {resp.status_code}: {resp.text[:200]}")
+    resp = client.put("/api/pc-profiles/inconnu", json={"profile_id": ids["ana"]})
+    if resp.status_code != 404 or resp.json().get("detail") != "Personnage introuvable.":
+        fail(f"CR6 PUT on an unknown id answered {resp.status_code}: {resp.text[:200]}")
+    if _holder(engine, ids["heros"]) != ids["ana"]:
+        fail("CR6 Héros is not Ana's after the refusals")
+    return 1
+
+
+def _cr6_accepted(engine, client, ids: dict) -> int:
+    from sqlmodel import Session
+
     from world_engine.writes.users import create_player_profile
 
     with Session(engine) as db:
-        draft = db.get(PcDraft, draft_id)
-        _set(db, draft, status="approved", character_id=ids["heros"])
-        _set(db, db.get(Character, ids["heros"]), user_id=ids["ana"])
         ids["cleo"] = create_player_profile(db, "Cleo").id
         db.commit()
     got = _player_draft(client, ids, ids["ana"])
@@ -773,7 +828,7 @@ def _cr6_accepted(engine, client, ids: dict, draft_id: str) -> int:
 def rule_cr6(engine, client, ids: dict, draft_id: str) -> int:
     from sqlmodel import Session
 
-    from world_engine.models import Character, User
+    from world_engine.models import Character, PcDraft, User
 
     with Session(engine) as db:
         creator = User(name="Créatrice", role="creator")
@@ -782,8 +837,11 @@ def rule_cr6(engine, client, ids: dict, draft_id: str) -> int:
         ids["creator"] = creator.id
         ids["heros"] = _entity(db, ids["world"], "character", "Héros")
         db.add(Character(id=ids["heros"], world_id=ids["world"], character_type="player", user_id=creator.id))
+        ids["autre"] = _entity(db, ids["world"], "character", "Autre")
+        db.add(Character(id=ids["autre"], world_id=ids["world"], character_type="player"))
+        _set(db, db.get(PcDraft, draft_id), status="approved", character_id=ids["heros"])
         db.commit()
-    return _cr6_accepted(engine, client, ids, draft_id)
+    return _cr6_routes(engine, client, ids) & _cr6_accepted(engine, client, ids)
 
 
 # --- CR4 -----------------------------------------------------------------------
@@ -881,8 +939,8 @@ def main() -> int:
     print("PASS: creator_review -- the one check of the creator's final version, every review code "
           "reached with its message, all the lore read; her choices beside the player's version; the "
           "return with a note reopens the draft to its player, who never reads a review column; one "
-          "review batch per group, anchored on the character; a profile holding a character reads its "
-          "name")
+          "review batch per group, anchored on the character; a player character attached to a profile "
+          "or given back to the creator, and its profile reads its name")
     return 0
 
 
