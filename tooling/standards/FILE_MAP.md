@@ -436,6 +436,7 @@
 - `creation_rules_ui.py` — G1 check for TICKET-0126 (BRIEF-0126-E) -- Création > Compétences carries the creation rules and the overrides.
 - `creation_schema.py` — G1 check for TICKET-0126 (BRIEF-0126-B) -- schema v2.32: the creation rules, the overrides, the draft tables and the creation journal kind.
 - `creation_tab_switch.py` — G1 check: the tab-switch sheet reset (TICKET-0083, BRIEF-0083-a).
+- `creator_review.py` — G1 check for TICKET-0129 -- the creator reviews a submitted character: the one check of her final version, her choices beside the player's version, the return with a note.
 - `dashboard_registry.py` — G1 check for TICKET-0115 -- the dashboard is a registry in code: its metrics read relational columns only, its deferrals point at the passage that declares them, and its export carries what the tab does not show.
 - `dashboard_tab.py` — G1 check for TICKET-0115 -- the « Suivi » tab shows the dashboard's metrics and deferrals, exports the same scope, and warns that the export holds secrets.
 - `day_choice.py` — G1 check for TICKET-0094 — Concordance H2, the model chooses and the code judges.

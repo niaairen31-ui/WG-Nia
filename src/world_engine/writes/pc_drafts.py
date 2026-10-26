@@ -14,9 +14,13 @@ player's and the designer's counter-proposal, never one over the other.
   draft: the designer's rows replaced, the player's kept.
 - `submit_draft(...)` : `draft` -> `submitted`, only with no violation
   (`creation_check.check_draft`, INV-67).
+- `save_review(...)` : the creator's review choices on a submitted draft
+  (TICKET-0129, BRIEF-0129-C), beside the player's version.
+- `return_draft(...)` : a submitted draft back to its player, with a note.
 
-Only `draft` status is writable (`DraftLocked` otherwise). The caller owns
-the transaction (INV-18's posture).
+A `draft` or `returned` draft is writable by its player (`DraftLocked`
+otherwise); a `submitted` one by the creator's review functions only. The
+caller owns the transaction (INV-18's posture).
 """
 
 from __future__ import annotations
@@ -27,12 +31,15 @@ from typing import Any, Optional
 from sqlmodel import Session, select
 
 from ..models import (
-    PC_KNOWLEDGE_LEVELS, PC_SKETCH_KINDS, PC_SKETCH_MAX, Character, PcDraft, PcDraftKnowledge,
-    PcDraftMembership, PcDraftSketch, PcDraftSkill,
+    PC_KNOWLEDGE_LEVELS, PC_REVIEW_ACTIONS, PC_REVIEW_DEFAULT_RELATION, PC_SKETCH_KINDS, PC_SKETCH_MAX,
+    Character, Entity, PcDraft, PcDraftKnowledge, PcDraftMembership, PcDraftSketch, PcDraftSkill,
 )
 
 PC_EXISTS_MESSAGE = "Ce joueur a déjà un personnage dans ce monde."
 DRAFT_LOCKED_MESSAGE = "Ce personnage est soumis : il ne peut plus être modifié."
+OPEN_STATUSES: tuple[str, ...] = ("draft", "returned")
+REVIEW_LOCKED_MESSAGE = "Ce personnage n'est pas soumis : il ne peut pas être revu."
+RETURN_NOTE_MISSING = "Écris une note pour le joueur."
 
 _SKETCH_FIELDS: tuple[str, ...] = (
     "name", "role", "sentence", "group_label", "kind", "skill_key", "existing_entity_id",
@@ -44,7 +51,7 @@ class PcExists(ValueError):
 
 
 class DraftLocked(ValueError):
-    """The draft is no longer in `draft` status."""
+    """The draft is not in a status this writer may change."""
 
 
 def _now() -> datetime:
@@ -52,8 +59,13 @@ def _now() -> datetime:
 
 
 def _require_open(draft: PcDraft) -> None:
-    if draft.status != "draft":
+    if draft.status not in OPEN_STATUSES:
         raise DraftLocked(DRAFT_LOCKED_MESSAGE)
+
+
+def _require_submitted(draft: PcDraft) -> None:
+    if draft.status != "submitted":
+        raise DraftLocked(REVIEW_LOCKED_MESSAGE)
 
 
 def _text(value: Any) -> str:
@@ -321,5 +333,73 @@ def submit_draft(db: Session, draft: PcDraft, violations: tuple) -> None:
     draft.status = "submitted"
     draft.submitted_at = now
     draft.updated_at = now
+    db.add(draft)
+    db.flush()
+
+
+# ── the creator's review ───────────────────────────────────────────────────
+
+
+def _known_entity(db: Session, entity_id: Optional[str]) -> Optional[str]:
+    """`entity_id` when it names an existing entity; None stays None."""
+    if entity_id is None:
+        return None
+    if db.get(Entity, entity_id) is None:
+        raise ValueError("Entité inconnue.")
+    return entity_id
+
+
+def _review_intensity(value: Any) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= 100:
+        raise ValueError("L'intensité va de 1 à 100.")
+    return value
+
+
+def save_review(db: Session, draft: PcDraft, *, review_location_id: Optional[str],
+                sketches: list[dict], memberships: list[dict]) -> None:
+    """Write the creator's choices on a submitted draft (C-06): her starting
+    place, each listed sketch's action, character, relation type and
+    intensity, each listed membership's drop. An unlisted row keeps its
+    values. A `ValueError` names the first bad item; the caller rolls back."""
+    _require_submitted(draft)
+    draft.review_location_id = _known_entity(db, review_location_id)
+    rows = {row.id: row for row in _sketches(db, draft)}
+    for item in sketches:
+        row = rows.get(item.get("id"))
+        if row is None:
+            raise ValueError("Personne inconnue.")
+        action = item.get("action")
+        if action is not None and action not in PC_REVIEW_ACTIONS:
+            raise ValueError("Choix inconnu.")
+        # Every value resolved before any is set: a lookup autoflushes, and a
+        # half-set row would meet ck_pc_draft_sketch_review_entity.
+        entity_id = _known_entity(db, item.get("entity_id")) if action == "attach" else None
+        relation_type = _text(item.get("relation_type")) or PC_REVIEW_DEFAULT_RELATION
+        intensity = _review_intensity(item.get("intensity"))
+        row.review_action, row.review_entity_id = action, entity_id
+        row.review_relation_type, row.review_intensity = relation_type, intensity
+        db.add(row)
+    held = {row.id: row for row in _memberships(db, draft)}
+    for item in memberships:
+        row = held.get(item.get("id"))
+        if row is None:
+            raise ValueError("Appartenance inconnue.")
+        row.review_dropped = bool(item.get("dropped"))
+        db.add(row)
+    draft.updated_at = _now()
+    db.add(draft)
+    db.flush()
+
+
+def return_draft(db: Session, draft: PcDraft, *, note: str) -> None:
+    """A submitted draft back to its player with the creator's note; her
+    review choices stay as they are."""
+    _require_submitted(draft)
+    note = _text(note)
+    if not note:
+        raise ValueError(RETURN_NOTE_MISSING)
+    draft.status = "returned"
+    draft.creator_note = note
+    draft.updated_at = _now()
     db.add(draft)
     db.flush()
