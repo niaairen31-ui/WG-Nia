@@ -388,3 +388,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 20801 | Player profiles and the player's door (BRIEF-0125-e, no schema change) | BRIEF-0125-e |  |
 | 20838 | The player shell (BRIEF-0125-g, no schema change) | BRIEF-0125-g |  |
 | 20864 | TICKET-0126 — the player creates a character (BRIEF-0126-a, BRIEF-0126-b, BRIEF-0126-c, BRIEF-0126-d, BRIEF-0126-e, BRIEF-0126-f, BRIEF-0126-g, BRIEF-0126-h, BRIEF-0126-i, schema v2.32) | BRIEF-0126-a, BRIEF-0126-b, BRIEF-0126-c, BRIEF-0126-d, BRIEF-0126-e, BRIEF-0126-f, BRIEF-0126-g, BRIEF-0126-h, BRIEF-0126-i | v2.32 |
+| 20891 | TICKET-0129 — the creator reviews a submitted character (BRIEF-0129-a, BRIEF-0129-b, BRIEF-0129-c, BRIEF-0129-d, BRIEF-0129-e, BRIEF-0129-f, BRIEF-0129-g, schema v2.33) | BRIEF-0129-a, BRIEF-0129-b, BRIEF-0129-c, BRIEF-0129-d, BRIEF-0129-e, BRIEF-0129-f, BRIEF-0129-g | v2.33 |

@@ -20888,6 +20888,36 @@ Deferred: the review and the write to canon, NPC batches anchored on the
 character, masters, encounters, G2, K1-b (TICKET-0129); dated encounters
 (TICKET-0120).
 
+## TICKET-0129 — the creator reviews a submitted character (BRIEF-0129-a, BRIEF-0129-b, BRIEF-0129-c, BRIEF-0129-d, BRIEF-0129-e, BRIEF-0129-f, BRIEF-0129-g, schema v2.33)
+
+The creator reviews a player's submitted character beside his own
+version, never editing it (A1): her starting place, each person of his
+story created, attached to an existing character or left out, each
+master, each membership, and the feeling each person has for him (K1)
+live in review columns of the draft tables (v2.33). Each group of
+people to create is one batch of the NPC group agent, anchored on the
+character and his story (D2, F'a-1), kept out of the agent's own panel
+and commit. She returns the draft with a note -- the player gets his
+version back and resubmits (B1) -- or approves it: one transaction
+writes the NPCs, the masters' Maître rank, the character at the
+player's ranks with his teachers, memberships with encounters of the
+factions' public members (F-b), knowledge, relations, and closes the
+draft with its character (E1, C1). The character recipe moved to a
+commit-free writer shared with Création's own route (H1); the NPC row
+commit to `cockpit/npc_group_commit.py` (J1). A player character can be
+attached to a player profile from its skill pane (K1-b).
+
+**INV-68.** A drafted character reaches canon only through
+`pc_approval.approve_draft`, in one transaction, refused unless
+`check_review` and `review_blockers` find nothing; the review never
+edits the player's version; a review batch is written only by the
+approval. Held in `.claude/rules/character-creation.md`. Gates:
+`draft_approval.py`, `creator_review.py`.
+
+Deferred: ranks set before the write (A2; the skill tools after the
+approval meanwhile); a second player character per world (G2,
+TICKET-0128); dated encounters (TICKET-0120).
+
 ---
 
 *Co-built with Claude, June 2026.*
