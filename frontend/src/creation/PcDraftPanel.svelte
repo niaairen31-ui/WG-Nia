@@ -2,10 +2,12 @@
   /* TICKET-0126 (BRIEF-0126-I, C-15, W1'). One submitted character draft,
      opened from the PJ list's « Soumis » group, alone in the right column:
      the player's story, skills, people, starting place, memberships and
-     knowledge, and the verdict of its sheet. Read only -- the review is
-     TICKET-0129. Its CREATION_ISLANDS entry declares origin 'new'. */
+     knowledge, and the verdict of its sheet. The review section
+     (PcReviewSection.svelte, TICKET-0129) follows the player's version.
+     Its CREATION_ISLANDS entry declares origin 'new'. */
   import { creationState } from './state.svelte.js';
   import { loadPcDraft } from './pcDrafts.svelte.js';
+  import PcReviewSection from './PcReviewSection.svelte';
 
   const KINDS = { family: 'Famille', master: 'Maître', faction: 'Faction', other: 'Autre' };
   const LEVELS = { rumor: 'Rumeur', suspicious: 'Soupçon', partial: 'Partielle', knows: 'Sait' };
@@ -123,7 +125,7 @@
       </ul>
     {/if}
 
-    <p class="muted notice">La revue de la créatrice arrive avec un prochain ticket : rien n'est encore écrit au monde.</p>
+    <PcReviewSection draftId={creationState.selectedPcDraftId} />
   {:else if !status}
     <div class="muted"><span class="spin">⟳</span></div>
   {/if}
@@ -136,5 +138,4 @@
   h4 { margin: 14px 0 4px; }
   ul { padding-left: 18px; margin: 0; }
   .violations, .status { color: var(--red); }
-  .notice { margin-top: 16px; font-style: italic; }
 </style>
