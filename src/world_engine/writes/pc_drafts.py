@@ -17,6 +17,8 @@ player's and the designer's counter-proposal, never one over the other.
 - `save_review(...)` : the creator's review choices on a submitted draft
   (TICKET-0129, BRIEF-0129-C), beside the player's version.
 - `return_draft(...)` : a submitted draft back to its player, with a note.
+- `mark_approved(...)` : a submitted draft closed by the approval, with its
+  character (BRIEF-0129-E).
 
 A `draft` or `returned` draft is writable by its player (`DraftLocked`
 otherwise); a `submitted` one by the creator's review functions only. The
@@ -400,6 +402,16 @@ def return_draft(db: Session, draft: PcDraft, *, note: str) -> None:
         raise ValueError(RETURN_NOTE_MISSING)
     draft.status = "returned"
     draft.creator_note = note
+    draft.updated_at = _now()
+    db.add(draft)
+    db.flush()
+
+
+def mark_approved(db: Session, draft: PcDraft, *, character_id: str) -> None:
+    """A submitted draft closed by the approval, naming the character it wrote."""
+    _require_submitted(draft)
+    draft.status = "approved"
+    draft.character_id = character_id
     draft.updated_at = _now()
     db.add(draft)
     db.flush()
