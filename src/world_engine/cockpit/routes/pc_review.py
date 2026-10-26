@@ -6,8 +6,11 @@ her choices beside it (`pc_review_reads.review_view`), her pick lists, the
 verdict of her final version (`creation_check.check_review`, INV-67's
 sibling) and the groups of people she creates. `PUT` writes her choices
 (`writes/pc_drafts.save_review`); `POST .../renvoyer` sends the draft back
-to its player with a note (`return_draft`). Each write commits once. A
-draft of another world, or not submitted, answers 404.
+to its player with a note (`return_draft`), abandoning its review
+batches. `POST .../lots` opens the review batch of one group of people to
+create (`cockpit/pc_approval.prepare_group_lot`, BRIEF-0129-D). Each write
+commits once, then journals. A draft of another world, or not submitted,
+answers 404.
 """
 
 from __future__ import annotations
@@ -21,13 +24,17 @@ from sqlmodel import Session, select
 from ...creation_check import check_creation, check_review, verdict_dict
 from ...creation_rules import start_sheet
 from ...db import get_session
-from ...models import PcDraft, PcDraftSketch, PcDraftSkill, User
+from ...models import PcDraft, PcDraftSkill, User
+from ...npc_group_author import journal_append
 from ...pc_draft_reads import draft_view
 from ...pc_review_reads import review_choices, review_view
 from ...relation_orientation import is_social
 from ...skill_ranks import world_ladder
 from ...writes.pc_drafts import DraftLocked, return_draft, save_review
 from ..crud._shared import RELATION_TYPES, _world_id
+from ..pc_approval import (
+    abandon_review_lots, lot_view, open_review_lots, prepare_group_lot, review_blockers, review_groups,
+)
 
 router = APIRouter()
 
@@ -57,6 +64,10 @@ class PcReturnBody(BaseModel):
     note: str = ""
 
 
+class PcLotBody(BaseModel):
+    group_label: str = ""
+
+
 def _submitted(draft_id: str, db: Session) -> PcDraft:
     """The active world's submitted draft `draft_id`, else 404."""
     world_id = _world_id(db)
@@ -72,14 +83,9 @@ def _player_name(db: Session, draft: PcDraft) -> str | None:
 
 
 def _groups(db: Session, draft: PcDraft) -> list[dict]:
-    """The sketches the creator creates, by `group_label`, groups by first position."""
-    sketches = db.exec(select(PcDraftSketch).where(
-        PcDraftSketch.draft_id == draft.id, PcDraftSketch.review_action == "create",
-    ).order_by(PcDraftSketch.position, PcDraftSketch.id)).all()
-    groups: dict[str, list[str]] = {}
-    for sketch in sketches:
-        groups.setdefault(sketch.group_label, []).append(sketch.id)
-    return [{"label": label, "sketch_ids": ids, "lot": None} for label, ids in groups.items()]
+    """The groups of people the creator creates, each with its open review batch, if any."""
+    lots = {batch.pc_group_label: lot_view(batch) for batch in open_review_lots(db, draft)}
+    return [dict(group, lot=lots.get(group["label"])) for group in review_groups(db, draft)]
 
 
 def _review_body(db: Session, draft: PcDraft) -> dict:
@@ -97,7 +103,7 @@ def _review_body(db: Session, draft: PcDraft) -> dict:
         "skill_names": {line.skill_key: line.name for line in start_sheet(db, world_id)},
         "ranks": [step.label for step in world_ladder(db, world_id)],
         "groups": _groups(db, draft),
-        "blockers": [],
+        "blockers": review_blockers(db, draft),
     }
 
 
@@ -128,9 +134,29 @@ def put_review(draft_id: str, body: PcReviewBody, db: Session = Depends(get_sess
 def return_review(draft_id: str, body: PcReturnBody, db: Session = Depends(get_session)) -> dict:
     draft = _submitted(draft_id, db)
     try:
+        abandoned = abandon_review_lots(db, draft)
         return_draft(db, draft, note=body.note)
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     db.commit()
+    for batch_id in abandoned:
+        journal_append(batch_id, {"event": "batch_abandoned", "pc_draft_id": draft.id})
     return {"ok": True, "status": "returned"}
+
+
+@router.post("/api/pc-reviews/{draft_id}/lots")
+def create_review_lot(draft_id: str, body: PcLotBody, db: Session = Depends(get_session)) -> dict:
+    draft = _submitted(draft_id, db)
+    try:
+        batch = prepare_group_lot(db, draft, body.group_label)
+    except DraftLocked as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=DRAFT_NOT_FOUND) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    db.commit()
+    db.refresh(batch)
+    journal_append(batch.id, {"event": "batch_created", "scope": batch.scope, "pc_draft_id": draft.id})
+    return {"batch_id": batch.id, "npcs_total": batch.npcs_total}

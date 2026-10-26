@@ -16,7 +16,9 @@ author module stays generate-only). It rides exclusively the sanctioned
 new `canon_write_policy.txt` ALLOWED_SITES entry is needed (mirrors why
 `_commit_region_npcs` itself isn't listed there either) -- its row commit,
 `_commit_npc_row`, lives in `cockpit/npc_group_commit.py` since TICKET-0129
-(BRIEF-0129-A)."""
+(BRIEF-0129-A). Review batches (`pc_draft_id` set, TICKET-0129) are served by
+the id routes, never listed, never counted as the open batch, never committed
+here."""
 
 from __future__ import annotations
 
@@ -54,6 +56,7 @@ def _open_batch(world_id: str, db: Session) -> NpcBatch | None:
         select(NpcBatch)
         .where(NpcBatch.world_id == world_id)
         .where(NpcBatch.status == "open")
+        .where(NpcBatch.pc_draft_id.is_(None))
     ).first()
 
 
@@ -122,6 +125,7 @@ def list_npc_batches(db: Session = Depends(get_session)) -> dict:
     batches = db.exec(
         select(NpcBatch)
         .where(NpcBatch.world_id == world_id)
+        .where(NpcBatch.pc_draft_id.is_(None))
         .order_by(NpcBatch.created_at.desc())
     ).all()
     return {"batches": [b.model_dump() for b in batches]}
@@ -194,6 +198,9 @@ def _commit_npc_batch(batch: NpcBatch, db: Session) -> dict:
     """
     if batch.status != "open":
         raise HTTPException(status_code=409, detail=f"NPC batch {batch.id!r} is not open")
+    if batch.pc_draft_id is not None:
+        raise HTTPException(status_code=409,
+                            detail="Ce lot appartient à la revue d'un personnage : il s'écrit à l'approbation.")
     if batch.npcs_done != batch.npcs_total:
         raise HTTPException(status_code=409, detail="generation incomplete — run or abandon")
 

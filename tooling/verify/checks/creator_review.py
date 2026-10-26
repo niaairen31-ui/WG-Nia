@@ -33,7 +33,8 @@ CR2 -- routes. `GET /api/pc-reviews/{id}` answers exactly C-08's keys;
    `choices.places` holds Port, Cave, Quai and not Région;
    `choices.characters` holds Vieux, Garde, Ombre and no player character;
    `choices.masters` maps Nécromancie to `[Vieux]`; `groups` lists the
-   family's group with `lot: None`. `PUT` with a place, every sketch's
+   family's group with `lot: None` and `blockers` its one `lot_missing`
+   (BRIEF-0129-D). `PUT` with a place, every sketch's
    action and a dropped membership -> 200, the GET shape shows them,
    `verdict.violations` empty; an unknown sketch id, action `x`, intensity
    0 -> 422 with C-06's messages and nothing changed; Bea's `draft`-status
@@ -70,6 +71,19 @@ CR5 -- the review batches (BRIEF-0129-D). `npc_group_author`'s
    named as their sketches (not `Autre nom`) with their sketch ids, then
    only `lot_missing` remains; a rejected row gives `row_missing` for its
    sketch; `abandon_review_lots` closes the batch.
+   (routes) `POST lots` for `""` -> 200; an agent batch is created
+   (`POST /api/npc-batches`) while it is open; `POST lots` for `Famille`
+   -> 200, `npcs_total == 2`, while the agent batch is open; a second
+   `Famille` lot and a group with no one to create -> 422 with C-09's
+   messages; `GET /api/npc-batches` lists only the agent batch; two
+   `run-next` on `Famille` give rows named as their sketches with their
+   sketch ids, one on the agent batch keeps `Autre nom` and a NULL sketch
+   id; `commit` on the review batch -> 409 C-09's message, no entity
+   written; the `""` lot abandoned by the agent's id route, `GET
+   /api/pc-reviews/{id}` shows `Famille`'s `lot` (open, 2 of 2) and exactly
+   one `lot_missing` for `""`; a `Famille` row rejected (`PATCH`) gives
+   `row_missing` for its sketch; with `""` reopened, `renvoyer` abandons
+   both review batches and leaves the agent batch open.
 
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A case not reached is a FAILURE.
@@ -405,7 +419,9 @@ def rule_cr2(client, ids: dict, draft_id: str) -> int:
         fail(f"CR2 masters {choices.get('masters')!r}")
     if body.get("groups") != [{"label": "famille", "sketch_ids": [ids["family_sketch"]], "lot": None}]:
         fail(f"CR2 groups {body.get('groups')!r}")
-    if body.get("blockers") != []:
+    # The family is created and no lot is prepared yet (BRIEF-0129-D).
+    if [(b.get("code"), b.get("sketch_id")) for b in body.get("blockers", [])] != [
+            ("lot_missing", ids["family_sketch"])]:
         fail(f"CR2 blockers {body.get('blockers')!r}")
 
     good = {"review_location_id": ids["cave"],
@@ -613,6 +629,93 @@ def _cr5_functions(engine, ids: dict, draft_id: str) -> int:
     return 1
 
 
+def _entity_count(engine) -> int:
+    from sqlalchemy import text
+
+    with engine.connect() as conn:
+        return conn.execute(text("SELECT COUNT(*) FROM entity")).scalar_one()
+
+
+def _rows(client, batch_id: str) -> list[dict]:
+    return sorted(client.get(f"/api/npc-batches/{batch_id}").json().get("rows", []),
+                  key=lambda r: r.get("line_index", 0))
+
+
+def _cr5_routes(engine, client, ids: dict, draft_id: str) -> int:
+    url = f"/api/pc-reviews/{draft_id}"
+    lots = f"{url}/lots"
+    resp = client.post(lots, json={"group_label": ""})
+    if resp.status_code != 200:
+        fail(f"CR5 POST lots for '' answered {resp.status_code}: {resp.text[:200]}")
+        return 0
+    loose = resp.json()["batch_id"]
+    resp = client.post("/api/npc-batches", json={
+        "root_location_id": ids["port"], "group_brief": "Des dockers.",
+        "lines": [{"count": 1, "description": "Un docker", "faction_id": None, "location_id": ids["port"]}]})
+    if resp.status_code != 200:
+        fail(f"CR5 an agent batch beside a review lot answered {resp.status_code}: {resp.text[:200]}")
+        return 0
+    agent = resp.json()["id"]
+    resp = client.post(lots, json={"group_label": "Famille"})
+    if resp.status_code != 200 or resp.json().get("npcs_total") != 2:
+        fail(f"CR5 POST lots for Famille beside the agent batch answered {resp.status_code}: {resp.text[:200]}")
+        return 0
+    famille = resp.json()["batch_id"]
+    for label, group, message in (("a second Famille lot", "Famille", "Un lot est déjà ouvert pour ce groupe."),
+                                  ("a group with no one", "Personne", "Ce groupe n'a personne à créer.")):
+        resp = client.post(lots, json={"group_label": group})
+        if resp.status_code != 422 or resp.json().get("detail") != message:
+            fail(f"CR5 {label} answered {resp.status_code}: {resp.text[:200]}")
+    listed = [b.get("id") for b in client.get("/api/npc-batches").json().get("batches", [])]
+    if listed != [agent]:
+        fail(f"CR5 GET /api/npc-batches lists {listed}, expected only the agent batch")
+
+    for batch_id in (famille, famille, agent):
+        resp = client.post(f"/api/npc-batches/{batch_id}/run-next")
+        if resp.status_code != 200:
+            fail(f"CR5 run-next on {batch_id} answered {resp.status_code}: {resp.text[:200]}")
+    rows = _rows(client, famille)
+    got = [(r["payload"]["draft"]["public"]["name"], r.get("pc_draft_sketch_id")) for r in rows]
+    if got != [("Maître Os", ids["master_sketch"]), ("Sœur", ids["family_sketch"])]:
+        fail(f"CR5 the review rows read {got!r}")
+    got = [(r["payload"]["draft"]["public"]["name"], r.get("pc_draft_sketch_id")) for r in _rows(client, agent)]
+    if got != [("Autre nom", None)]:
+        fail(f"CR5 the agent row reads {got!r}")
+
+    before = _entity_count(engine)
+    resp = client.post(f"/api/npc-batches/{famille}/commit")
+    if (resp.status_code != 409 or resp.json().get("detail")
+            != "Ce lot appartient à la revue d'un personnage : il s'écrit à l'approbation."):
+        fail(f"CR5 commit on a review batch answered {resp.status_code}: {resp.text[:200]}")
+    if _entity_count(engine) != before:
+        fail("CR5 the refused commit wrote an entity")
+
+    if client.post(f"/api/npc-batches/{loose}/abandon").status_code != 200:
+        fail("CR5 the agent's abandon route refused a review batch")
+    body = client.get(url).json()
+    groups = {g["label"]: g for g in body.get("groups", [])}
+    lot = (groups.get("Famille") or {}).get("lot")
+    if lot != {"batch_id": famille, "status": "open", "npcs_done": 2, "npcs_total": 2}:
+        fail(f"CR5 Famille's lot reads {lot!r}")
+    if [(b["code"], b["label"]) for b in body.get("blockers", [])] != [("lot_missing", "")]:
+        fail(f"CR5 blockers read {body.get('blockers')!r}")
+    resp = client.patch(f"/api/npc-batches/{famille}/rows/{rows[1]['id']}", json={"row_status": "rejected"})
+    if resp.status_code != 200:
+        fail(f"CR5 rejecting a review row answered {resp.status_code}: {resp.text[:200]}")
+    codes = [(b["code"], b["sketch_id"]) for b in client.get(url).json().get("blockers", [])]
+    if ("row_missing", ids["family_sketch"]) not in codes:
+        fail(f"CR5 a rejected row gives {codes}")
+
+    reopened = client.post(lots, json={"group_label": ""}).json().get("batch_id")
+    if client.post(f"{url}/renvoyer", json={"note": "Encore."}).status_code != 200:
+        fail("CR5 renvoyer refused")
+    statuses = {b: client.get(f"/api/npc-batches/{b}").json().get("batch", {}).get("status")
+                for b in (famille, reopened, agent)}
+    if statuses != {famille: "abandoned", reopened: "abandoned", agent: "open"}:
+        fail(f"CR5 after renvoyer the batches read {statuses}")
+    return 1
+
+
 def rule_cr5(engine, client, ids: dict, draft_id: str) -> int:
     from world_engine import npc_group_author
 
@@ -623,7 +726,7 @@ def rule_cr5(engine, client, ids: dict, draft_id: str) -> int:
     npc_group_author.JOURNAL_DIR = pathlib.Path(tempfile.mkdtemp())
     try:
         _review_for_lots(engine, ids, draft_id)
-        return _cr5_functions(engine, ids, draft_id)
+        return _cr5_functions(engine, ids, draft_id) & _cr5_routes(engine, client, ids, draft_id)
     finally:
         (npc_group_author.generate_entity_draft, npc_group_author.generate_npc_goals,
          npc_group_author.JOURNAL_DIR) = saved
