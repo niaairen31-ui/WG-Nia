@@ -127,6 +127,7 @@
 - `migrate_v2_30_world_tone.py` — Migration v2.30 — a world has a tone (TICKET-0124, BRIEF-0124-A; decision B2 of the world premise).
 - `migrate_v2_31_player_entry.py` — Migration v2.31 — a world opens to players; the Lore journal admits the perspective kind (TICKET-0125, BRIEF-0125-B; decisions C1, H1-c).
 - `migrate_v2_32_character_creation.py` — Migration v2.32 — a world's character creation rules, the creation overrides, a player's character draft, the creation journal kind (TICKET-0126, BRIEF-0126-B; decisions J1', L2, B1, U1).
+- `migrate_v2_33_creator_review.py` — Migration v2.33 — the creator's review of a submitted character: the review columns, the approved character, the review batches (TICKET-0129, BRIEF-0129-B).
 - `observation_metrics.py` — Observation run metrics (TICKET-0051, BRIEF-0051-g, decision J2/Q).
 - `preview_npc_schedule.py` — Preview `where_is` / `who_is_at` / `unresolved_npcs` — the concrete reader for `world.current_phase` (T-A1) and the live-gate instrument for TICKET-0074, BRIEF-0074-a.
 - `preview_tick_context.py` — Preview the full-interiority briefing a world tick would send to one NPC (TICKET-0014, BRIEF-0014-a; TICKET-0015, BRIEF-0015-a adds --interval) — the concrete reader for `assemble_tick_context` in this brief, and the live-gate instrument for the T1 review.
@@ -566,6 +567,7 @@
 - `review_component.py` — G1 check for TICKET-0041/BRIEF-0041-c — shared review-tree component.
 - `review_recording.py` — G1 check for TICKET-0115 -- every review of a proposal is recorded: its round, what the creator changed, and what a step's condition said.
 - `review_root_fallback.py` — G1 regression guard for TICKET-0043/BRIEF-0043-c's review-tree root-fallback fix.
+- `review_schema.py` — G1 check for TICKET-0129 (BRIEF-0129-B) -- schema v2.33: the creator's review columns, the approved character, the review batches and the encounter source.
 - `role_capacity_chokepoint.py` — G1 check: role capacity is read through one shared accessor, called by BOTH the AI `role_change` effect and the two creator paths (TICKET-0054, BRIEF-0054-b, decision E1).
 - `role_closed_vocab.py` — G1 gate: the `role_change` effect resolves against `faction_role` rows case-insensitively; an undeclared role without `declare: true` whole-rejects (K1); `declare: true` on an undeclared role goes through the L2 declare-and-occupy path, never a direct write (TICKET-0024, BRIEF-0024-d — corrective, resolution moved from `faction.role_capacities` to the relational `faction_role` table).
 - `room_batch_report_only.py` — G1 check for TICKET-0042 (BRIEF-0042-e): `room_batch_author.py` writes NO canon.
