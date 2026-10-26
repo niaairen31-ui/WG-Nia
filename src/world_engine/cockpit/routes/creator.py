@@ -31,26 +31,21 @@ from ...npc_group_author import purge_world_npc_batches
 from ...db import get_session
 from ...facet_reads import facts_of, joined
 from ...models import (
-    BASE_SKILL_DOMAINS,
     Character,
     Entity,
     FactionMembership,
     ProposedMutation,
     SCHEDULE_PHASES,
-    Skill,
-    SkillDefinition,
     User,
     World,
     WorldLaw,
 )
 from ...writes import (
-    KNOWLEDGE_LEVELS,
     WorldDeleteRefused,
     delete_world_cascade as _delete_world_cascade,
-    write_entity_facets,
-    write_knowledge,
     write_world_laws,
 )
+from ...writes.player_characters import write_player_character
 from ...zone_rules import ZoneRefusal, require_visitable
 from .. import crud as _crud
 
@@ -830,37 +825,6 @@ def _validate_pc_creation(body: "PlayerCharacterCreateBody", db: Session) -> tup
     return name, world_id, creator_user
 
 
-def _pc_custom_skill_defs(world_id: str, db: Session) -> list[SkillDefinition]:
-    """The skills a new PC holds: every definition open to all -- a
-    `requires_master` one is held only once taught (TICKET-0107, A2)."""
-    return db.exec(
-        select(SkillDefinition).where(
-            SkillDefinition.world_id == world_id,
-            SkillDefinition.requires_master == False,  # noqa: E712
-        )
-    ).all()
-
-
-def _write_pc_knowledge(entity_id: str, knowledge_items: Optional[list], db: Session) -> None:
-    """BRIEF-52 (E1): PC creation assistant draft knowledge, written
-    `is_secret=False` through `write_knowledge` — never through
-    `POST /api/entities/{id}/knowledge`, which 422s on a bad level instead
-    of defaulting to "rumor"."""
-    for item in (knowledge_items or []):
-        level = item.level if item.level in KNOWLEDGE_LEVELS else "rumor"
-        write_knowledge(
-            db,
-            entity_id=entity_id,
-            level=level,
-            content=item.content,
-            source="pc_creation",
-            is_incorrect=False,
-            is_secret=False,
-            share_threshold=50,
-            session_id=None,
-        )
-
-
 @router.post("/api/characters/player")
 def create_player_character(
     body: PlayerCharacterCreateBody, db: Session = Depends(get_session)
@@ -869,7 +833,8 @@ def create_player_character(
 
     Binds to the lone creator user (`role='creator'`) — there is no real
     multiplayer user identity yet. Mirrors `seed_pilot.py`'s `char-player`
-    creation: entity + `character` row + the four `skill` rows (physical,
+    creation through `writes/player_characters.write_player_character`
+    (TICKET-0129, BRIEF-0129-A): entity + `character` row + the four `skill` rows (physical,
     agility, perception, composure) at the model's default rank (Initié), since the skill sheet and
     physical-resolution arbiter both read those rows off a PC. One PC per
     user per world is defended by `idx_character_one_pc_per_user_world`
@@ -890,35 +855,15 @@ def create_player_character(
     name, world_id, creator_user = _validate_pc_creation(body, db)
 
     try:
-        entity = Entity(
+        entity = write_player_character(
+            db,
             world_id=world_id,
-            type="character",
-            name=name,
-        )
-        db.add(entity)
-        db.flush()
-        character = Character(
-            id=entity.id,
-            world_id=world_id,
-            character_type="player",
             user_id=creator_user.id,
+            name=name,
             current_location_id=body.current_location_id,
+            facets=body.facets,
+            knowledge=body.knowledge,
         )
-        db.add(character)
-        db.flush()
-        write_entity_facets(db, entity_id=entity.id, facets=body.facets or {}, created_by="creator_crud")
-        for domain in BASE_SKILL_DOMAINS:
-            db.add(Skill(character_id=entity.id, domain=domain))
-        # B1 (schema v1.63): flat default-rank seed for every custom skill of the
-        # PC's world — never proposed by a model, set here after the draft
-        # is accepted.
-        for definition in _pc_custom_skill_defs(world_id, db):
-            db.add(Skill(
-                character_id=entity.id,
-                domain=definition.base_domain,
-                skill_definition_id=definition.id,
-            ))
-        _write_pc_knowledge(entity.id, body.knowledge, db)
         db.commit()
     except IntegrityError:
         db.rollback()

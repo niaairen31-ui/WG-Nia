@@ -169,7 +169,7 @@ listed in `tooling/verify/baselines/invariant_ids.retired`. Each ends with
 - **INV-07** PC knowledge is written `is_secret=False`; `_normalize_knowledge`
   is NPC-only and forces `is_secret=True` — never reuse it for a PC.
   `_normalize_player_knowledge` emits no `is_secret` key; `False` is applied
-  at write time by the accept route (`create_player_character` via
+  at write time by the accept route (`write_player_character` via
   `writes.write_knowledge`), never by the generator. [no check]
 - **INV-08** Two canon-write paths for rows: `_apply_mutation` and creator
   CRUD. A third covers canon STRUCTURE. -- enforced by

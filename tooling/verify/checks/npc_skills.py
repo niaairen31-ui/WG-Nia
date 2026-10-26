@@ -47,8 +47,8 @@ B1 -- the flag (BRIEF-0107-B, fixture, A2). `POST /api/skill-definitions`
    with `requires_master` gives no player a row and serves the flag; without
    it, every player gets one at `DEFAULT_RANK`. Turning the flag off
    (`PUT`) backfills every player lacking the row; turning it on keeps every
-   row held. `_pc_custom_skill_defs` (a new PC's seed) lists no
-   `requires_master` definition.
+   row held. `writes/player_characters.py`'s `_pc_custom_skill_defs` (a new
+   PC's seed) lists no `requires_master` definition.
 B2 -- the lock in Play (fixture, B1). `player_skill` on a `requires_master`
    definition the player lacks is `locked`, row None, with no fallback to
    the base row; on one he holds, it is that row. With a minimal turn
@@ -423,7 +423,7 @@ def check_b1(engine) -> None:
     from world_engine.cockpit.crud.skills import (
         SkillDefinitionWriteBody, create_skill_definition, update_skill_definition,
     )
-    from world_engine.cockpit.routes.creator import _pc_custom_skill_defs
+    from world_engine.writes.player_characters import _pc_custom_skill_defs
     from world_engine.models import Skill
     from world_engine.skill_ranks import DEFAULT_RANK
 
