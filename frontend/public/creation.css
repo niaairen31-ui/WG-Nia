@@ -310,6 +310,8 @@ input.notes::placeholder { color: var(--muted); }
 .pc-review .person,
 .pc-review .lot       { padding: 6px 0; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; }
 .pc-review .lot-row   { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.pc-review .block > button,
+.pc-review .lot > button { align-self: flex-start; }
 .pc-review textarea   { width: 100%; }
 .pc-review .muted     { color: var(--muted); font-size: 12px; }
 .pc-review .r-err     { color: var(--red); }

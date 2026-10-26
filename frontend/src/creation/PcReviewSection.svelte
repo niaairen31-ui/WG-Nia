@@ -161,10 +161,8 @@
         Lieu de départ
         <select bind:value={edit.review_location_id}>
           <option value="">{draft.start_location ? `${draft.start_location.name} (choix du joueur)` : '—'}</option>
-          {#each body.choices.places as p (p.entity_id)}
-            <option value={p.entity_id}>
-              {p.name}{draft.start_location && draft.start_location.entity_id === p.entity_id ? ' (choix du joueur)' : ''}
-            </option>
+          {#each body.choices.places.filter((p) => p.entity_id !== draft.start_location?.entity_id) as p (p.entity_id)}
+            <option value={p.entity_id}>{p.name}</option>
           {/each}
         </select>
       </label>
@@ -177,7 +175,7 @@
         {#if s}
           <div class="person">
             <div>
-              <strong>{sketch.name}</strong> · {KINDS[sketch.kind] ?? sketch.kind}{#if sketch.role} — {sketch.role}{/if}
+              <strong>{sketch.name}</strong> · {KINDS[sketch.kind] ?? sketch.kind}{sketch.role ? ` — ${sketch.role}` : ''}
             </div>
             <div class="row">
               <label><input type="radio" name={`act-${s.id}`} value="create" bind:group={s.action} /> Créer</label>
