@@ -144,7 +144,12 @@ src/world_engine/cockpit/routes/creator.py::set_world_phase               world
 # description and tone; its laws go through write_world_laws (above).
 # TICKET-0125, BRIEF-0125-C (C1): and its open_to_players flag, only when sent.
 src/world_engine/cockpit/routes/creator.py::update_world                  world
-src/world_engine/cockpit/routes/creator.py::create_player_character       entity character skill
+# TICKET-0129, BRIEF-0129-A: create_player_character's body relocated to writes/player_characters.py::write_player_character, commit-free; the route keeps the transaction. Same tables, same site count: a relocation, not a broadening.
+src/world_engine/writes/player_characters.py::write_player_character entity character skill
+# TICKET-0129, BRIEF-0129-E: write_master_rank sets a master's skill to Maître at a character's approval -- write_skill_rank's row added here, or write_skill_row's.
+src/world_engine/writes/player_characters.py::write_master_rank skill
+# TICKET-0129, BRIEF-0129-G: set_player_profile attaches a player character to a player profile or gives it back to the creator (K1-b, H1).
+src/world_engine/writes/player_characters.py::set_player_profile character
 src/world_engine/cockpit/play_stream.py::_perform_travel               character
 # TICKET-0046, BRIEF-0046-e: _create_entity_core became a pure static-vs-
 # runtime dispatcher (no direct write of its own — see check_file's per-

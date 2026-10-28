@@ -11,8 +11,8 @@ CS1 -- static. By AST: `models/canon_skill.py` declares the classes
    C-02's, `idx_pc_draft_open` carrying `WHERE status <> 'approved'`; none
    of the six new tables has a JSON column; `LORE_USAGE_STEPS["creation"]
    == ("creation_subject", "creation_design")`; the two `PAYLOAD_KEYS`
-   entries hold exactly C-02's keys; `EXPECTED_STATIC_SCHEMA_VERSION ==
-   "v2.32"`; `scripts/migrate_v2_32_character_creation.py` exists and its
+   entries hold exactly C-02's keys; `EXPECTED_STATIC_SCHEMA_VERSION` is
+   at least v2.32; `scripts/migrate_v2_32_character_creation.py` exists and its
    `_PREVIOUS_VERSION` is `"v2.31"`.
 CS2 -- CHECKs (fresh `create_all`, raw INSERTs, parents raw). A
    `creation_rules` row given only `id, world_id` reads back every default;
@@ -88,10 +88,12 @@ OVERRIDE_COLUMNS = {
     "skill_definition": ("visible_at_creation", "max_rank_at_creation"),
 }
 # table -> (columns, CHECK names, {index name: unique})
+# v2.33 columns (TICKET-0129, BRIEF-0129-B); `review_schema.py` owns their shape
 DRAFT_TABLES: dict[str, tuple[set[str], set[str], dict[str, bool]]] = {
     "pc_draft": (
         {"id", "world_id", "user_id", "status", "name", "story", "start_location_id",
-         "start_location_set_by", "creator_note", "submitted_at", "created_at", "updated_at"},
+         "start_location_set_by", "creator_note", "submitted_at", "created_at", "updated_at",
+         "review_location_id", "character_id"},
         {"ck_pc_draft_status", "ck_pc_draft_set_by"},
         {"idx_pc_draft_world": False, "idx_pc_draft_open": True},
     ),
@@ -103,12 +105,15 @@ DRAFT_TABLES: dict[str, tuple[set[str], set[str], dict[str, bool]]] = {
     ),
     "pc_draft_sketch": (
         {"id", "draft_id", "world_id", "position", "name", "role", "sentence", "group_label",
-         "kind", "skill_key", "existing_entity_id", "origin"},
-        {"ck_pc_draft_sketch_kind", "ck_pc_draft_sketch_master", "ck_pc_draft_sketch_origin"},
+         "kind", "skill_key", "existing_entity_id", "origin",
+         "review_action", "review_entity_id", "review_relation_type", "review_intensity"},
+        {"ck_pc_draft_sketch_kind", "ck_pc_draft_sketch_master", "ck_pc_draft_sketch_origin",
+         "ck_pc_draft_sketch_review_action", "ck_pc_draft_sketch_review_entity",
+         "ck_pc_draft_sketch_review_intensity"},
         {"idx_pc_draft_sketch_draft": False},
     ),
     "pc_draft_membership": (
-        {"id", "draft_id", "world_id", "faction_id", "role", "origin"},
+        {"id", "draft_id", "world_id", "faction_id", "role", "origin", "review_dropped"},
         {"ck_pc_draft_membership_origin"},
         {"idx_pc_draft_membership_faction": True},
     ),
@@ -214,6 +219,11 @@ def _fresh_engine():
 
     SQLModel.metadata.create_all(engine)
     return engine, pathlib.Path(tmp_dir) / "check.db"
+
+
+def _version_key(version: str) -> tuple[int, int]:
+    major, minor = version.lstrip("v").split(".")
+    return int(major), int(minor)
 
 
 def _top_level(path: pathlib.Path) -> tuple[set[str], set[str]]:
@@ -329,7 +339,7 @@ def _cs1_journal_and_version() -> int:
         got = PAYLOAD_KEYS.get(step)
         if got is None or set(got) != keys:
             fail(f"CS1 PAYLOAD_KEYS[{step!r}] is {sorted(got) if got else got!r}, expected {sorted(keys)}")
-    if EXPECTED_STATIC_SCHEMA_VERSION != "v2.32":
+    if _version_key(EXPECTED_STATIC_SCHEMA_VERSION) < _version_key("v2.32"):
         fail(f"CS1 EXPECTED_STATIC_SCHEMA_VERSION is {EXPECTED_STATIC_SCHEMA_VERSION!r}")
     if not MIGRATION.exists():
         fail(f"CS1 {MIGRATION.name} is missing")

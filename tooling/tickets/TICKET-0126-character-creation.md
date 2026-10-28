@@ -242,4 +242,4 @@ Locked while planning this ticket (2026-10-22):
 
 | id | brief in flight | what deviated | downstream briefs regenerated |
 |----|-----------------|---------------|-------------------------------|
-|    |                 |               |                               |
+| AMENDMENT-0126-01 | F | two name bans the lot missed (lore_as_facts R1, knowledge_identity K3): `pc_draft.story`, `backstory_terms`; the arrow floor | G, H, I |

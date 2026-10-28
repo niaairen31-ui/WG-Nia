@@ -40,15 +40,15 @@ A4 -- the carrure at creation (fixture and static). Creating a character
    writes no row, with 9 clamps to rank 3; `write_skill_row` refuses a
    second row for the same skill, both or neither of domain/definition, and
    rank 6, each before any write. No `.physical_tier` attribute under `src/`
-   (AST); `npc_agent.py` passes `carrure=`; `play_physical.py` calls
+   (AST); `npc_group_commit.py` passes `carrure=`; `play_physical.py` calls
    `skill_access.opposition_modifier(` and `skill_access.player_skill(`.
 
 B1 -- the flag (BRIEF-0107-B, fixture, A2). `POST /api/skill-definitions`
    with `requires_master` gives no player a row and serves the flag; without
    it, every player gets one at `DEFAULT_RANK`. Turning the flag off
    (`PUT`) backfills every player lacking the row; turning it on keeps every
-   row held. `_pc_custom_skill_defs` (a new PC's seed) lists no
-   `requires_master` definition.
+   row held. `writes/player_characters.py`'s `_pc_custom_skill_defs` (a new
+   PC's seed) lists no `requires_master` definition.
 B2 -- the lock in Play (fixture, B1). `player_skill` on a `requires_master`
    definition the player lacks is `locked`, row None, with no fallback to
    the base row; on one he holds, it is that row. With a minimal turn
@@ -408,8 +408,8 @@ def check_a4(engine) -> None:
                 fail(f"A4: .physical_tier read at {path.relative_to(ROOT)}:{node.lineno}")
     if scanned == 0:
         fail("A4: no file scanned")
-    if "carrure=" not in (SRC / "cockpit" / "routes" / "npc_agent.py").read_text(encoding="utf-8"):
-        fail("A4: npc_agent.py does not pass the carrure")
+    if "carrure=" not in (SRC / "cockpit" / "npc_group_commit.py").read_text(encoding="utf-8"):
+        fail("A4: npc_group_commit.py does not pass the carrure")
     play = (SRC / "cockpit" / "play_physical.py").read_text(encoding="utf-8")
     if "skill_access.opposition_modifier(" not in play or "skill_access.player_skill(" not in play:
         fail("A4: play_physical.py does not read its rows through skill_access")
@@ -423,7 +423,7 @@ def check_b1(engine) -> None:
     from world_engine.cockpit.crud.skills import (
         SkillDefinitionWriteBody, create_skill_definition, update_skill_definition,
     )
-    from world_engine.cockpit.routes.creator import _pc_custom_skill_defs
+    from world_engine.writes.player_characters import _pc_custom_skill_defs
     from world_engine.models import Skill
     from world_engine.skill_ranks import DEFAULT_RANK
 

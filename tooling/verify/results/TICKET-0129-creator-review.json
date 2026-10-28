@@ -1,0 +1,72 @@
+{
+  "ticket": "TICKET-0129-creator-review",
+  "when": "2026-10-26T21:07:11.010638+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u00e2\u20ac\u201d 199 check(s) discovered, 199 executed, 199 passed"
+    },
+    {
+      "check": "review_schema.py",
+      "status": "PASS",
+      "msg": "PASS: review_schema -- v2.33: the review columns, the approved character, the review batch index and the pc_creation source as C-03/C-04; the review CHECKs hold; the migration moves five tables from v2.32, keeps every row, refuses below v2.32 and changes nothing twice"
+    },
+    {
+      "check": "creation_schema.py",
+      "status": "PASS",
+      "msg": "PASS: creation_schema -- v2.32: creation rules, overrides and draft tables as C-02, 22 CHECK probes, the creation journal kind, migration idempotent and refusing below v2.31"
+    },
+    {
+      "check": "creator_review.py",
+      "status": "PASS",
+      "msg": "PASS: creator_review -- the one check of the creator's final version, every review code reached with its message, all the lore read; her choices beside the player's version; the return with a note reopens the draft to its player, who never reads a review column; one review batch per group, anchored on the character; a player character attached to a profile or given back to the creator, and its profile reads its name"
+    },
+    {
+      "check": "draft_approval.py",
+      "status": "PASS",
+      "msg": "PASS: draft_approval -- one transaction writes the people of the story, the masters' rank, the character at the player's ranks with each taught skill's master, his memberships, his knowledge, the encounters with public members only and the relations to him, or nothing; every refusal writes nothing; the creator's own route keeps its default ranks"
+    },
+    {
+      "check": "creator_review_ui.py",
+      "status": "PASS",
+      "msg": "PASS: creator_review_ui -- the review section sits in the creator's draft panel, its store writes through api, no dialog, the build carries it; the player's returned and accepted states; the \u00c2\u00ab Joueur \u00c2\u00bb field on a player character's skill pane"
+    },
+    {
+      "check": "npc_agent_strata.py",
+      "status": "PASS",
+      "msg": "PASS: npc_agent_strata \u00e2\u20ac\u201d npc_batch/npc_batch_row stay ephemeral and narrowly scoped"
+    },
+    {
+      "check": "single_canon_write.py",
+      "status": "PASS",
+      "msg": "PASS: no canon write outside a sanctioned site"
+    },
+    {
+      "check": "zone_placement.py",
+      "status": "PASS",
+      "msg": "PASS: zone_placement \u00e2\u20ac\u201d (a) every placement path refuses a zone [15 outcomes], (b) NPC batch vocabulary visitable only [1], (c) 3 current_location_id write sites, all named"
+    },
+    {
+      "check": "npc_skills.py",
+      "status": "PASS",
+      "msg": "PASS: npc_skills -- v2.16 gives NPCs skill rows in place of physical_tier, migrates every carrure to a physical row from v2.15 only, and an opposing NPC rolls its own row for the skill, else its base domain, else Initi\u00c3\u00a9; a skill that requires a master is held only once taught, cannot be rolled until then, and is taught by a Ma\u00c3\u00aetre or granted by the creator; the fiche serves NPCs and players, and teaches from it"
+    },
+    {
+      "check": "player_creation.py",
+      "status": "PASS",
+      "msg": "PASS: player_creation -- the catalogue in the public view, a draft opened once and saved whole, every draft violation alone, the designer journaled on every outcome, submission only through check_draft, refusals unjournaled, the creation modules held to the player's door"
+    },
+    {
+      "check": "player_shell.py",
+      "status": "PASS",
+      "msg": "PASS: player_shell -- the Lore perspective tab is wired; the player shell calls only /api/joueur and imports nothing of the creator; the creation screen is wired to /api/joueur/creation and built"
+    },
+    {
+      "check": "world_cascade.py",
+      "status": "PASS",
+      "msg": "PASS: world_cascade -- every world-scoped table is deleted or guarded; a populated world deletes under FK enforcement; refusals delete nothing"
+    }
+  ]
+}

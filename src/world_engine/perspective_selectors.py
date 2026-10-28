@@ -139,6 +139,23 @@ def _public_members(faction_id: str, world_id: str, view: PublicView, db: Sessio
     ]
 
 
+def public_member_ids(faction_id: str, world_id: str, view: PublicView, db: Session) -> tuple[str, ...]:
+    # Same WHERE triplet as `_public_members` (INV-03): ids for the approval's
+    # encounters (TICKET-0129, F-b); never rendered into a prompt.
+    rows = db.exec(
+        select(FactionMembership, Entity)
+        .join(Entity, Entity.id == FactionMembership.entity_id)
+        .where(
+            Entity.world_id == world_id,
+            FactionMembership.faction_id == faction_id,
+            FactionMembership.left_at.is_(None),
+            FactionMembership.is_secret == False,  # noqa: E712
+        )
+    ).all()
+    kept = sorted((e for _m, e in rows if e.id in view.entity_ids), key=lambda e: (e.name, e.id))
+    return tuple(e.id for e in kept)
+
+
 def _public_membership_rows(entity_id: str, world_id: str, view: PublicView, db: Session) -> list[dict]:
     """`read_public_memberships` rows whose faction is public. The accessor
     returns names only, so a name shared with a non-public faction of the

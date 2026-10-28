@@ -34,6 +34,7 @@
   import { creationState } from './state.svelte.js';
   import { serverState } from '../lib/serverState.svelte.js';
   import { api } from './sheetRequest.svelte.js';
+  import PjProfileField from './PjProfileField.svelte';
 
   const SKILL_DOMAIN_LABELS = {
     physical: 'Physical', agility: 'Agility',
@@ -183,6 +184,7 @@
   <button class="btn-icon" onclick={loadCharacters} title="Rafraîchir">↻</button>
 </div>
 <div class="author-main" style="overflow-y:auto">
+  {#if characterType === 'player' && characterId}<PjProfileField {characterId} />{/if}
   {#if loadError}
     <div class="empty">{loadError}</div>
   {:else if characters.length === 0}

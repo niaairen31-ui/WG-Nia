@@ -13,6 +13,18 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.33** — TICKET-0129, BRIEF-0129-B: the creator reviews a
+  submitted character. `pc_draft` gains `review_location_id` (her
+  starting place) and `character_id` (the character the approval
+  wrote); `pc_draft_sketch` gains `review_action` (create, attach,
+  drop), `review_entity_id`, `review_relation_type` ('ally'),
+  `review_intensity` (60) and three CHECKs (the table is rebuilt);
+  `pc_draft_membership` gains `review_dropped`; `npc_batch` gains
+  `pc_draft_id`, `pc_group_label` and the partial unique index
+  `idx_npc_batch_review_open`; `npc_batch_row` gains
+  `pc_draft_sketch_id` (no FK). `rencontre.source` admits
+  `pc_creation` (a tuple, no CHECK). `migrate_v2_33_creator_review.py`
+  writes no other data.
 - **v2.32** — TICKET-0126, BRIEF-0126-B: a world sets its character
   creation rules, and a player's character draft is stored relationally.
   New `creation_rules` (one row per world: the pool, the cost to reach

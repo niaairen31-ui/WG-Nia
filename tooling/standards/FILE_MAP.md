@@ -127,6 +127,7 @@
 - `migrate_v2_30_world_tone.py` — Migration v2.30 — a world has a tone (TICKET-0124, BRIEF-0124-A; decision B2 of the world premise).
 - `migrate_v2_31_player_entry.py` — Migration v2.31 — a world opens to players; the Lore journal admits the perspective kind (TICKET-0125, BRIEF-0125-B; decisions C1, H1-c).
 - `migrate_v2_32_character_creation.py` — Migration v2.32 — a world's character creation rules, the creation overrides, a player's character draft, the creation journal kind (TICKET-0126, BRIEF-0126-B; decisions J1', L2, B1, U1).
+- `migrate_v2_33_creator_review.py` — Migration v2.33 — the creator's review of a submitted character: the review columns, the approved character, the review batches (TICKET-0129, BRIEF-0129-B).
 - `observation_metrics.py` — Observation run metrics (TICKET-0051, BRIEF-0051-g, decision J2/Q).
 - `preview_npc_schedule.py` — Preview `where_is` / `who_is_at` / `unresolved_npcs` — the concrete reader for `world.current_phase` (T-A1) and the live-gate instrument for TICKET-0074, BRIEF-0074-a.
 - `preview_tick_context.py` — Preview the full-interiority briefing a world tick would send to one NPC (TICKET-0014, BRIEF-0014-a; TICKET-0015, BRIEF-0015-a adds --interval) — the concrete reader for `assemble_tick_context` in this brief, and the live-gate instrument for the T1 review.
@@ -226,6 +227,7 @@
 - `ollama_client.py` — Minimal client for a local Ollama server (stdlib only — no new dependency).
 - `passages.py` — Place registry writer (TICKET-0105, BRIEF-0105-B, C-02).
 - `pc_draft_reads.py` — The read shape of a character draft, for the player (through the public view) and for the creator (TICKET-0126, BRIEF-0126-G).
+- `pc_review_reads.py` — The creator's review of a character draft, as the screens read it (TICKET-0129, BRIEF-0129-C).
 - `perspective_audit.py` — The public perspective's audit: every line a public answer withheld, and why (TICKET-0125, BRIEF-0125-D, C-07).
 - `perspective_query.py` — The public perspective's executor: a plan run over what everybody knows (TICKET-0125, BRIEF-0125-D, C-05, C-06).
 - `perspective_render.py` — The public perspective's renderer: the answer to a public question, in prose or by code (TICKET-0125, BRIEF-0125-D, C-08).
@@ -277,7 +279,9 @@
 - `day_plan_finalize.py` — Plan finalizers, relocated from `cockpit/routes/day.py` for module-budget headroom (TICKET-0121, BRIEF-0121-D) -- the `day_reconcile_apply.py` precedent.
 - `day_reconcile_apply.py` — Reconciliation finalizers, relocated from `cockpit/routes/day.py` for module-budget headroom (TICKET-0077, BRIEF-0077-a) — the `models/config.py::AgendaStep` relocation precedent.
 - `mutations.py` — Per-mutation-type canon appliers (TICKET-0027, BRIEF-0027-c).
+- `npc_group_commit.py` — The NPC group agent's row commit (TICKET-0129, BRIEF-0129-A): one staged row written to canon through the creator-direct cores, in the caller's transaction; shared by the agent's batch commit and the character approval.
 - `origin_guard.py` — Origin guard for every write route (TICKET-0098, BRIEF-0098-A, decision I1).
+- `pc_approval.py` — The creator's approval of a character draft (TICKET-0129): the review batches, one per group of people to create, and the one transaction that writes the draft to canon.
 - `perspective_flow.py` — The shared public-perspective flow behind two doors (TICKET-0125, BRIEF-0125-E, C-15).
 - `play.py` — The `say`/`_stream` play path (BRIEF-0027-b/-d): mode interpretation, NPC selection/run, mutation-proposal assembly, narration streaming.
 - `play_discovery.py` — Engine discovery proposal (TICKET-0091 BRIEF-B, pure move).
@@ -332,6 +336,7 @@
 - `npc_agent.py` — NPC group agent — batch staging lifecycle, run driver, and commit routes (TICKET-0037, BRIEF-0037-a/b/c).
 - `observation.py` — Observation-run routes (TICKET-0051, BRIEF-0051-e/f).
 - `pc_drafts.py` — The creator's read of submitted character drafts (TICKET-0126, BRIEF-0126-I; W1').
+- `pc_review.py` — The creator's review of a submitted character draft (TICKET-0129): her choices, the check of her final version, the return to the player, the approval.
 - `play.py` — Play-path routes: conversations, travel, world-tick.
 - `player.py` — The player's door (TICKET-0125, BRIEF-0125-E, C-11): profiles, open worlds, what everybody knows.
 - `player_creation.py` — The player's character creation (TICKET-0126, BRIEF-0126-G; E1', B2, S1, U1, V1).
@@ -387,6 +392,7 @@
 - `mutation_reviews.py` — The creator's review of a proposal, recorded round by round -- the one writer of `mutation_review`, `mutation_review_change` and `proposed_mutation.original_payload` (TICKET-0115, BRIEF-0115-B; decisions A3, C1 and H1a of the conditions series' dashboard).
 - `pc_drafts.py` — The one writer of a player's character draft (TICKET-0126, BRIEF-0126-G; B1, C1, V1, T1).
 - `pipeline.py` — `batch`/`pass_play` write primitives (TICKET-0075, BRIEF-0075-a — the declaration socle: plumbing only, no resolution, no model call; `write_pass_play_resolution` added BRIEF-0075-d — the first writer of `pass_play.history`, S5; `write_day_feasibility` added BRIEF-0075-g — the SECOND entry kind `pass_play.history` carries).
+- `player_characters.py` — The one writer of a new player character (TICKET-0129, BRIEF-0129-A): the entity, its `character` row, its base-domain and open skills, its facets and its knowledge, in the caller's transaction.
 - `prompts.py` — `prompt_version`/`prompt_variable` canon-write chokepoints (TICKET-0028, BRIEF-0028-b — decomposed from `writes.py`; moved for module hygiene, not policy — neither table is in `canon_write_policy.txt`'s CANON_TABLES).
 - `quest_requests.py` — The quest request's writer (TICKET-0121, BRIEF-0121-B, L1).
 - `quest_settlement.py` — « Déclarer accomplie »: settling a quest (TICKET-0109, BRIEF-0109-C, D1, contract C-05).
@@ -433,6 +439,8 @@
 - `creation_rules_ui.py` — G1 check for TICKET-0126 (BRIEF-0126-E) -- Création > Compétences carries the creation rules and the overrides.
 - `creation_schema.py` — G1 check for TICKET-0126 (BRIEF-0126-B) -- schema v2.32: the creation rules, the overrides, the draft tables and the creation journal kind.
 - `creation_tab_switch.py` — G1 check: the tab-switch sheet reset (TICKET-0083, BRIEF-0083-a).
+- `creator_review.py` — G1 check for TICKET-0129 -- the creator reviews a submitted character: the one check of her final version, her choices beside the player's version, the return with a note.
+- `creator_review_ui.py` — G1 check for TICKET-0129 -- the creator's review section and the player's returned and accepted states are wired.
 - `dashboard_registry.py` — G1 check for TICKET-0115 -- the dashboard is a registry in code: its metrics read relational columns only, its deferrals point at the passage that declares them, and its export carries what the tab does not show.
 - `dashboard_tab.py` — G1 check for TICKET-0115 -- the « Suivi » tab shows the dashboard's metrics and deferrals, exports the same scope, and warns that the export holds secrets.
 - `day_choice.py` — G1 check for TICKET-0094 — Concordance H2, the model chooses and the code judges.
@@ -454,6 +462,7 @@
 - `door_coverage.py` — G1 check for TICKET-0039 (BRIEF-0039-e) — door coverage invariant.
 - `door_distinct_points.py` — L1 check for TICKET-0040 (BRIEF-0040-e) — door distinct-point invariant.
 - `door_terminal.py` — G1 check: door terminality + orchestration-only guards (TICKET-0034, BRIEF-0034-b).
+- `draft_approval.py` — G1 check for TICKET-0129 (BRIEF-0129-E) -- the approval writes a drafted character to canon in one transaction, or nothing.
 - `draft_panel.py` — G1 check for TICKET-0124 -- the sheet shows what the world adds to a draft and sends what the creator kept.
 - `draft_world.py` — G1 check for TICKET-0124 -- a draft fills the states its world asks for, and code decides what each answer names.
 - `dynamic_ext_crud.py` — G1 check: dynamic ext_* instance CRUD for governed runtime entity types (TICKET-0046, BRIEF-0046-e), on the trait_registry_projection.py temp-fixture idiom — a fresh temp-file SQLite fixture (WORLD_ENGINE_DATABASE_URL set BEFORE any world_engine import), so this check never touches Nia's real DB.
@@ -564,6 +573,7 @@
 - `review_component.py` — G1 check for TICKET-0041/BRIEF-0041-c — shared review-tree component.
 - `review_recording.py` — G1 check for TICKET-0115 -- every review of a proposal is recorded: its round, what the creator changed, and what a step's condition said.
 - `review_root_fallback.py` — G1 regression guard for TICKET-0043/BRIEF-0043-c's review-tree root-fallback fix.
+- `review_schema.py` — G1 check for TICKET-0129 (BRIEF-0129-B) -- schema v2.33: the creator's review columns, the approved character, the review batches and the encounter source.
 - `role_capacity_chokepoint.py` — G1 check: role capacity is read through one shared accessor, called by BOTH the AI `role_change` effect and the two creator paths (TICKET-0054, BRIEF-0054-b, decision E1).
 - `role_closed_vocab.py` — G1 gate: the `role_change` effect resolves against `faction_role` rows case-insensitively; an undeclared role without `declare: true` whole-rejects (K1); `declare: true` on an undeclared role goes through the L2 declare-and-occupy path, never a direct write (TICKET-0024, BRIEF-0024-d — corrective, resolution moved from `faction.role_capacities` to the relational `faction_role` table).
 - `room_batch_report_only.py` — G1 check for TICKET-0042 (BRIEF-0042-e): `room_batch_author.py` writes NO canon.

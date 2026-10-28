@@ -27,8 +27,8 @@ Three assertions:
      `character.current_location_id` (an attribute assignment, or a
      `Character(...)` keyword) are exactly `writes/characters.py::
      write_character_location`, `cockpit/play_stream.py::_perform_travel`
-     and `cockpit/routes/creator.py::create_player_character`. A seventh
-     site fails here; the registry field path (`crud/entities.py`) is held
+     and `writes/player_characters.py::write_player_character` (TICKET-0129,
+     BRIEF-0129-A). A seventh site fails here; the registry field path (`crud/entities.py`) is held
      by (a).
 
 Named mutations: delete the `require_visitable` call in `_perform_travel`
@@ -55,7 +55,7 @@ COUNTS: dict[str, int] = {}
 KNOWN_LOCATION_WRITERS = {
     "world_engine/writes/characters.py::write_character_location",
     "world_engine/cockpit/play_stream.py::_perform_travel",
-    "world_engine/cockpit/routes/creator.py::create_player_character",
+    "world_engine/writes/player_characters.py::write_player_character",
 }
 
 
