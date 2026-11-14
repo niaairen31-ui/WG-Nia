@@ -34,7 +34,31 @@ CP3 -- the names of `surfaces(db, wid, NameScope("character",
    « Vex » is `unmatched`; `NameScope("character", known_fact_ids=frozenset())`
    and `NameScope("public", known_fact_ids=frozenset(), entity_ids=frozenset())`
    raise `ValueError`.
-CP4-CP7 are added by BRIEF-0127-C and BRIEF-0127-D.
+CP4 -- selectors on Mira's creator view (labels from `FACETS`):
+   `known_dossier(hero)` facets `{(Description, « Hero porte une cape
+   rouge », False, None), (Histoire, « Hero fut affranchi », False, None),
+   (Événement, « Le sacre de Hero », False, None), (Lien, F5's text, False,
+   None)}` as `(label, content, secret, certainty)`; memberships `{Guild,
+   Cabal}`; `known_dossier(shade)` facets contents `{« Shade est une ombre »,
+   « Shade creuse un tunnel », « Shade porte un masque », « La fuite de
+   Shade »}`; `known_dossier(cabal)` members `{Hero, Mira}`;
+   `known_dossier(vex)` and `(ordre)` are `[]`; `known_factions` names
+   `[Cabal, Guild, Guild2]`; `known_facts_mentioning("tunnel")` is `[(« Le
+   tunnel cache un tresor », [], True, « rumeur »), (« Shade creuse un
+   tunnel », [Shade], False, None)]` as `(content, participants, secret,
+   certainty)`, and on the player's view only the second; `self_sheet`
+   acquaintances `[(Shade, character)]`, own_skills `[(agility, agility,
+   None, Apprenti), (Ombre, perception, None, Initié)]`; `known_skills` names
+   `[Ombre]`. On `public_view`: `known_dossier(hero)` facets contents `{F1,
+   « Le sacre de Hero », F5}`, memberships `{Guild}`; `self_sheet` is `[]`.
+   No row of any call holds a key of `FORBIDDEN_KEYS`.
+CP5 -- `lore_render._serialize_rows_by_section` over the tunnel rows holds
+   `« Le tunnel cache un tresor » (certitude : rumeur) [secret]` and
+   `« Shade creuse un tunnel » -- Shade`; over `self_sheet`'s rows `Shade
+   (character)` and `agility (sans système, agility) : Apprenti`; over public
+   `known_dossier(hero)` the F1 line `Description : Hero porte une cape
+   rouge` with no suffix.
+CP6-CP7 are added by BRIEF-0127-D.
 
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import, by `player_routes._fresh_engine`) -- never Nia's DB. A
@@ -291,6 +315,118 @@ def rule_cp3(engine, ids: dict) -> int:
     return reached
 
 
+class _Rule:
+    """Counts the cases a rule reached; a failed case is reported, not counted."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.reached = 0
+
+    def expect(self, ok: bool, msg: str) -> None:
+        if ok:
+            self.reached += 1
+        else:
+            fail(f"{self.name} {msg}")
+
+
+def _cp4_calls(engine, ids: dict) -> dict:
+    """Every selector call CP4 and CP5 read, by label."""
+    from sqlmodel import Session
+
+    from world_engine import perspective_selectors as ps
+    from world_engine.perspective_view import character_view
+
+    wid = ids["world"]
+    with Session(engine) as db:
+        v = character_view(db, wid, ids["mira"], door="creator")
+        vp = character_view(db, wid, ids["mira"], door="player")
+        pub = ps.public_view(db, wid)
+        return {
+            "hero": ps.known_dossier(ids["hero"], wid, v, db),
+            "shade": ps.known_dossier(ids["shade"], wid, v, db),
+            "cabal": ps.known_dossier(ids["cabal"], wid, v, db),
+            "vex": ps.known_dossier(ids["vex"], wid, v, db),
+            "ordre": ps.known_dossier(ids["ordre"], wid, v, db),
+            "factions": ps.known_factions(wid, v, db),
+            "tunnel": ps.known_facts_mentioning("tunnel", wid, v, db),
+            "tunnel_player": ps.known_facts_mentioning("tunnel", wid, vp, db),
+            "self": ps.self_sheet(wid, v, db),
+            "skills": ps.known_skills(wid, v, db),
+            "public_hero": ps.known_dossier(ids["hero"], wid, pub, db),
+            "public_self": ps.self_sheet(wid, pub, db),
+        }
+
+
+def _section(rows: list[dict], section: str) -> list[dict]:
+    return [r for r in rows if r["section"] == section]
+
+
+def rule_cp4(engine, ids: dict) -> int:
+    from world_engine.facets import FACETS
+
+    r = _Rule("CP4")
+    calls = _cp4_calls(engine, ids)
+    f5 = ids["text"]["F5"]
+    hero = {(x["label"], x["content"], x["secret"], x["certainty"]) for x in _section(calls["hero"], "facets")}
+    r.expect(hero == {
+        (FACETS["description"].label, "Hero porte une cape rouge", False, None),
+        (FACETS["histoire"].label, "Hero fut affranchi", False, None),
+        ("Événement", "Le sacre de Hero", False, None),
+        ("Lien", f5, False, None),
+    }, f"known_dossier(hero) facets {sorted(hero)!r}")
+    hero_m = {x["faction_name"] for x in _section(calls["hero"], "memberships")}
+    r.expect(hero_m == {"Guild", "Cabal"}, f"known_dossier(hero) memberships {sorted(hero_m)!r}")
+    shade = {x["content"] for x in _section(calls["shade"], "facets")}
+    r.expect(shade == {"Shade est une ombre", "Shade creuse un tunnel", "Shade porte un masque", "La fuite de Shade"},
+             f"known_dossier(shade) facets {sorted(shade)!r}")
+    cabal = {x["member_name"] for x in _section(calls["cabal"], "members")}
+    r.expect(cabal == {"Hero", "Mira"}, f"known_dossier(cabal) members {sorted(cabal)!r}")
+    r.expect(calls["vex"] == [] and calls["ordre"] == [], "known_dossier(vex) or (ordre) is not []")
+    factions = [x["name"] for x in calls["factions"]]
+    r.expect(factions == ["Cabal", "Guild", "Guild2"], f"known_factions {factions!r}")
+
+    def mentions(rows):
+        return [(x["content"], x["participants"], x["secret"], x["certainty"]) for x in rows]
+
+    tunnel_rumor = ("Le tunnel cache un tresor", [], True, "rumeur")
+    tunnel_dig = ("Shade creuse un tunnel", ["Shade"], False, None)
+    r.expect(mentions(calls["tunnel"]) == [tunnel_rumor, tunnel_dig],
+             f"known_facts_mentioning(tunnel) {mentions(calls['tunnel'])!r}")
+    r.expect(mentions(calls["tunnel_player"]) == [tunnel_dig],
+             f"known_facts_mentioning(tunnel) at the player's door {mentions(calls['tunnel_player'])!r}")
+    met = [(x["name"], x["type"]) for x in _section(calls["self"], "acquaintances")]
+    r.expect(met == [("Shade", "character")], f"self_sheet acquaintances {met!r}")
+    own = [(x["name"], x["base_domain"], x["system"], x["rank_label"]) for x in _section(calls["self"], "own_skills")]
+    r.expect(own == [("agility", "agility", None, "Apprenti"), ("Ombre", "perception", None, "Initié")],
+             f"self_sheet own_skills {own!r}")
+    skills = [x["name"] for x in calls["skills"]]
+    r.expect(skills == ["Ombre"], f"known_skills {skills!r}")
+    pub = {x["content"] for x in _section(calls["public_hero"], "facets")}
+    r.expect(pub == {ids["text"]["F1"], "Le sacre de Hero", f5}, f"public known_dossier(hero) facets {sorted(pub)!r}")
+    pub_m = {x["faction_name"] for x in _section(calls["public_hero"], "memberships")}
+    r.expect(pub_m == {"Guild"}, f"public known_dossier(hero) memberships {sorted(pub_m)!r}")
+    r.expect(calls["public_self"] == [], "public self_sheet is not []")
+    leaked = sorted({k for rows in calls.values() for row in rows for k in row} & pi.FORBIDDEN_KEYS)
+    r.expect(not leaked, f"rows hold forbidden keys {leaked!r}")
+    return r.reached
+
+
+def rule_cp5(engine, ids: dict) -> int:
+    from world_engine.lore_render import _serialize_rows_by_section
+
+    r = _Rule("CP5")
+    calls = _cp4_calls(engine, ids)
+    tunnel = _serialize_rows_by_section(tuple(calls["tunnel"]))
+    r.expect("« Le tunnel cache un tresor » (certitude : rumeur) [secret]" in tunnel, f"tunnel rows:\n{tunnel}")
+    r.expect("« Shade creuse un tunnel » -- Shade\n" in tunnel + "\n", f"tunnel rows:\n{tunnel}")
+    sheet = _serialize_rows_by_section(tuple(calls["self"]))
+    r.expect("Shade (character)" in sheet, f"self_sheet rows:\n{sheet}")
+    r.expect("agility (sans système, agility) : Apprenti" in sheet, f"self_sheet rows:\n{sheet}")
+    public = _serialize_rows_by_section(tuple(calls["public_hero"])).splitlines()
+    r.expect("- Description : Hero porte une cape rouge" in public, f"public dossier rows:\n{public}")
+    return r.reached
+
+
 def main() -> int:
     engine = pr._fresh_engine()
     try:
@@ -298,7 +434,8 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001 -- fail-closed, reported below
         print(f"FAIL: fixture raised {type(exc).__name__}: {exc}")
         return 1
-    for rule, count, args in ((rule_cp1, 1, ()), (rule_cp2, 7, (engine, ids)), (rule_cp3, 5, (engine, ids))):
+    for rule, count, args in ((rule_cp1, 1, ()), (rule_cp2, 7, (engine, ids)), (rule_cp3, 5, (engine, ids)),
+                              (rule_cp4, 15, (engine, ids)), (rule_cp5, 5, (engine, ids))):
         reached = 0
         try:
             reached = rule(*args)

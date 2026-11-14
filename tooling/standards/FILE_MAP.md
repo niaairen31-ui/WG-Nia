@@ -231,7 +231,7 @@
 - `perspective_audit.py` — The public perspective's audit: every line a public answer withheld, and why (TICKET-0125, BRIEF-0125-D, C-07).
 - `perspective_query.py` — The public perspective's executor: a plan run over what everybody knows (TICKET-0125, BRIEF-0125-D, C-05, C-06).
 - `perspective_render.py` — The public perspective's renderer: the answer to a public question, in prose or by code (TICKET-0125, BRIEF-0125-D, C-08).
-- `perspective_selectors.py` — The public perspective's selectors: what everybody knows about a world (TICKET-0125, BRIEF-0125-D, C-04).
+- `perspective_selectors.py` — The perspective selectors: what a view -- everybody, or one character -- knows about a world (TICKET-0125, BRIEF-0125-D, C-04; TICKET-0127, C-06).
 - `perspective_view.py` — A character's perspective view: what one character knows of his world, and the player's own character (TICKET-0127, BRIEF-0127-B, C-03).
 - `placement.py` — Pure NPC placement for the spatial workstream (TICKET-0031, BRIEF-0031-a).
 - `prompt_call.py` — One templated JSON call to the model, shared by the creator's authoring tools (TICKET-0112, BRIEF-0112-A -- extracted verbatim from `lore_write_draft._call`, which now delegates here).
