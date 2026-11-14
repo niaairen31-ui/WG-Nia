@@ -8,11 +8,14 @@ before; a port that never answers opens nothing.
 
 from __future__ import annotations
 
+import logging
 import socket
 import threading
 import time
 import webbrowser
 from typing import Callable
+
+_log = logging.getLogger(__name__)
 
 _CONNECT_TIMEOUT = 0.5
 _RETRY_INTERVAL = 0.25
@@ -45,12 +48,13 @@ def open_when_ready(
 
 
 def start_opener(url: str, host: str, port: int) -> threading.Thread:
-    """Start and return a daemon thread running `open_when_ready`; print a
-    notice if the cockpit did not answer in time."""
+    """Start and return a daemon thread running `open_when_ready`; log a
+    warning (logging, never `print`: code standard R3) if the cockpit did
+    not answer in time."""
 
     def _run() -> None:
         if not open_when_ready(url, host, port):
-            print("Navigateur non ouvert : le cockpit n'a pas répondu à temps.")
+            _log.warning("Navigateur non ouvert : le cockpit n'a pas répondu à temps.")
 
     thread = threading.Thread(target=_run, name="browser-opener", daemon=True)
     thread.start()
