@@ -1,4 +1,8 @@
-"""The public perspective's selectors: what everybody knows about a world (TICKET-0125, BRIEF-0125-D, C-04).
+"""The perspective selectors: what a view -- everybody, or one character -- knows about a world (TICKET-0125, BRIEF-0125-D, C-04; TICKET-0127, C-06).
+
+Each selector reads the facts, the texts and the entities of its view, and
+never returns a fact or an entity outside it, nor a key naming secrecy
+levels or knowers.
 
 A view is everybody's (`public_view`) or one character's
 (`perspective_view.character_view`, TICKET-0127).
@@ -6,10 +10,9 @@ A view is everybody's (`public_view`) or one character's
 A sibling of `lore_selectors.py` for the player: the creator selectors
 cannot serve a perspective, even filtered afterwards (they carry secrets,
 creator-only notes, knowers and intensities). Every selector here takes a
-`PerspectiveView` -- the world's public facts (a public level above `unaware`,
-creator-only notes subtracted), its public entities (active, `is_public`)
-and the skills visible at creation -- and never returns a fact or an
-entity outside it, nor a key naming secrecy, levels or knowers.
+`PerspectiveView` -- for everybody, the world's public facts (a public level
+above `unaware`, creator-only notes subtracted), its public entities
+(active, `is_public`) and the skills visible at creation.
 Read-only: no write, no commit, no model call.
 """
 
@@ -29,9 +32,10 @@ from .knowledge_resolve import resolve_public_levels
 from .lore_resolve import normalize_surface
 from .lore_selectors import SelectorSpec
 from .models import (
-    Entity, Fact, FactionMembership, FactParticipant, Faction, Relation, SkillDefinition, SkillSystem, WorldLaw,
+    Entity, EventParticipant, Fact, FactionMembership, FactParticipant, Faction, Relation, SkillDefinition,
+    SkillSystem, WorldLaw,
 )
-from .prose_render import fact_texts
+from .prose_render import fact_texts, fact_texts_at
 from .relation_orientation import MAP_TOPOLOGY_TYPES
 
 
@@ -91,11 +95,40 @@ def _label(fact: Fact) -> str:
     return spec.label if spec is not None else "Fait"
 
 
+def view_texts(db: Session, view: PerspectiveView, facts: list) -> list[str]:
+    """The text `view` gives each fact, in input order (C-05): the current
+    text for everybody; for a character, his own wording when he has one,
+    else the fact as it was when he last saw it."""
+    if not facts:
+        return []
+    if view.kind != "character":
+        return fact_texts(db, facts)
+    beliefs = []
+    for fact in facts:
+        belief = view.beliefs.get(fact.id)
+        if belief is None:
+            raise ValueError(f"fact {fact.id!r} is not in the character's view")
+        beliefs.append(belief)
+    unworded = [(fact, belief.as_of) for fact, belief in zip(facts, beliefs) if belief.text is None]
+    rendered = iter(fact_texts_at(db, unworded))
+    return [belief.text if belief.text is not None else next(rendered) for belief in beliefs]
+
+
+def _marks(view: PerspectiveView, fact: Fact) -> dict:
+    """The `secret` and `certainty` of a fact row (C-06): a character's
+    belief; nothing on a public view."""
+    if view.kind != "character":
+        return {"secret": False, "certainty": None}
+    belief = view.beliefs[fact.id]
+    return {"secret": belief.secret, "certainty": belief.certainty}
+
+
 def _participant_facts(entity_id: str, world_id: str, db: Session) -> list[Fact]:
-    """Every free fact of the world with `entity_id` as a participant, event
-    facts aside, in registry facet order (unknown last), then age, then id.
-    Unfiltered: the dossier keeps the public ones, the audit names the rest."""
-    facts = db.exec(
+    """Every free fact of the world with `entity_id` as a participant, and
+    every event fact of an event it takes part in (TICKET-0127, F1), in
+    registry facet order (unknown last), then age, then id. Unfiltered: the
+    dossier keeps the ones of its view, the audit names the rest."""
+    facts = list(db.exec(
         select(Fact)
         .join(FactParticipant, FactParticipant.fact_id == Fact.id)
         .where(
@@ -103,6 +136,11 @@ def _participant_facts(entity_id: str, world_id: str, db: Session) -> list[Fact]
             FactParticipant.entity_id == entity_id,
             Fact.event_id.is_(None),
         )
+    ).all())
+    facts += db.exec(
+        select(Fact)
+        .join(EventParticipant, EventParticipant.event_id == Fact.event_id)
+        .where(Fact.world_id == world_id, EventParticipant.entity_id == entity_id)
     ).all()
     unique = list({fact.id: fact for fact in facts}.values())
     return sorted(unique, key=lambda f: (_FACET_ORDER.get(f.facet, len(_FACET_ORDER)), f.created_at, f.id))
@@ -140,7 +178,21 @@ def _current_memberships(world_id: str, db: Session, *, entity_id=None, faction_
     return list(db.exec(query).all())
 
 
-def _public_members(faction_id: str, world_id: str, view: PerspectiveView, db: Session) -> list[dict]:
+def _membership_shown(member: Entity, faction: Entity, view: PerspectiveView) -> bool:
+    """Rule M (C-06): may `view` show a current non-secret membership of
+    `member` in `faction`? Both must be in the view, and either both are
+    public, or the member is the view's character, or he openly belongs to
+    the faction. On a public view: today's rule."""
+    if faction.id not in view.entity_ids or member.id not in view.entity_ids:
+        return False
+    return (
+        (member.is_public and faction.is_public)
+        or member.id == view.character_id
+        or faction.id in view.member_of
+    )
+
+
+def _view_members(faction_id: str, world_id: str, view: PerspectiveView, db: Session) -> list[dict]:
     # Third sanctioned reader of `faction_membership` for a model prompt
     # (INV-03, INV-66): the same WHERE triplet as `read_public_memberships`,
     # keyed by faction.
@@ -154,8 +206,12 @@ def _public_members(faction_id: str, world_id: str, view: PerspectiveView, db: S
             FactionMembership.is_secret == False,  # noqa: E712
         )
     ).all()
+    faction = db.get(Entity, faction_id)
+    if faction is None:
+        return []
     kept = sorted(
-        ((m, e) for m, e in rows if e.id in view.entity_ids), key=lambda pair: (pair[1].name, pair[1].id),
+        ((m, e) for m, e in rows if _membership_shown(e, faction, view)),
+        key=lambda pair: (pair[1].name, pair[1].id),
     )
     return [
         {"section": "members", "member_name": e.name, "role": m.cover_role if m.cover_role is not None else m.role}
@@ -164,7 +220,7 @@ def _public_members(faction_id: str, world_id: str, view: PerspectiveView, db: S
 
 
 def public_member_ids(faction_id: str, world_id: str, view: PerspectiveView, db: Session) -> tuple[str, ...]:
-    # Same WHERE triplet as `_public_members` (INV-03): ids for the approval's
+    # Same WHERE triplet as `_view_members` (INV-03): ids for the approval's
     # encounters (TICKET-0129, F-b); never rendered into a prompt.
     rows = db.exec(
         select(FactionMembership, Entity)
@@ -180,15 +236,20 @@ def public_member_ids(faction_id: str, world_id: str, view: PerspectiveView, db:
     return tuple(e.id for e in kept)
 
 
-def _public_membership_rows(entity_id: str, world_id: str, view: PerspectiveView, db: Session) -> list[dict]:
-    """`read_public_memberships` rows whose faction is public. The accessor
-    returns names only, so a name shared with a non-public faction of the
-    entity's memberships is dropped too: never shown on a doubt."""
+def _membership_rows(entity_id: str, world_id: str, view: PerspectiveView, db: Session) -> list[dict]:
+    """`read_public_memberships` rows whose membership rule M shows. The
+    accessor returns names only, so a name shared with a membership of the
+    entity that is not shown -- a secret one never is -- is dropped too:
+    never shown on a doubt."""
+    member = db.get(Entity, entity_id)
+    if member is None:
+        return []
     names: dict[str, set[bool]] = {}
     for membership in _current_memberships(world_id, db, entity_id=entity_id):
         faction = db.get(Entity, membership.faction_id)
         if faction is not None:
-            names.setdefault(faction.name, set()).add(faction.id in view.entity_ids)
+            shown = not membership.is_secret and _membership_shown(member, faction, view)
+            names.setdefault(faction.name, set()).add(shown)
     return [
         {"section": "memberships", "faction_name": name, "role": role}
         for name, role in read_public_memberships(entity_id, db)
@@ -197,9 +258,10 @@ def _public_membership_rows(entity_id: str, world_id: str, view: PerspectiveView
 
 
 def known_dossier(entity_id: str, world_id: str, view: PerspectiveView, db: Session) -> list[dict]:
-    """What everybody knows about one public entity: identity, public facts,
-    public relations (`Lien`), memberships in public factions and, for a
-    faction, its public members. Empty when the entity is not public."""
+    """What the view knows about one entity: identity, its facts and the
+    events it took part in (`Événement`), its relations (`Lien`), the
+    memberships rule M shows and, for a faction, the members it shows. Empty
+    when the entity is not in the view."""
     if entity_id not in view.entity_ids:
         return []
     entity = db.exec(select(Entity).where(Entity.id == entity_id, Entity.world_id == world_id)).first()
@@ -208,30 +270,30 @@ def known_dossier(entity_id: str, world_id: str, view: PerspectiveView, db: Sess
     rows: list[dict] = [{"section": "identity", "entity_id": entity.id, "name": entity.name, "type": entity.type}]
     facts = [f for f in _participant_facts(entity_id, world_id, db) if f.id in view.fact_ids]
     rows += [
-        {"section": "facets", "label": _label(fact), "aspect": fact.aspect, "content": text, "secret": False}
-        for fact, text in zip(facts, fact_texts(db, facts))
+        {"section": "facets", "label": "Événement" if fact.event_id else _label(fact), "aspect": fact.aspect,
+         "content": text, **_marks(view, fact)}
+        for fact, text in zip(facts, view_texts(db, view, facts))
     ]
     links = [
         fact for fact, relation in _relation_facts(entity_id, world_id, db)
         if fact.id in view.fact_ids and _other_end(relation, entity_id) in view.entity_ids
     ]
     rows += [
-        {"section": "facets", "label": "Lien", "aspect": None, "content": text, "secret": False}
-        for text in fact_texts(db, links)
+        {"section": "facets", "label": "Lien", "aspect": None, "content": text, **_marks(view, fact)}
+        for fact, text in zip(links, view_texts(db, view, links))
     ]
-    rows += _public_membership_rows(entity_id, world_id, view, db)
+    rows += _membership_rows(entity_id, world_id, view, db)
     if entity.type == "faction":
-        rows += _public_members(entity_id, world_id, view, db)
+        rows += _view_members(entity_id, world_id, view, db)
     return rows
 
 
 def known_factions(world_id: str, view: PerspectiveView, db: Session) -> list[dict]:
-    """One row per public active faction, its public `description` facts joined."""
+    """One row per active faction of the view, its `description` facts of the view joined."""
     pairs = db.exec(
         select(Entity, Faction).join(Faction, Faction.id == Entity.id).where(
             Entity.world_id == world_id,
             Entity.status == "active",
-            Entity.is_public == True,  # noqa: E712
         )
     ).all()
     rows = []
@@ -247,7 +309,7 @@ def known_factions(world_id: str, view: PerspectiveView, db: Session) -> list[di
             "entity_id": entity.id,
             "name": entity.name,
             "faction_type": faction.faction_type,
-            "description": "\n".join(fact_texts(db, descriptions)) if descriptions else None,
+            "description": "\n".join(view_texts(db, view, descriptions)) if descriptions else None,
         })
     return rows
 
@@ -267,10 +329,24 @@ def _facts_matching(text: str, world_id: str, db: Session) -> list[tuple[Fact, s
     return sorted(matched, key=lambda pair: (pair[1], pair[0].id))
 
 
+def _view_facts_matching(text: str, world_id: str, view: PerspectiveView, db: Session) -> list[tuple[Fact, str]]:
+    """The facts of the view whose text in the view (`view_texts`) holds
+    every word of three letters or more of `text`, by that text then id."""
+    wanted = {t for t in normalize_surface(text).split() if len(t) >= _MIN_TOKEN_LENGTH}
+    if not wanted or not view.fact_ids:
+        return []
+    facts = db.exec(select(Fact).where(Fact.world_id == world_id, Fact.id.in_(view.fact_ids))).all()
+    matched = [
+        (fact, rendered) for fact, rendered in zip(facts, view_texts(db, view, facts))
+        if wanted <= set(normalize_surface(rendered).split())
+    ]
+    return sorted(matched, key=lambda pair: (pair[1], pair[0].id))
+
+
 def known_facts_mentioning(text: str, world_id: str, view: PerspectiveView, db: Session) -> list[dict]:
-    """The public facts holding every word of `text`, each with its public
-    participants' names."""
-    matched = [(fact, rendered) for fact, rendered in _facts_matching(text, world_id, db) if fact.id in view.fact_ids]
+    """The facts of the view holding every word of `text`, each with the
+    names of its participants in the view."""
+    matched = _view_facts_matching(text, world_id, view, db)
     participants: dict[str, list[str]] = {}
     if matched:
         for fact_id, entity_id, name in db.exec(
@@ -282,7 +358,8 @@ def known_facts_mentioning(text: str, world_id: str, view: PerspectiveView, db: 
             if entity_id in view.entity_ids:
                 participants.setdefault(fact_id, []).append(name)
     return [
-        {"section": "public_mentions", "content": rendered, "participants": participants.get(fact.id, [])}
+        {"section": "public_mentions", "content": rendered, "participants": participants.get(fact.id, []),
+         **_marks(view, fact)}
         for fact, rendered in matched
     ]
 
