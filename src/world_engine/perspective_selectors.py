@@ -26,17 +26,19 @@ from sqlmodel import Session, select
 
 from .context import read_public_memberships
 from .creation_rules import visible_skill_ids
+from .encounters import acquaintances
 from .facet_reads import creator_only_fact_ids
 from .facets import FACETS
 from .knowledge_resolve import resolve_public_levels
 from .lore_resolve import normalize_surface
 from .lore_selectors import SelectorSpec
 from .models import (
-    Entity, EventParticipant, Fact, FactionMembership, FactParticipant, Faction, Relation, SkillDefinition,
-    SkillSystem, WorldLaw,
+    BASE_SKILL_DOMAINS, Entity, EventParticipant, Fact, FactionMembership, FactParticipant, Faction, Relation,
+    Skill, SkillDefinition, SkillSystem, WorldLaw,
 )
 from .prose_render import fact_texts, fact_texts_at
 from .relation_orientation import MAP_TOPOLOGY_TYPES
+from .skill_ranks import world_ladder
 
 
 PERSPECTIVE_KINDS: tuple[str, ...] = ("public", "character")
@@ -394,6 +396,49 @@ def known_skills(world_id: str, view: PerspectiveView, db: Session) -> list[dict
     ]
 
 
+def self_sheet(world_id: str, view: PerspectiveView, db: Session) -> list[dict]:
+    """The view's character himself (E1): the people he has met, in the
+    view, by name; then his skills, base domains first, then definitions by
+    name, each with its rank's label. Empty on a public view."""
+    if view.kind != "character":
+        return []
+    met = db.exec(
+        select(Entity).where(
+            Entity.id.in_(acquaintances(db, view.character_id) & set(view.entity_ids)),
+            Entity.world_id == world_id,
+        )
+    ).all()
+    rows: list[dict] = [
+        {"section": "acquaintances", "name": e.name, "type": e.type}
+        for e in sorted(met, key=lambda e: (e.name, e.id))
+    ]
+    skills = db.exec(select(Skill).where(Skill.character_id == view.character_id)).all()
+    definitions = {
+        d.id: d for d in db.exec(select(SkillDefinition).where(SkillDefinition.world_id == world_id)).all()
+    }
+    systems = {s.id: s.name for s in db.exec(select(SkillSystem).where(SkillSystem.world_id == world_id)).all()}
+    ladder = world_ladder(db, world_id)
+
+    def order(skill: Skill) -> tuple:
+        definition = definitions.get(skill.skill_definition_id)
+        if definition is None:
+            domains = BASE_SKILL_DOMAINS
+            domain = domains.index(skill.domain) if skill.domain in domains else len(domains)
+            return (0, domain, skill.domain, skill.id)
+        return (1, 0, definition.name, skill.id)
+
+    for skill in sorted(skills, key=order):
+        definition = definitions.get(skill.skill_definition_id)
+        rows.append({
+            "section": "own_skills",
+            "name": definition.name if definition is not None else skill.domain,
+            "base_domain": definition.base_domain if definition is not None else skill.domain,
+            "system": systems.get(definition.system_id) if definition is not None else None,
+            "rank_label": ladder[skill.rank].label,
+        })
+    return rows
+
+
 PERSPECTIVE_SELECTORS: tuple[str, ...] = (
     "known_dossier", "known_factions", "known_facts_mentioning", "world_laws", "known_skills",
 )
@@ -437,3 +482,44 @@ PERSPECTIVE_DESCRIPTIONS: dict[str, str] = {
         "celles qu'un personnage peut choisir à sa création."
     ),
 }
+
+CHARACTER_SELECTORS: tuple[str, ...] = PERSPECTIVE_SELECTORS + ("self_sheet",)
+
+_CHARACTER_LOOKUPS: dict[str, SelectorSpec] = {
+    **_PERSPECTIVE_LOOKUPS,
+    "self_sheet": SelectorSpec(fn=self_sheet, arity=1, row_cap=200, arg_kinds=("world_id",)),
+}
+
+CHARACTER_DESCRIPTIONS: dict[str, str] = {
+    "known_dossier": (
+        "known_dossier(entity_id, $world) -- ce que ce personnage sait sur UNE entite nommee : "
+        "son nom, les faits qu'il connait, ses liens et appartenances connus."
+    ),
+    "known_factions": (
+        "known_factions($world) -- une ligne par faction que ce personnage connait."
+    ),
+    "known_facts_mentioning": (
+        'known_facts_mentioning("text:<mots>", $world) -- les faits que ce personnage connait '
+        "dont le texte contient ces mots (un sujet qui n'est pas une entite nommee)."
+    ),
+    "world_laws": (
+        "world_laws($world) -- les lois fondamentales du monde, connues de tous."
+    ),
+    "known_skills": (
+        "known_skills($world) -- les compétences de ce monde que ce personnage connait."
+    ),
+    "self_sheet": (
+        "self_sheet($world) -- ce personnage lui-même : les personnes qu'il a rencontrées et ses "
+        "compétences avec leur rang (« qui ai-je rencontré ? », « que sais-je faire ? »)."
+    ),
+}
+
+
+def lookups_for(view: PerspectiveView) -> dict[str, SelectorSpec]:
+    """The selector table a view answers through: the character's for a character, else the public one."""
+    return _CHARACTER_LOOKUPS if view.kind == "character" else _PERSPECTIVE_LOOKUPS
+
+
+def descriptions_for(view: PerspectiveView) -> dict[str, str]:
+    """The planner's descriptions of `lookups_for(view)`, in the same order."""
+    return CHARACTER_DESCRIPTIONS if view.kind == "character" else PERSPECTIVE_DESCRIPTIONS
