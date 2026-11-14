@@ -1,9 +1,10 @@
-"""The public perspective's executor: a plan run over what everybody knows (TICKET-0125, BRIEF-0125-D, C-05, C-06).
+"""The perspective executor: a plan run over what a view knows (TICKET-0125, BRIEF-0125-D, C-05, C-06; TICKET-0127, C-09).
 
 The plan comes from the same planner as the creator's Lore question, but it
-is validated against `perspective_selectors._PERSPECTIVE_LOOKUPS`, its
-mentions resolve under the `public` name regime, and a player's binding is
-accepted only among that mention's public candidates (never the creator's
+is validated against the view's table (`perspective_selectors.lookups_for`:
+everybody's, or one character's), its mentions resolve under the view's
+name regime (`public` or `character`), and a player's binding is
+accepted only among that mention's candidates in the view (never the creator's
 binding test, which knows nothing of `is_public`). An unknown,
 non-public or unnamed entity is one verdict, `nothing_known`: an absence is
 never told apart from a secret. Read-only: no write, no commit, no model call.
@@ -20,14 +21,14 @@ from .lore_query import LorePlan, _call_args, validate_plan
 from .lore_resolve import NamedResolution, pre_resolved, resolve_named
 from .models import Entity
 from .name_index import NameScope
-from .perspective_selectors import _PERSPECTIVE_LOOKUPS, PerspectiveView, public_view
+from .perspective_selectors import PerspectiveView, lookups_for, public_view
 
 PERSPECTIVE_VERDICTS: tuple[str, ...] = ("answered", "ambiguous_mention", "nothing_known", "unsupported_selector")
 
 
 class BindingRefused(ValueError):
     """A binding names an unknown mention ref, or an entity outside that
-    mention's public candidates."""
+    mention's candidates in the view."""
 
 
 @dataclass(frozen=True)
@@ -42,26 +43,35 @@ def public_scope(view: PerspectiveView) -> NameScope:
     return NameScope("public", known_fact_ids=view.fact_ids)
 
 
-def resolve_public_mentions(
+def perspective_scope(view: PerspectiveView) -> NameScope:
+    """The name regime of a view: `public` for everybody, `character` for one
+    character (his facts and his entities)."""
+    if view.kind == "character":
+        return NameScope("character", known_fact_ids=view.fact_ids, entity_ids=view.entity_ids)
+    return public_scope(view)
+
+
+def resolve_view_mentions(
     plan: LorePlan, world_id: str, db: Session, view: PerspectiveView,
     bindings: Optional[dict[str, str]] = None,
 ) -> dict[str, NamedResolution]:
-    """Every mention resolved under the public scope (C-06): a bound mention
-    keeps its binding only when the bound id is one of its public
-    candidates. `BindingRefused` otherwise, before any selector runs."""
+    """Every mention resolved under the view's scope (C-06, C-09): a bound
+    mention keeps its binding only when the bound id is one of its
+    candidates in this perspective. `BindingRefused` otherwise, before any
+    selector runs."""
     bindings = bindings or {}
     refs = {m.ref for m in plan.mentions}
     unknown = sorted(set(bindings) - refs)
     if unknown:
         raise BindingRefused(f"binding for unknown mention ref(s) {unknown!r}")
-    scope = public_scope(view)
+    scope = perspective_scope(view)
     resolutions: dict[str, NamedResolution] = {}
     for mention in plan.mentions:
         resolution = resolve_named(mention.surface_form, mention.category, world_id, db, scope=scope)
         if mention.ref in bindings:
             bound = bindings[mention.ref]
             if bound not in resolution.candidate_ids:
-                raise BindingRefused(f"binding {mention.ref!r} is not one of the mention's public candidates")
+                raise BindingRefused(f"binding {mention.ref!r} is not one of the mention's candidates in this perspective")
             resolution = pre_resolved(bound)
         resolutions[mention.ref] = resolution
     return resolutions
@@ -86,19 +96,20 @@ def _ambiguous_items(resolutions: dict[str, NamedResolution], view: PerspectiveV
     return tuple(items)
 
 
-def execute_public_plan(
-    plan: LorePlan, world_id: str, db: Session, bindings: Optional[dict[str, str]] = None,
+def execute_perspective_plan(
+    plan: LorePlan, view: PerspectiveView, db: Session, bindings: Optional[dict[str, str]] = None,
 ) -> PerspectiveResult:
-    """Validate, resolve under the public scope, then run each call through
-    `_PERSPECTIVE_LOOKUPS`, truncated at its `row_cap`. `answered` iff a row
-    lies outside the spec's `context_sections`."""
-    validation = validate_plan(plan, db, lookups=_PERSPECTIVE_LOOKUPS)
+    """Validate against `lookups_for(view)`, resolve under the view's scope,
+    then run each call through that table, truncated at its `row_cap`.
+    `answered` iff a row lies outside the spec's `context_sections`."""
+    lookups = lookups_for(view)
+    world_id = view.world_id
+    validation = validate_plan(plan, db, lookups=lookups)
     if not validation.ok:
         return PerspectiveResult(
             verdict="unsupported_selector", rows=(), ambiguous=(), rejection_reason=validation.reason,
         )
-    view = public_view(db, world_id)
-    resolutions = resolve_public_mentions(plan, world_id, db, view, bindings)
+    resolutions = resolve_view_mentions(plan, world_id, db, view, bindings)
     ambiguous = _ambiguous_items(resolutions, view, db)
     if ambiguous:
         return PerspectiveResult(verdict="ambiguous_mention", rows=(), ambiguous=ambiguous, rejection_reason=None)
@@ -108,7 +119,7 @@ def execute_public_plan(
     rows: list[dict] = []
     content_row_count = 0
     for call in plan.calls:
-        spec = _PERSPECTIVE_LOOKUPS[call.selector]
+        spec = lookups[call.selector]
         args = _call_args(call.args, spec.arg_kinds, world_id, resolutions)
         result_rows = spec.fn(*args, view, db)
         for row in result_rows:
@@ -120,3 +131,10 @@ def execute_public_plan(
     if not content_row_count:
         return PerspectiveResult(verdict="nothing_known", rows=(), ambiguous=(), rejection_reason=None)
     return PerspectiveResult(verdict="answered", rows=tuple(rows), ambiguous=(), rejection_reason=None)
+
+
+def execute_public_plan(
+    plan: LorePlan, world_id: str, db: Session, bindings: Optional[dict[str, str]] = None,
+) -> PerspectiveResult:
+    """The plan over everybody's view (`public_view`)."""
+    return execute_perspective_plan(plan, public_view(db, world_id), db, bindings)
