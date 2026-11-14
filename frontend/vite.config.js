@@ -14,6 +14,8 @@ export default defineConfig({
       input: {
         main: fileURLToPath(new URL('./index.html', import.meta.url)),
         jouer: fileURLToPath(new URL('./jouer.html', import.meta.url)),
+        // TICKET-0130 (A2-a): the home page at /, no script.
+        accueil: fileURLToPath(new URL('./accueil.html', import.meta.url)),
       },
       // TICKET-0055 D3: cytoscape stays vendored and is served by the
       // pre-existing GET /vendor/{filename} route. The bundler must never

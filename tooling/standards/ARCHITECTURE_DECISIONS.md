@@ -20918,6 +20918,22 @@ Deferred: ranks set before the write (A2; the skill tools after the
 approval meanwhile); a second player character per world (G2,
 TICKET-0128); dated encounters (TICKET-0120).
 
+## TICKET-0130 — the home page and the launcher (BRIEF-0130-a, no schema change)
+
+`/` serves `accueil.html`, a third Vite input with no script and two
+links: « Créatrice » to the creator's shell, now reached at `/play`,
+and « Joueur » to the player's shell at `/jouer` (A2-a, H1). `/` left
+`_SHELL_ROUTES` and `router.js`. The player's shell links to neither
+(B1). `scripts/cockpit.py --ouvrir` opens the default browser on the
+home page once the server accepts connections
+(`cockpit/browser_open.py`); without the flag nothing opens (O1). The
+preview in `.claude/launch.json` sets `WORLD_ENGINE_ENV=test` itself
+(P1); an explicit `WORLD_ENGINE_DATABASE_URL` still wins. Gate:
+`home_page.py`.
+
+Deferred: a link from the creator's shell to the home page; the
+player profiles on the home page (H2).
+
 ---
 
 *Co-built with Claude, June 2026.*

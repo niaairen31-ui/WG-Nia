@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <title>World Engine</title>
+    <link rel="stylesheet" href="/static/shared.css">
+    <style>
+      .home { min-height: 100vh; display: flex; flex-direction: column;
+              align-items: center; justify-content: center; gap: 2rem;
+              background: var(--bg); color: var(--text); }
+      .home h1 { margin: 0; font-size: 2rem; }
+      .home-doors { display: flex; gap: 1.5rem; flex-wrap: wrap;
+                    justify-content: center; }
+      .home-door { display: block; width: 14rem; padding: 1.5rem;
+                   background: var(--card); border: 1px solid var(--border);
+                   border-radius: var(--radius); color: var(--text);
+                   text-decoration: none; text-align: center; }
+      .home-door:hover { border-color: var(--accent); }
+      .home-door strong { display: block; font-size: 1.25rem;
+                          margin-bottom: 0.5rem; }
+      .home-door span { color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <main class="home">
+      <h1>World Engine</h1>
+      <nav class="home-doors">
+        <a class="home-door" href="/play">
+          <strong>Créatrice</strong>
+          <span>Créer et faire vivre les mondes</span>
+        </a>
+        <a class="home-door" href="/jouer">
+          <strong>Joueur</strong>
+          <span>Entrer dans un monde ouvert</span>
+        </a>
+      </nav>
+    </main>
+  </body>
+</html>

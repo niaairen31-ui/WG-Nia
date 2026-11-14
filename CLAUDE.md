@@ -16,9 +16,10 @@ and how to run things. Invariants that hold for one part of the code live in
 
 - Python, FastAPI, SQLModel, SQLite (Supabase/PostgreSQL migration path
   preserved via the env-var DB URL).
-- Frontend: a built Svelte shell (`frontend/`) serves the cockpit at `/`.
-  Creation, Observation, Journée and Lore are shell-native Svelte
-  components, mounted directly by `App.svelte`; Play alone stays legacy
+- Frontend: a built Svelte shell (`frontend/`) serves the cockpit at `/play`;
+  `/` is a script-free home page linking it and the player shell. Creation,
+  Observation, Journée and Lore are shell-native Svelte components,
+  mounted directly by `App.svelte`; Play alone stays legacy
   (`/legacy`, one governed iframe, `cockpit/legacy.html`) until its own
   ticket. The player shell is a second page, `/jouer`, with its own bundle.
   No new dependency without a decision.
@@ -323,7 +324,9 @@ WG-Nia/
   (`proposed_by='local_ai_window'`), advances `last_analyzed_turn`
   atomically. `--force` deletes *proposed* rows only, resets the cursor,
   re-analyzes the full transcript (reviewed rows are never deleted).
-- **World cockpit:** `python scripts/cockpit.py` -> http://127.0.0.1:8000,
+- **World cockpit:** `python scripts/cockpit.py` -> http://127.0.0.1:8000 (home
+  page: creator's shell at `/play`, player's at `/jouer`; `--ouvrir` opens it once
+  the server answers; `.claude/launch.json` pins `WORLD_ENGINE_ENV=test`),
   loopback only; requires Ollama for all AI calls. Turn mechanics, overhearing
   accumulation, window-analysis triggers, batch review and Voyager ordering
   are documented in `tooling/standards/ARCHITECTURE_DECISIONS.md`.

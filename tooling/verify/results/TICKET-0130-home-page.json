@@ -1,0 +1,17 @@
+{
+  "ticket": "TICKET-0130-home-page",
+  "when": "2026-11-14T17:08:23.931333+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "home_page.py",
+      "status": "PASS",
+      "msg": "PASS: home_page -- / serves the home page with two doors and no script; the shell stays at /play; --ouvrir opens once the port answers; the preview pins the test database"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u2014 200 check(s) discovered, 200 executed, 200 passed"
+    }
+  ]
+}
