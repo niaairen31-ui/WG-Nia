@@ -1,5 +1,8 @@
 """The public perspective's selectors: what everybody knows about a world (TICKET-0125, BRIEF-0125-D, C-04).
 
+A view is everybody's (`public_view`) or one character's
+(`perspective_view.character_view`, TICKET-0127).
+
 A sibling of `lore_selectors.py` for the player: the creator selectors
 cannot serve a perspective, even filtered afterwards (they carry secrets,
 creator-only notes, knowers and intensities). Every selector here takes a
@@ -12,7 +15,9 @@ Read-only: no write, no commit, no model call.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Mapping, Optional
 
 from sqlmodel import Session, select
 
@@ -30,12 +35,31 @@ from .prose_render import fact_texts
 from .relation_orientation import MAP_TOPOLOGY_TYPES
 
 
+PERSPECTIVE_KINDS: tuple[str, ...] = ("public", "character")
+PERSPECTIVE_DOORS: tuple[str, ...] = ("creator", "player")
+
+
+@dataclass(frozen=True)
+class Belief:
+    text: Optional[str]        # the holder's own wording (knowledge content); None: the fact's text at as_of
+    as_of: Optional[datetime]  # Known.as_of
+    certainty: Optional[str]   # "rumeur" | "soupçon" | "partiel" | None
+    secret: bool               # the holder's knowledge row is is_secret
+    incorrect: bool            # the holder's knowledge row is is_incorrect -- never a row key
+
+
 @dataclass(frozen=True)
 class PerspectiveView:
     world_id: str
     fact_ids: frozenset[str]
     entity_ids: frozenset[str]
     skill_ids: frozenset[str]
+    kind: str = "public"
+    character_id: Optional[str] = None
+    character_name: Optional[str] = None
+    door: str = "creator"
+    member_of: frozenset[str] = frozenset()
+    beliefs: Mapping[str, Belief] = field(default_factory=dict, hash=False)
 
 
 def public_view(db: Session, world_id: str) -> PerspectiveView:
