@@ -29,7 +29,7 @@ from .models import (
 )
 from .ollama_client import chat
 from .perspective_query import public_scope
-from .perspective_selectors import PublicView, public_view
+from .perspective_selectors import PerspectiveView, public_view
 from .skill_ranks import world_ladder
 
 SUBJECT_USAGE = "creation_subject"
@@ -119,7 +119,7 @@ class _Listing:
     code_of: dict[str, str]             # skill_key -> "s1"
 
 
-def _listing(db: Session, world_id: str, view: PublicView, rules: CreationRuleSet) -> _Listing:
+def _listing(db: Session, world_id: str, view: PerspectiveView, rules: CreationRuleSet) -> _Listing:
     sheet = start_sheet(db, world_id, rules)
     # A base domain's key is its domain literal; a definition's is its id (INV-44).
     lines = tuple(line for line in sheet if line.skill_key == line.base_domain or line.skill_key in view.skill_ids)
@@ -222,7 +222,7 @@ def _resolve_skills(items: Any, listing: _Listing, notes: list[str]) -> tuple[De
     return tuple(kept.values())
 
 
-def _existing_character(name: str, world_id: str, view: PublicView, db: Session) -> Optional[str]:
+def _existing_character(name: str, world_id: str, view: PerspectiveView, db: Session) -> Optional[str]:
     if not name:
         return None
     resolution = resolve_named(name, "person", world_id, db, scope=public_scope(view))
@@ -232,7 +232,7 @@ def _existing_character(name: str, world_id: str, view: PublicView, db: Session)
     return entity.id if entity is not None and entity.type == "character" else None
 
 
-def _resolve_sketches(items: Any, room: int, listing: _Listing, world_id: str, view: PublicView,
+def _resolve_sketches(items: Any, room: int, listing: _Listing, world_id: str, view: PerspectiveView,
                       db: Session, notes: list[str]) -> tuple[DesignedSketch, ...]:
     sketches: list[DesignedSketch] = []
     for item in items if isinstance(items, list) else []:
@@ -307,7 +307,7 @@ def _resolve_knowledge(items: Any) -> tuple[DesignedKnowledge, ...]:
 
 
 def _resolve(reply: dict, *, listing: _Listing, lore: CreationLore, room: int, world_id: str,
-             view: PublicView, db: Session) -> dict:
+             view: PerspectiveView, db: Session) -> dict:
     notes: list[str] = []
     resolved = {
         "skills": _resolve_skills(reply.get("skills"), listing, notes),

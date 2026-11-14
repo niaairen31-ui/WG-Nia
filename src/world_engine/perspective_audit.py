@@ -23,7 +23,7 @@ from .name_index import NAMES_ONLY
 from .perspective_query import resolve_public_mentions
 from .perspective_selectors import (
     _PERSPECTIVE_LOOKUPS,
-    PublicView,
+    PerspectiveView,
     _current_memberships,
     _facts_matching,
     _participant_facts,
@@ -43,7 +43,7 @@ def _membership_line(name: str, membership: FactionMembership) -> str:
     return f"{name} ({role or '-'})"
 
 
-def _withheld_facts(facts: list, about: str, view: PublicView, db: Session) -> list[tuple]:
+def _withheld_facts(facts: list, about: str, view: PerspectiveView, db: Session) -> list[tuple]:
     hidden = [f for f in facts if f.id not in view.fact_ids]
     creator_only = creator_only_fact_ids(db, [f.id for f in hidden])
     return [
@@ -52,7 +52,7 @@ def _withheld_facts(facts: list, about: str, view: PublicView, db: Session) -> l
     ]
 
 
-def _withheld_dossier(entity: Entity, world_id: str, view: PublicView, db: Session) -> list[tuple]:
+def _withheld_dossier(entity: Entity, world_id: str, view: PerspectiveView, db: Session) -> list[tuple]:
     if entity.id not in view.entity_ids:
         return [("entity_not_public", entity.name, entity.name)]
     facts = _participant_facts(entity.id, world_id, db)
@@ -78,7 +78,7 @@ def _withheld_dossier(entity: Entity, world_id: str, view: PublicView, db: Sessi
     return lines
 
 
-def _withheld_factions(world_id: str, view: PublicView, db: Session) -> list[tuple]:
+def _withheld_factions(world_id: str, view: PerspectiveView, db: Session) -> list[tuple]:
     factions = db.exec(
         select(Entity).join(Faction, Faction.id == Entity.id).where(
             Entity.world_id == world_id, Entity.status == "active",
@@ -87,7 +87,7 @@ def _withheld_factions(world_id: str, view: PublicView, db: Session) -> list[tup
     return [("entity_not_public", e.name, e.name) for e in factions if e.id not in view.entity_ids]
 
 
-def _withheld_skills(world_id: str, view: PublicView, db: Session) -> list[tuple]:
+def _withheld_skills(world_id: str, view: PerspectiveView, db: Session) -> list[tuple]:
     definitions = db.exec(select(SkillDefinition).where(SkillDefinition.world_id == world_id)).all()
     return [("skill_not_visible", d.name, d.name) for d in definitions if d.id not in view.skill_ids]
 
@@ -114,14 +114,14 @@ def withheld(
     for call in plan.calls:
         if call.selector == "world_laws":
             continue
-        if call.selector == "public_factions":
+        if call.selector == "known_factions":
             lines.update(_withheld_factions(world_id, view, db))
             continue
-        if call.selector == "public_skills":
+        if call.selector == "known_skills":
             lines.update(_withheld_skills(world_id, view, db))
             continue
         spec = _PERSPECTIVE_LOOKUPS[call.selector]
-        if call.selector == "public_facts_mentioning":
+        if call.selector == "known_facts_mentioning":
             (text, _) = _call_args(call.args, spec.arg_kinds, world_id, {})
             facts = [fact for fact, _ in _facts_matching(text, world_id, db)]
             lines.update(_withheld_facts(facts, text, view, db))

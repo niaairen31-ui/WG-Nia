@@ -29,9 +29,9 @@ PI4 -- fixture (sanctioned writers). One world: Hero (public character),
    c. a dossier on « Shade » and d. on « Nobody »: `nothing_known`, no rows;
       « Shade » does not resolve under the public scope (its name is no
       public surface).
-   e. `public_facts_mentioning("tunnel")`: one `public_mentions` row (F6),
+   e. `known_facts_mentioning("tunnel")`: one `public_mentions` row (F6),
       no participant.
-   f. `public_factions` names {Guild, Guild2}; `world_laws` the law.
+   f. `known_factions` names {Guild, Guild2}; `world_laws` the law.
    g. `withheld`: b -> {not_public F2, creator_only F3, faction_not_public
       "Cabal (-)", secret_membership "Guild2 (-)"}, all subject Hero;
       c -> {entity_not_public Shade "Shade"}; e -> {not_public "tunnel" F7}.
@@ -46,9 +46,9 @@ PI6 -- skills (BRIEF-0126-D). A world of its own: system `Visible`
    (default) and system `Cachée` (`visible_at_creation = False`); `Lame` in
    `Visible`, `Ombre` in `Cachée`, `Voix` in `Cachée` with
    `visible_at_creation = True` and `requires_master`. Exact sets:
-   `public_view(...).skill_ids == {Lame, Voix}`; `public_skills` returns
+   `public_view(...).skill_ids == {Lame, Voix}`; `known_skills` returns
    `Voix` (system `Cachée`) then `Lame` (system `Visible`), each row's keys
-   exactly C-07's, none forbidden; `withheld` of `public_skills($world)` is
+   exactly C-07's, none forbidden; `withheld` of `known_skills($world)` is
    exactly `[skill_not_visible Ombre "Ombre"]`; the plan is `answered`; its
    serialized rows hold `- Voix (Cachée, composure) ; exige un maître` and
    `- Lame (Visible, agility)`.
@@ -289,7 +289,7 @@ def rule_pi4(engine) -> int:
             fail("PI4a public entities are not Hero, Guild, Guild2 and the two Twins")
         reached += 1
 
-        hero_plan = _plan("public_dossier", mention="Hero")
+        hero_plan = _plan("known_dossier", mention="Hero")
         hero = execute_public_plan(hero_plan, wid, db)
         if hero.verdict != "answered":
             fail(f"PI4b the dossier on Hero is {hero.verdict!r}, expected 'answered'")
@@ -302,8 +302,8 @@ def rule_pi4(engine) -> int:
                 fail(f"PI4b a row holds forbidden key(s) {sorted(set(row) & FORBIDDEN_KEYS)}")
         reached += 1
 
-        shade_plan = _plan("public_dossier", mention="Shade")
-        for label, plan in (("PI4c Shade", shade_plan), ("PI4d Nobody", _plan("public_dossier", mention="Nobody"))):
+        shade_plan = _plan("known_dossier", mention="Shade")
+        for label, plan in (("PI4c Shade", shade_plan), ("PI4d Nobody", _plan("known_dossier", mention="Nobody"))):
             result = execute_public_plan(plan, wid, db)
             if result.verdict != "nothing_known" or result.rows:
                 fail(f"{label}: {result.verdict!r} with {len(result.rows)} row(s), expected nothing_known, none")
@@ -312,14 +312,14 @@ def rule_pi4(engine) -> int:
             fail(f"PI4c « Shade » resolves under the public scope ({shade_named.verdict!r})")
         reached += 1
 
-        tunnel_plan = _plan("public_facts_mentioning", text="tunnel")
+        tunnel_plan = _plan("known_facts_mentioning", text="tunnel")
         tunnel = execute_public_plan(tunnel_plan, wid, db)
         mentions = _rows(tunnel, "public_mentions")
         if [(r["content"], r["participants"]) for r in mentions] != [(text["F6"], [])]:
             fail(f"PI4e tunnel mentions are {mentions!r}, expected F6 with no participant")
         reached += 1
 
-        factions = execute_public_plan(_plan("public_factions"), wid, db)
+        factions = execute_public_plan(_plan("known_factions"), wid, db)
         if {r["name"] for r in _rows(factions, "factions")} != {"Guild", "Guild2"}:
             fail(f"PI4f public factions are {[r['name'] for r in factions.rows]}")
         laws = execute_public_plan(_plan("world_laws"), wid, db)
@@ -348,7 +348,7 @@ def rule_pi4(engine) -> int:
             fail("PI4h a binding to Shade was accepted")
         except BindingRefused:
             pass
-        twin_plan = _plan("public_dossier", mention="Twin")
+        twin_plan = _plan("known_dossier", mention="Twin")
         twin = execute_public_plan(twin_plan, wid, db)
         candidates = twin.ambiguous[0]["candidates"] if twin.ambiguous else []
         if twin.verdict != "ambiguous_mention" or {c["entity_id"] for c in candidates} != {ids["twin1"], ids["twin2"]}:
@@ -429,7 +429,7 @@ def rule_pi6(engine) -> int:
     from world_engine.models import SkillDefinition, SkillSystem, World
     from world_engine.perspective_audit import withheld
     from world_engine.perspective_query import execute_public_plan
-    from world_engine.perspective_selectors import public_skills, public_view
+    from world_engine.perspective_selectors import known_skills, public_view
 
     reached = 0
     with Session(engine) as db:
@@ -455,9 +455,9 @@ def rule_pi6(engine) -> int:
             fail(f"PI6 public skill ids {sorted(view.skill_ids)} != Lame, Voix")
         reached += 1
 
-        rows = public_skills(wid, view, db)
+        rows = known_skills(wid, view, db)
         if [(r["name"], r["system"]) for r in rows] != [("Voix", "Cachée"), ("Lame", "Visible")]:
-            fail(f"PI6 public_skills rows are {[(r.get('name'), r.get('system')) for r in rows]}")
+            fail(f"PI6 known_skills rows are {[(r.get('name'), r.get('system')) for r in rows]}")
         for row in rows:
             if set(row) != SKILL_KEYS:
                 fail(f"PI6 a skill row's keys are {sorted(row)}")
@@ -465,15 +465,15 @@ def rule_pi6(engine) -> int:
                 fail(f"PI6 a skill row holds forbidden key(s) {sorted(set(row) & FORBIDDEN_KEYS)}")
         reached += 1
 
-        plan = _plan("public_skills")
+        plan = _plan("known_skills")
         got = withheld(plan, wid, db)
         if got != [{"reason": "skill_not_visible", "subject": "Ombre", "content": "Ombre"}]:
-            fail(f"PI6 the audit of public_skills is {got!r}")
+            fail(f"PI6 the audit of known_skills is {got!r}")
         reached += 1
 
         result = execute_public_plan(plan, wid, db)
         if result.verdict != "answered":
-            fail(f"PI6 public_skills is {result.verdict!r}, expected 'answered'")
+            fail(f"PI6 known_skills is {result.verdict!r}, expected 'answered'")
         text = lore_render._serialize_rows_by_section(result.rows)
         for line in ("- Voix (Cachée, composure) ; exige un maître", "- Lame (Visible, agility)"):
             if line not in text.splitlines():

@@ -1,7 +1,7 @@
 """The read shape of a character draft, for the player (through the public view) and for the creator (TICKET-0126, BRIEF-0126-G). Reads only.
 
 `draft_view` answers one draft with its skills, people, factions and
-knowledge (C-13). Given a `PublicView` -- the player's door -- an entity
+knowledge (C-13). Given a `PerspectiveView` -- the player's door -- an entity
 the draft points at that is not in the view is answered with no name
 (INV-66); without one -- the creator's -- it is named. `open_draft_of`
 finds a user's not yet approved draft of a world. No write, no flush, no
@@ -15,23 +15,23 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from .models import Entity, PcDraft, PcDraftKnowledge, PcDraftMembership, PcDraftSketch, PcDraftSkill
-from .perspective_selectors import PublicView
+from .perspective_selectors import PerspectiveView
 
 
-def _name(db: Session, entity_id: Optional[str], view: Optional[PublicView]) -> Optional[str]:
+def _name(db: Session, entity_id: Optional[str], view: Optional[PerspectiveView]) -> Optional[str]:
     if entity_id is None or (view is not None and entity_id not in view.entity_ids):
         return None
     entity = db.get(Entity, entity_id)
     return entity.name if entity is not None else None
 
 
-def _entity(db: Session, entity_id: Optional[str], view: Optional[PublicView]) -> Optional[dict]:
+def _entity(db: Session, entity_id: Optional[str], view: Optional[PerspectiveView]) -> Optional[dict]:
     if entity_id is None:
         return None
     return {"entity_id": entity_id, "name": _name(db, entity_id, view)}
 
 
-def draft_view(db: Session, draft: PcDraft, *, view: Optional[PublicView]) -> dict:
+def draft_view(db: Session, draft: PcDraft, *, view: Optional[PerspectiveView]) -> dict:
     """The draft as the screens read it (C-13)."""
     skills = db.exec(select(PcDraftSkill).where(PcDraftSkill.draft_id == draft.id)
                      .order_by(PcDraftSkill.skill_key)).all()

@@ -16,7 +16,7 @@ CD3 -- static. `creation_lore.py` and `creation_designer.py` hold none of
    `CREATOR`, `NameScope("creator"`, `include_creator_only`,
    `entity_dossier`, `who_knows_about`, `world_factions`, `World.is_active`,
    `_world_id(`, `db.add(`, `.commit(`, `.flush(`, nor `facts_mentioning(`
-   outside `public_facts_mentioning(`; neither imports from
+   outside `known_facts_mentioning(`; neither imports from
    `lore_selectors`.
 CD4 -- `backstory_terms` then `design` on a draft added directly (status `draft`,
    two player sketches), `creation_designer.chat` stubbed:
@@ -238,8 +238,8 @@ def rule_cd3() -> int:
         for needle in FORBIDDEN:
             if needle in text:
                 fail(f"CD3 {name} contains {needle!r}")
-        if text.count("facts_mentioning(") != text.count("public_facts_mentioning("):
-            fail(f"CD3 {name} calls facts_mentioning( outside public_facts_mentioning(")
+        if text.count("facts_mentioning(") != text.count("known_facts_mentioning("):
+            fail(f"CD3 {name} calls facts_mentioning( outside known_facts_mentioning(")
         for node in ast.walk(ast.parse(text)):
             if isinstance(node, ast.ImportFrom) and (node.module or "").endswith("lore_selectors"):
                 fail(f"CD3 {name} imports from lore_selectors")

@@ -3,7 +3,7 @@
 A sibling of `lore_selectors.py` for the player: the creator selectors
 cannot serve a perspective, even filtered afterwards (they carry secrets,
 creator-only notes, knowers and intensities). Every selector here takes a
-`PublicView` -- the world's public facts (a public level above `unaware`,
+`PerspectiveView` -- the world's public facts (a public level above `unaware`,
 creator-only notes subtracted), its public entities (active, `is_public`)
 and the skills visible at creation -- and never returns a fact or an
 entity outside it, nor a key naming secrecy, levels or knowers.
@@ -31,14 +31,14 @@ from .relation_orientation import MAP_TOPOLOGY_TYPES
 
 
 @dataclass(frozen=True)
-class PublicView:
+class PerspectiveView:
     world_id: str
     fact_ids: frozenset[str]
     entity_ids: frozenset[str]
     skill_ids: frozenset[str]
 
 
-def public_view(db: Session, world_id: str) -> PublicView:
+def public_view(db: Session, world_id: str) -> PerspectiveView:
     """The facts whose public level is above `unaware`, minus the creator's
     notes (INV-01), the active entities whose `is_public` is true, and the
     skill definitions visible at creation (`creation_rules.visible_skill_ids`)."""
@@ -52,7 +52,7 @@ def public_view(db: Session, world_id: str) -> PublicView:
             Entity.is_public == True,  # noqa: E712
         )
     ).all()
-    return PublicView(
+    return PerspectiveView(
         world_id=world_id, fact_ids=frozenset(fact_ids), entity_ids=frozenset(entity_ids),
         skill_ids=visible_skill_ids(db, world_id),
     )
@@ -116,7 +116,7 @@ def _current_memberships(world_id: str, db: Session, *, entity_id=None, faction_
     return list(db.exec(query).all())
 
 
-def _public_members(faction_id: str, world_id: str, view: PublicView, db: Session) -> list[dict]:
+def _public_members(faction_id: str, world_id: str, view: PerspectiveView, db: Session) -> list[dict]:
     # Third sanctioned reader of `faction_membership` for a model prompt
     # (INV-03, INV-66): the same WHERE triplet as `read_public_memberships`,
     # keyed by faction.
@@ -139,7 +139,7 @@ def _public_members(faction_id: str, world_id: str, view: PublicView, db: Sessio
     ]
 
 
-def public_member_ids(faction_id: str, world_id: str, view: PublicView, db: Session) -> tuple[str, ...]:
+def public_member_ids(faction_id: str, world_id: str, view: PerspectiveView, db: Session) -> tuple[str, ...]:
     # Same WHERE triplet as `_public_members` (INV-03): ids for the approval's
     # encounters (TICKET-0129, F-b); never rendered into a prompt.
     rows = db.exec(
@@ -156,7 +156,7 @@ def public_member_ids(faction_id: str, world_id: str, view: PublicView, db: Sess
     return tuple(e.id for e in kept)
 
 
-def _public_membership_rows(entity_id: str, world_id: str, view: PublicView, db: Session) -> list[dict]:
+def _public_membership_rows(entity_id: str, world_id: str, view: PerspectiveView, db: Session) -> list[dict]:
     """`read_public_memberships` rows whose faction is public. The accessor
     returns names only, so a name shared with a non-public faction of the
     entity's memberships is dropped too: never shown on a doubt."""
@@ -172,7 +172,7 @@ def _public_membership_rows(entity_id: str, world_id: str, view: PublicView, db:
     ]
 
 
-def public_dossier(entity_id: str, world_id: str, view: PublicView, db: Session) -> list[dict]:
+def known_dossier(entity_id: str, world_id: str, view: PerspectiveView, db: Session) -> list[dict]:
     """What everybody knows about one public entity: identity, public facts,
     public relations (`Lien`), memberships in public factions and, for a
     faction, its public members. Empty when the entity is not public."""
@@ -201,7 +201,7 @@ def public_dossier(entity_id: str, world_id: str, view: PublicView, db: Session)
     return rows
 
 
-def public_factions(world_id: str, view: PublicView, db: Session) -> list[dict]:
+def known_factions(world_id: str, view: PerspectiveView, db: Session) -> list[dict]:
     """One row per public active faction, its public `description` facts joined."""
     pairs = db.exec(
         select(Entity, Faction).join(Faction, Faction.id == Entity.id).where(
@@ -243,7 +243,7 @@ def _facts_matching(text: str, world_id: str, db: Session) -> list[tuple[Fact, s
     return sorted(matched, key=lambda pair: (pair[1], pair[0].id))
 
 
-def public_facts_mentioning(text: str, world_id: str, view: PublicView, db: Session) -> list[dict]:
+def known_facts_mentioning(text: str, world_id: str, view: PerspectiveView, db: Session) -> list[dict]:
     """The public facts holding every word of `text`, each with its public
     participants' names."""
     matched = [(fact, rendered) for fact, rendered in _facts_matching(text, world_id, db) if fact.id in view.fact_ids]
@@ -263,13 +263,13 @@ def public_facts_mentioning(text: str, world_id: str, view: PublicView, db: Sess
     ]
 
 
-def world_laws(world_id: str, view: PublicView, db: Session) -> list[dict]:
+def world_laws(world_id: str, view: PerspectiveView, db: Session) -> list[dict]:
     """The world's fundamental laws, by position: known to everybody."""
     laws = db.exec(select(WorldLaw).where(WorldLaw.world_id == world_id).order_by(WorldLaw.position)).all()
     return [{"section": "laws", "position": law.position, "text": law.text_} for law in laws]
 
 
-def public_skills(world_id: str, view: PublicView, db: Session) -> list[dict]:
+def known_skills(world_id: str, view: PerspectiveView, db: Session) -> list[dict]:
     """The skills everybody knows: the definitions visible at creation, one row each."""
     definitions = db.exec(select(SkillDefinition).where(SkillDefinition.world_id == world_id)).all()
     systems = {s.id: s.name for s in db.exec(select(SkillSystem).where(SkillSystem.world_id == world_id)).all()}
@@ -294,45 +294,45 @@ def public_skills(world_id: str, view: PublicView, db: Session) -> list[dict]:
 
 
 PERSPECTIVE_SELECTORS: tuple[str, ...] = (
-    "public_dossier", "public_factions", "public_facts_mentioning", "world_laws", "public_skills",
+    "known_dossier", "known_factions", "known_facts_mentioning", "world_laws", "known_skills",
 )
 
 _PERSPECTIVE_LOOKUPS: dict[str, SelectorSpec] = {
-    "public_dossier": SelectorSpec(
-        fn=public_dossier, arity=2, row_cap=400, arg_kinds=("entity_id", "world_id"),
+    "known_dossier": SelectorSpec(
+        fn=known_dossier, arity=2, row_cap=400, arg_kinds=("entity_id", "world_id"),
         context_sections=("identity",),
     ),
-    "public_factions": SelectorSpec(
-        fn=public_factions, arity=1, row_cap=200, arg_kinds=("world_id",),
+    "known_factions": SelectorSpec(
+        fn=known_factions, arity=1, row_cap=200, arg_kinds=("world_id",),
     ),
-    "public_facts_mentioning": SelectorSpec(
-        fn=public_facts_mentioning, arity=2, row_cap=200, arg_kinds=("text", "world_id"),
+    "known_facts_mentioning": SelectorSpec(
+        fn=known_facts_mentioning, arity=2, row_cap=200, arg_kinds=("text", "world_id"),
     ),
     "world_laws": SelectorSpec(
         fn=world_laws, arity=1, row_cap=100, arg_kinds=("world_id",),
     ),
-    "public_skills": SelectorSpec(
-        fn=public_skills, arity=1, row_cap=200, arg_kinds=("world_id",),
+    "known_skills": SelectorSpec(
+        fn=known_skills, arity=1, row_cap=200, arg_kinds=("world_id",),
     ),
 }
 
 PERSPECTIVE_DESCRIPTIONS: dict[str, str] = {
-    "public_dossier": (
-        "public_dossier(entity_id, $world) -- ce que tout le monde sait sur UNE "
+    "known_dossier": (
+        "known_dossier(entity_id, $world) -- ce que tout le monde sait sur UNE "
         "entite nommee : son nom, ses faits publics, ses liens et appartenances publics."
     ),
-    "public_factions": (
-        "public_factions($world) -- une ligne par faction connue de tous."
+    "known_factions": (
+        "known_factions($world) -- une ligne par faction connue de tous."
     ),
-    "public_facts_mentioning": (
-        'public_facts_mentioning("text:<mots>", $world) -- les faits connus de tous '
+    "known_facts_mentioning": (
+        'known_facts_mentioning("text:<mots>", $world) -- les faits connus de tous '
         "dont le texte contient ces mots (un sujet qui n'est pas une entite nommee)."
     ),
     "world_laws": (
         "world_laws($world) -- les lois fondamentales du monde, connues de tous."
     ),
-    "public_skills": (
-        "public_skills($world) -- les compétences de ce monde connues de tous : "
+    "known_skills": (
+        "known_skills($world) -- les compétences de ce monde connues de tous : "
         "celles qu'un personnage peut choisir à sa création."
     ),
 }

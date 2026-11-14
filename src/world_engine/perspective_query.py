@@ -20,7 +20,7 @@ from .lore_query import LorePlan, _call_args, validate_plan
 from .lore_resolve import NamedResolution, pre_resolved, resolve_named
 from .models import Entity
 from .name_index import NameScope
-from .perspective_selectors import _PERSPECTIVE_LOOKUPS, PublicView, public_view
+from .perspective_selectors import _PERSPECTIVE_LOOKUPS, PerspectiveView, public_view
 
 PERSPECTIVE_VERDICTS: tuple[str, ...] = ("answered", "ambiguous_mention", "nothing_known", "unsupported_selector")
 
@@ -38,12 +38,12 @@ class PerspectiveResult:
     rejection_reason: Optional[str]
 
 
-def public_scope(view: PublicView) -> NameScope:
+def public_scope(view: PerspectiveView) -> NameScope:
     return NameScope("public", known_fact_ids=view.fact_ids)
 
 
 def resolve_public_mentions(
-    plan: LorePlan, world_id: str, db: Session, view: PublicView,
+    plan: LorePlan, world_id: str, db: Session, view: PerspectiveView,
     bindings: Optional[dict[str, str]] = None,
 ) -> dict[str, NamedResolution]:
     """Every mention resolved under the public scope (C-06): a bound mention
@@ -67,7 +67,7 @@ def resolve_public_mentions(
     return resolutions
 
 
-def _ambiguous_items(resolutions: dict[str, NamedResolution], view: PublicView, db: Session) -> tuple[dict, ...]:
+def _ambiguous_items(resolutions: dict[str, NamedResolution], view: PerspectiveView, db: Session) -> tuple[dict, ...]:
     items = []
     for ref, resolution in resolutions.items():
         if resolution.verdict != "ambiguous":
