@@ -276,6 +276,7 @@
 
 - `__init__.py` — Cockpit sub-package — local review web UI for World Engine.
 - `app.py` — Cockpit — local review web UI for World Engine.
+- `browser_open.py` — Open the browser on the cockpit once it answers (TICKET-0130, O1).
 - `day_plan_finalize.py` — Plan finalizers, relocated from `cockpit/routes/day.py` for module-budget headroom (TICKET-0121, BRIEF-0121-D) -- the `day_reconcile_apply.py` precedent.
 - `day_reconcile_apply.py` — Reconciliation finalizers, relocated from `cockpit/routes/day.py` for module-budget headroom (TICKET-0077, BRIEF-0077-a) — the `models/config.py::AgendaStep` relocation precedent.
 - `mutations.py` — Per-mutation-type canon appliers (TICKET-0027, BRIEF-0027-c).
@@ -500,6 +501,7 @@
 - `germ_attach.py` — G1 check for TICKET-0124 -- a germ says where it comes from, and can join an existing character instead of creating one.
 - `graph_primitive.py` — G1 check: the graph primitive convergence lock (TICKET-0057, BRIEF-0057-d; amended BRIEF-0058-b to prove convergence, not just presence).
 - `h1_strip_bounded.py` — G1 gate: the H1 partial-application strip exists ONLY inside the `goal_change complete` path — the project's one sanctioned exception to all-or-nothing mutation apply (TICKET-0024, BRIEF-0024-c).
+- `home_page.py` — G1 check for TICKET-0130 -- the home page at /, the browser opener, the preview's database.
 - `identity_tokens.py` — G1 check for TICKET-0091 (BRIEF-0091-J) — identity tokens (F1).
 - `import_cycle.py` — G1 check: no import cycle among `src/world_engine` modules (TICKET-0035).
 - `journee_inquiry.py` — G1 check for TICKET-0121 -- Journée routes a declaration to a quest.
