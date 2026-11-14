@@ -17,8 +17,9 @@ and how to run things. Invariants that hold for one part of the code live in
 - Python, FastAPI, SQLModel, SQLite (Supabase/PostgreSQL migration path
   preserved via the env-var DB URL).
 - Frontend: a built Svelte shell (`frontend/`) serves the cockpit at `/play`;
-  `/` is a script-free home page linking it and the player shell. Creation, Observation, Journée and Lore are shell-native Svelte
-  components, mounted directly by `App.svelte`; Play alone stays legacy
+  `/` is a script-free home page linking it and the player shell. Creation,
+  Observation, Journée and Lore are shell-native Svelte components,
+  mounted directly by `App.svelte`; Play alone stays legacy
   (`/legacy`, one governed iframe, `cockpit/legacy.html`) until its own
   ticket. The player shell is a second page, `/jouer`, with its own bundle.
   No new dependency without a decision.
