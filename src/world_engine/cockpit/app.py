@@ -289,6 +289,17 @@ def _check_frontend_build_on_startup() -> None:
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+@app.get("/", response_class=HTMLResponse)
+def serve_home() -> HTMLResponse:
+    """The home page (TICKET-0130, A2-a): two links, the creator's shell
+    at /play and the player's at /jouer. No script. Not a `_SHELL_ROUTES`
+    surface."""
+    return HTMLResponse(
+        (_STATIC_DIR / "accueil.html").read_text(encoding="utf-8"),
+        headers={"cache-control": _REVALIDATE_CACHE_CONTROL},
+    )
+
+
 @app.get("/jouer", response_class=HTMLResponse)
 def serve_player_shell() -> HTMLResponse:
     """The player shell (TICKET-0125, P1): its own page and bundle, never
@@ -329,7 +340,7 @@ def serve_legacy() -> HTMLResponse:
 #
 # This literal is mirrored by SHELL_ROUTES in frontend/src/lib/router.js;
 # tooling/verify/checks/legacy_mount.py asserts the two agree.
-_SHELL_ROUTES = ("/", "/play", "/creation", "/creation/{sub_tab}", "/observation", "/journee", "/lore")
+_SHELL_ROUTES = ("/play", "/creation", "/creation/{sub_tab}", "/observation", "/journee", "/lore")
 
 
 def _serve_shell() -> HTMLResponse:
