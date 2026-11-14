@@ -48,9 +48,10 @@ def _character_name(db: Session, world_id: str, character_id: str) -> str:
 
 
 def _beliefs(db: Session, fact_ids: set[str], known: dict, stored: dict) -> dict:
-    """Step 4: one `Belief` per id of `fact_ids`."""
-    worded = [stored[fid] for fid in sorted(fact_ids) if fid in stored and stored[fid].content_raw is not None]
-    texts = dict(zip((row.fact_id for row in worded), knowledge_texts(db, worded)))
+    """Step 4: one `Belief` per id of `fact_ids`; a stored row without
+    content renders `None` (`prose_render.knowledge_texts`)."""
+    held = [stored[fid] for fid in sorted(fact_ids) if fid in stored]
+    texts = dict(zip((row.fact_id for row in held), knowledge_texts(db, held)))
     beliefs = {}
     for fid in fact_ids:
         row = stored.get(fid)

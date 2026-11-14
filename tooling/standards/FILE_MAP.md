@@ -232,6 +232,7 @@
 - `perspective_query.py` — The public perspective's executor: a plan run over what everybody knows (TICKET-0125, BRIEF-0125-D, C-05, C-06).
 - `perspective_render.py` — The public perspective's renderer: the answer to a public question, in prose or by code (TICKET-0125, BRIEF-0125-D, C-08).
 - `perspective_selectors.py` — The public perspective's selectors: what everybody knows about a world (TICKET-0125, BRIEF-0125-D, C-04).
+- `perspective_view.py` — A character's perspective view: what one character knows of his world, and the player's own character (TICKET-0127, BRIEF-0127-B, C-03).
 - `placement.py` — Pure NPC placement for the spatial workstream (TICKET-0031, BRIEF-0031-a).
 - `prompt_call.py` — One templated JSON call to the model, shared by the creator's authoring tools (TICKET-0112, BRIEF-0112-A -- extracted verbatim from `lore_write_draft._call`, which now delegates here).
 - `prompt_coverage.py` — Day-chain prompt coverage guard (TICKET-0076, BRIEF-0076-a).
@@ -423,6 +424,7 @@
 - `attribute_interpreter.py` — G1 check for TICKET-0113 -- the condition interpreter reads and writes states: the `a` list, the attribute leaf, the prompt delivered fragment by fragment.
 - `attributes.py` — G1 check for TICKET-0113 -- the state of the world: a world's attributes, one value per entity, its history kept.
 - `character_form.py` — G1 check for TICKET-0121 -- `is_character`, the form of a quest kept for one character.
+- `character_perspective.py` — G1 check for TICKET-0127 -- a character's perspective answers only what he knows, keeps a secret from the player's door, and journals every question.
 - `choice_review.py` — G1 check for TICKET-0095 (K1).
 - `claude_md_contract.py` — G1 check for TICKET-0010 (BRIEF-0010-a), extended by TICKET-0117 -- the instruction corpus: the root CLAUDE.md and every `.claude/rules/*.md`.
 - `condition_interpreter.py` — G1 check for TICKET-0112 -- the condition interpreter.
