@@ -3,7 +3,9 @@
    calls a creator route and imports nothing outside frontend/src/joueur/
    (INV-66). The chosen profile is a choice, not a login: its {id, name}
    is remembered under localStorage `wg-joueur-profile` and travels in the
-   request body. */
+   request body. TICKET-0127 (G1): when the profile has a character in the
+   chosen world (`character`, from /api/joueur/personnage), « Mes savoirs »
+   asks as that character at the player's door; otherwise as everybody. */
 
 import { closeCreation } from './character.svelte.js';
 
@@ -14,6 +16,7 @@ export const joueurState = $state({
   profiles: [],
   worlds: [],
   world: null,
+  character: null,
   question: '',
   asking: false,
   error: '',
@@ -84,6 +87,7 @@ export async function createProfile(name) {
 export function chooseProfile(p) {
   joueurState.profile = p ? { id: p.id, name: p.name } : null;
   joueurState.world = null;
+  joueurState.character = null;
   clearQuestion();
   try {
     if (joueurState.profile) {
@@ -118,10 +122,31 @@ export async function loadWorlds() {
   }
 }
 
+export async function loadCharacter() {
+  const profile = joueurState.profile;
+  const world = joueurState.world;
+  if (!profile || !world) {
+    joueurState.character = null;
+    return;
+  }
+  try {
+    const own = await call('/api/joueur/personnage?profile_id=' + encodeURIComponent(profile.id)
+      + '&world_id=' + encodeURIComponent(world.id));
+    if (joueurState.world === world) {
+      joueurState.character = own && own.character_id ? { id: own.character_id, name: own.name } : null;
+    }
+  } catch (e) {
+    joueurState.character = null;
+    joueurState.error = e.message;
+  }
+}
+
 export function openWorld(w) {
   joueurState.world = w;
+  joueurState.character = null;
   clearQuestion();
   closeCreation();
+  if (w) loadCharacter();
 }
 
 export async function askSavoir() {
@@ -131,12 +156,21 @@ export async function askSavoir() {
   joueurState.error = '';
   joueurState.attemptId = crypto.randomUUID();
   try {
-    joueurState.result = await postJson('/api/joueur/savoir/ask', {
-      profile_id: joueurState.profile.id,
-      world_id: joueurState.world.id,
-      question,
-      attempt_id: joueurState.attemptId,
-    });
+    const character = joueurState.character;
+    joueurState.result = character
+      ? await postJson('/api/joueur/personnage/savoir/ask', {
+        profile_id: joueurState.profile.id,
+        world_id: joueurState.world.id,
+        character_id: character.id,
+        question,
+        attempt_id: joueurState.attemptId,
+      })
+      : await postJson('/api/joueur/savoir/ask', {
+        profile_id: joueurState.profile.id,
+        world_id: joueurState.world.id,
+        question,
+        attempt_id: joueurState.attemptId,
+      });
     joueurState.selections = {};
   } catch (e) {
     joueurState.error = e.message;
@@ -162,14 +196,18 @@ export async function confirmSavoir() {
   joueurState.asking = true;
   joueurState.error = '';
   try {
-    joueurState.result = await postJson('/api/joueur/savoir/resolve', {
+    const character = joueurState.character;
+    const payload = {
       profile_id: joueurState.profile.id,
       world_id: joueurState.world.id,
       plan: result.plan,
       bindings: { ...joueurState.selections },
       question: joueurState.question,
       attempt_id: joueurState.attemptId,
-    });
+    };
+    joueurState.result = character
+      ? await postJson('/api/joueur/personnage/savoir/resolve', { ...payload, character_id: character.id })
+      : await postJson('/api/joueur/savoir/resolve', payload);
     joueurState.selections = {};
   } catch (e) {
     joueurState.error = e.message;
