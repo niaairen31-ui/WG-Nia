@@ -1,11 +1,13 @@
 <script>
-  /* TICKET-0125 (BRIEF-0125-F, H1-a, H1-b). Lore > Perspective: the
-     creator asks a question "as the public" and sees what the player would
-     see (« Ce que voit le joueur ») beside what was withheld and why
-     (« Retenu »). Read-only: the route writes its journal row, nothing else. */
+  /* TICKET-0125 (BRIEF-0125-F, H1-a, H1-b), TICKET-0127 (I1). Lore >
+     Perspective: the creator asks a question "as the public" or as any one
+     character (« Un personnage », his own secrets shown at her door) and sees
+     what that view yields (« Ce que voit le joueur » / « Ce que sait X »)
+     beside what was withheld and why (« Retenu »). Read-only: the route
+     writes its journal row, nothing else. */
   import {
     perspectiveState, askPerspective, selectPerspectiveCandidate, allPerspectiveChoicesMade,
-    confirmPerspective, resetPerspectiveForWorld,
+    confirmPerspective, resetPerspectiveForWorld, loadPerspectiveCharacters,
   } from './perspective.svelte.js';
 
   let { visible = false } = $props();
@@ -16,7 +18,29 @@
     entity_not_public: 'entité non publique',
     secret_membership: 'appartenance secrète',
     faction_not_public: 'faction non publique',
+    skill_not_visible: 'compétence invisible à la création',
+    not_known: 'inconnu de ce personnage',
+    entity_unknown: 'entité inconnue de ce personnage',
+    membership_unknown: 'appartenance inconnue de ce personnage',
+    skill_unknown: 'compétence inconnue de ce personnage',
+    false_belief: 'croyance fausse — la vérité',
+    stale_version: 'version périmée — le texte actuel',
+    concealed: 'su mais caché (porte joueur)',
   });
+
+  let asCharacter = $derived(perspectiveState.perspective === 'character');
+  let playerCharacters = $derived(perspectiveState.characters.filter((c) => c.character_type === 'player'));
+  let npcCharacters = $derived(perspectiveState.characters.filter((c) => c.character_type !== 'player'));
+  let characterName = $derived(
+    perspectiveState.characters.find((c) => c.id === perspectiveState.characterId)?.name || '',
+  );
+
+  // An event handler, never the reset effect (INV-55).
+  function onPerspectiveChange() {
+    if (perspectiveState.perspective === 'character' && perspectiveState.characters.length === 0) {
+      loadPerspectiveCharacters();
+    }
+  }
 
   let rowsBySection = $derived.by(() => {
     const grouped = {};
@@ -43,10 +67,33 @@
   <div class="queue-body">
     <label class="perspective-select">
       Perspective
-      <select bind:value={perspectiveState.perspective} disabled={perspectiveState.asking}>
+      <select
+        bind:value={perspectiveState.perspective}
+        disabled={perspectiveState.asking}
+        onchange={onPerspectiveChange}
+      >
         <option value="public">Public — ce que tout le monde sait</option>
+        <option value="character">Un personnage — ce qu'il sait</option>
       </select>
     </label>
+    {#if asCharacter}
+      <label class="perspective-select">
+        Personnage
+        <select bind:value={perspectiveState.characterId} disabled={perspectiveState.asking}>
+          <option value="">— choisir —</option>
+          <optgroup label="Personnages joueurs">
+            {#each playerCharacters as c (c.id)}
+              <option value={c.id}>{c.name}</option>
+            {/each}
+          </optgroup>
+          <optgroup label="PNJ">
+            {#each npcCharacters as c (c.id)}
+              <option value={c.id}>{c.name}</option>
+            {/each}
+          </optgroup>
+        </select>
+      </label>
+    {/if}
     <textarea
       bind:value={perspectiveState.question}
       rows="4"
@@ -58,7 +105,8 @@
     {/if}
     <div>
       <button
-        disabled={perspectiveState.asking || !perspectiveState.question.trim()}
+        disabled={perspectiveState.asking || !perspectiveState.question.trim()
+          || (asCharacter && !perspectiveState.characterId)}
         onclick={() => askPerspective()}
       >
         {perspectiveState.asking ? '⟳ Interrogation…' : 'Interroger'}
@@ -68,7 +116,7 @@
     {#if perspectiveState.result}
       {@const result = perspectiveState.result}
       <section class="perspective-seen">
-        <h3>Ce que voit le joueur</h3>
+        <h3>{asCharacter ? `Ce que sait ${characterName}` : 'Ce que voit le joueur'}</h3>
         <p class="answer-prose">{result.answer}</p>
         {#if result.verdict === 'ambiguous_mention'}
           <div class="perspective-candidates">
