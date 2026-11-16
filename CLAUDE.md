@@ -134,7 +134,9 @@ listed in `tooling/verify/baselines/invariant_ids.retired`. Each ends with
   by query construction, never by instruction. What an NPC knows but conceals
   is a `knowledge` row with `is_secret = TRUE`, excluded at every assembler
   AND every propagation path (`analyze_overhearing` never sources a proposal
-  from one). The creator's note on an entity (a `histoire` fact whose entity
+  from one), but for its holder's own view: the tick, and the holder's
+  perspective at the creator's door (`perspective_view.character_view`); the
+  player's door drops it. The creator's note on an entity (a `histoire` fact whose entity
   holds an `unaware` `is_secret` row on it) is excluded from `facet_reads`;
   only the Lore dossier opts in, plus the `creator` regime of `name_index`
   (Lore question, names panel, writing panel, condition interpreter, quest designer). Token
