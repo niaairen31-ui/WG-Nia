@@ -28,6 +28,14 @@ PSH5 -- (TICKET-0126, BRIEF-0126-H) `WorldPage.svelte` no longer holds
    attente de sa revue.` and `8 personnes au plus.`; a built asset under
    `src/world_engine/cockpit/static/assets` carries `Soumettre mon
    personnage`.
+PSH6 -- (TICKET-0127, BRIEF-0127-E) `perspective.svelte.js` holds
+   `/api/lore/perspective/characters` and `character_id`;
+   `PerspectivePanel.svelte` holds `Un personnage`, `Personnages joueurs`,
+   `PNJ`, `Ce que sait` and the eight labels added for a character's audit;
+   `joueur.svelte.js` holds `/api/joueur/personnage/savoir/ask`,
+   `/api/joueur/personnage/savoir/resolve` and `/api/joueur/personnage?`;
+   `WorldPage.svelte` holds `Mes savoirs`; a built asset under
+   `src/world_engine/cockpit/static/assets` carries `Mes savoirs`.
 
 A missing file, or a rule that collected nothing, is a FAILURE.
 """
@@ -204,8 +212,38 @@ def rule_psh5() -> None:
         fail("PSH5: no built asset carries « Soumettre mon personnage »")
 
 
+CHARACTER_LABELS = (
+    "compétence invisible à la création", "inconnu de ce personnage", "entité inconnue de ce personnage",
+    "appartenance inconnue de ce personnage", "compétence inconnue de ce personnage",
+    "croyance fausse — la vérité", "version périmée — le texte actuel", "su mais caché (porte joueur)",
+)
+
+
+def rule_psh6() -> None:
+    wanted = (
+        (LORE / "perspective.svelte.js", ("/api/lore/perspective/characters", "character_id")),
+        (LORE / "PerspectivePanel.svelte",
+         ("Un personnage", "Personnages joueurs", "PNJ", "Ce que sait") + CHARACTER_LABELS),
+        (JOUEUR / "joueur.svelte.js", ("/api/joueur/personnage/savoir/ask", "/api/joueur/personnage/savoir/resolve",
+                                       "/api/joueur/personnage?")),
+        (JOUEUR / "WorldPage.svelte", ("Mes savoirs",)),
+    )
+    for path, needles in wanted:
+        text = _read(path)
+        if text is None:
+            continue
+        for needle in needles:
+            if needle not in text:
+                fail(f"PSH6: {path.name} does not hold {needle!r}")
+    built = sorted(ASSETS.glob("*.js")) if ASSETS.is_dir() else []
+    if not built:
+        fail("PSH6: no built asset under static/assets")
+    elif not any("Mes savoirs" in p.read_text(encoding="utf-8") for p in built):
+        fail("PSH6: no built asset carries « Mes savoirs »")
+
+
 def main() -> int:
-    for rule in (rule_psh1, rule_psh2, rule_psh3, rule_psh4, rule_psh5):
+    for rule in (rule_psh1, rule_psh2, rule_psh3, rule_psh4, rule_psh5, rule_psh6):
         try:
             rule()
         except Exception as exc:  # noqa: BLE001 -- fail-closed, reported below
@@ -216,7 +254,8 @@ def main() -> int:
         return 1
     print("PASS: player_shell -- the Lore perspective tab is wired; "
           "the player shell calls only /api/joueur and imports nothing of the creator; "
-          "the creation screen is wired to /api/joueur/creation and built")
+          "the creation screen is wired to /api/joueur/creation and built; "
+          "a character's perspective is wired in Lore and « Mes savoirs » in /jouer")
     return 0
 
 
