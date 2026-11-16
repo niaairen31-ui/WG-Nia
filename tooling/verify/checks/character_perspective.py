@@ -58,7 +58,35 @@ CP5 -- `lore_render._serialize_rows_by_section` over the tunnel rows holds
    (character)` and `agility (sans système, agility) : Apprenti`; over public
    `known_dossier(hero)` the F1 line `Description : Hero porte une cape
    rouge` with no suffix.
-CP6-CP7 are added by BRIEF-0127-D.
+CP6 -- executor and audit on Mira's views (`perspective_isolation._plan`):
+   `known_dossier` « Hero » answered with C-06's rows; « Vex »
+   `nothing_known`; « Twin » `ambiguous_mention` with exactly the two public
+   Twins; a binding to `twin3` raises `BindingRefused`; `_plan("self_sheet")`
+   on `public_view` is `unsupported_selector`. `withheld_for` as `(reason,
+   subject, content)`: « Hero », creator door -> creator_only « Hero trahira
+   la guilde », false_belief « Hero fut esclave », not_known « Hero cache une
+   dague », secret_membership « Guild2 (-) »; « Shade » -> stale_version
+   « Shade a ote son masque », membership_unknown « Guild (-) »; `text:tunnel`
+   creator door -> `[]`, player door -> concealed « Le tunnel cache un
+   tresor »; `known_factions` -> entity_unknown Ordre; « Vex » ->
+   entity_unknown Vex; `known_skills` -> skill_unknown Lame, and on
+   `public_view` skill_not_visible Lame and Ombre. `withheld` (public) of
+   « Hero » is PI4g's four lines plus not_public « Hero cache une dague ».
+   `render_perspective(nothing_known, ..., nom="Mira")` prose is « Rien de ce
+   que Mira sait ne répond à cette question. ».
+CP7 -- the routes (TestClient, the `player_routes` harness): (a) `GET
+   /api/lore/perspective/characters` lists Lune first, then Hero, Mira,
+   Shade, Twin x3, Vex, keys exactly `{id, name, character_type}`; (b)
+   `character` without `character_id`, `public` with one, and an unknown id
+   -> 422, no journal row; (c) the creator asks as Mira about « tunnel »: 200
+   with `CREATOR_KEYS`, the render prompt holds the rumor and `[secret]`, one
+   `perspective_ask/ok` row naming `character`, Mira, `creator`; (d) `GET
+   /api/joueur/personnage` names Lune for Ana, nothing for Bo; (e) Ana asks
+   as Lune, same plan: 200 with `PLAYER_KEYS`, the render prompt does NOT
+   hold the rumor, the journal's `withheld` holds it as `concealed`, with
+   Lune and `player:<ana>`; (f) Bo with Lune's id -> 404, no row; (g)
+   resolve as Lune, « Twin » bound to `twin3` -> 422 `Choix refusé.`, one
+   `perspective_resolve/refused` row.
 
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import, by `player_routes._fresh_engine`) -- never Nia's DB. A
@@ -427,6 +455,165 @@ def rule_cp5(engine, ids: dict) -> int:
     return r.reached
 
 
+def rule_cp6(engine, ids: dict) -> int:
+    from sqlmodel import Session
+
+    from world_engine import perspective_selectors as ps
+    from world_engine.lore_prompt import RenderSpec
+    from world_engine.perspective_audit import withheld, withheld_for
+    from world_engine.perspective_query import BindingRefused, PerspectiveResult, execute_perspective_plan
+    from world_engine.perspective_render import render_perspective
+    from world_engine.perspective_view import character_view
+
+    r = _Rule("CP6")
+    wid, text = ids["world"], ids["text"]
+    with Session(engine) as db:
+        v = character_view(db, wid, ids["mira"], door="creator")
+        vp = character_view(db, wid, ids["mira"], door="player")
+        pub = ps.public_view(db, wid)
+        hero = execute_perspective_plan(pi._plan("known_dossier", mention="Hero"), v, db)
+        r.expect(hero.verdict == "answered" and list(hero.rows) == ps.known_dossier(ids["hero"], wid, v, db),
+                 f"« Hero » {hero.verdict}")
+        vex = execute_perspective_plan(pi._plan("known_dossier", mention="Vex"), v, db)
+        r.expect(vex.verdict == "nothing_known", f"« Vex » {vex.verdict}")
+        twin_plan = pi._plan("known_dossier", mention="Twin")
+        twin = execute_perspective_plan(twin_plan, v, db)
+        found = {c["entity_id"] for item in twin.ambiguous for c in item["candidates"]}
+        r.expect(twin.verdict == "ambiguous_mention" and found == {ids["twin1"], ids["twin2"]},
+                 f"« Twin » {twin.verdict} {sorted(found)}")
+        try:
+            execute_perspective_plan(twin_plan, v, db, bindings={"m1": ids["twin3"]})
+            fail("CP6 a binding to twin3 was accepted")
+        except BindingRefused:
+            r.reached += 1
+        sheet = execute_perspective_plan(pi._plan("self_sheet"), pub, db)
+        r.expect(sheet.verdict == "unsupported_selector", f"public self_sheet {sheet.verdict}")
+
+        def audit(plan, view):
+            return {(x["reason"], x["subject"], x["content"]) for x in withheld_for(plan, view, db)}
+
+        cases = {
+            "Hero": (pi._plan("known_dossier", mention="Hero"), v, {
+                ("creator_only", "Hero", "Hero trahira la guilde"), ("false_belief", "Hero", "Hero fut esclave"),
+                ("not_known", "Hero", "Hero cache une dague"), ("secret_membership", "Hero", "Guild2 (-)")}),
+            "Shade": (pi._plan("known_dossier", mention="Shade"), v, {
+                ("stale_version", "Shade", "Shade a ote son masque"), ("membership_unknown", "Shade", "Guild (-)")}),
+            "tunnel creator": (pi._plan("known_facts_mentioning", text="tunnel"), v, set()),
+            "tunnel player": (pi._plan("known_facts_mentioning", text="tunnel"), vp, {
+                ("concealed", "tunnel", "Le tunnel cache un tresor")}),
+            "factions": (pi._plan("known_factions"), v, {("entity_unknown", "Ordre", "Ordre")}),
+            "Vex": (pi._plan("known_dossier", mention="Vex"), v, {("entity_unknown", "Vex", "Vex")}),
+            "skills": (pi._plan("known_skills"), v, {("skill_unknown", "Lame", "Lame")}),
+            "public skills": (pi._plan("known_skills"), pub, {
+                ("skill_not_visible", "Lame", "Lame"), ("skill_not_visible", "Ombre", "Ombre")}),
+        }
+        for label, (plan, view, want) in cases.items():
+            got = audit(plan, view)
+            r.expect(got == want, f"withheld_for {label}: {sorted(got)} != {sorted(want)}")
+        public_hero = {(x["reason"], x["subject"], x["content"])
+                       for x in withheld(pi._plan("known_dossier", mention="Hero"), wid, db)}
+        want = {("not_public", "Hero", text["F2"]), ("creator_only", "Hero", text["F3"]),
+                ("faction_not_public", "Hero", "Cabal (-)"), ("secret_membership", "Hero", "Guild2 (-)"),
+                ("not_public", "Hero", "Hero cache une dague")}
+        r.expect(public_hero == want, f"public withheld « Hero »: {sorted(public_hero)} != {sorted(want)}")
+    nothing = PerspectiveResult(verdict="nothing_known", rows=(), ambiguous=(), rejection_reason=None)
+    spec = RenderSpec.__new__(RenderSpec)
+    prose = render_perspective(nothing, "?", spec, nom="Mira").prose
+    r.expect(prose == "Rien de ce que Mira sait ne répond à cette question.", f"render nothing_known {prose!r}")
+    return r.reached
+
+
+TUNNEL_PLAN = {"mentions": [], "calls": [{"selector": "known_facts_mentioning", "args": ["text:tunnel", "$world"]}]}
+
+
+def _user_text(stub) -> str:
+    """Every user message the stub received, joined."""
+    return "\n".join(m.get("content", "") for messages in stub.messages for m in messages if m.get("role") == "user")
+
+
+def rule_cp7(engine, ids: dict) -> int:
+    from fastapi.testclient import TestClient
+    from sqlmodel import Session
+
+    from world_engine import lore_plan, lore_render, ollama_client
+    from world_engine.cockpit.app import app
+
+    r = _Rule("CP7")
+    wid, ana, bo, rumor = ids["world"], ids["ana"], ids["bo"], "Le tunnel cache un tresor"
+    with Session(engine) as db:
+        pr._seed_prompts(db)
+    client = TestClient(app, base_url="http://127.0.0.1")
+    original_ping = ollama_client.ping
+    plan_stub, prose_stub = pr._Stub([TUNNEL_PLAN] * 3), pr._Stub(["Un tunnel."] * 3)
+    plan_original, prose_original = pr._swap(lore_plan, plan_stub), pr._swap(lore_render, prose_stub)
+    ollama_client.ping = lambda *a, **k: []
+    try:
+        # (a) the characters
+        listed = client.get("/api/lore/perspective/characters", params={"world_id": wid}).json()
+        names = [c.get("name") for c in listed] if isinstance(listed, list) else listed
+        r.expect(names == ["Lune", "Hero", "Mira", "Shade", "Twin", "Twin", "Twin", "Vex"]
+                 and all(set(c) == {"id", "name", "character_type"} for c in listed), f"(a) characters {names!r}")
+        # (b) refused before any row
+        before = pr._all_events(engine)
+        ask = {"question": "?", "world_id": wid}
+        for label, body, detail in (
+                ("character without id", dict(ask, perspective="character"), "Perspective inconnue."),
+                ("public with id", dict(ask, perspective="public", character_id=ids["mira"]), "Perspective inconnue."),
+                ("unknown id", dict(ask, perspective="character", character_id="no-such-id"), "Personnage inconnu.")):
+            got = client.post("/api/lore/perspective/ask", json=body)
+            r.expect(got.status_code == 422 and got.json().get("detail") == detail,
+                     f"(b) {label} -> {got.status_code} {got.text[:200]}")
+        r.expect(pr._all_events(engine) == before, "(b) a refused perspective was journaled")
+        # (c) the creator asks as Mira
+        creator = client.post("/api/lore/perspective/ask", json=dict(
+            ask, question="Le tunnel ?", perspective="character", character_id=ids["mira"],
+            attempt_id=pr._attempt(701)))
+        r.expect(creator.status_code == 200 and set(creator.json()) == pr.CREATOR_KEYS,
+                 f"(c) creator ask -> {creator.status_code} {creator.text[:200]}")
+        prompt = _user_text(prose_stub)
+        r.expect(rumor in prompt and "[secret]" in prompt, f"(c) render prompt lacks the secret rumor:\n{prompt}")
+        row = pr._one("CP7 (c)", engine, pr._attempt(701), "perspective_ask", "ok", "creator")
+        r.expect(row is not None and row.payload.get("perspective") == "character"
+                 and row.payload.get("character_id") == ids["mira"], "(c) journal row perspective / character_id")
+        # (d) the player's own character
+        own = client.get("/api/joueur/personnage", params={"profile_id": ana, "world_id": wid}).json()
+        none = client.get("/api/joueur/personnage", params={"profile_id": bo, "world_id": wid}).json()
+        r.expect(own == {"character_id": ids["lune"], "name": "Lune"}
+                 and none == {"character_id": None, "name": None}, f"(d) {own!r} / {none!r}")
+        # (e) Ana asks as Lune
+        prose_stub.messages.clear()
+        player = client.post("/api/joueur/personnage/savoir/ask", json={
+            "profile_id": ana, "world_id": wid, "character_id": ids["lune"], "question": "Le tunnel ?",
+            "attempt_id": pr._attempt(702)})
+        r.expect(player.status_code == 200 and set(player.json()) == pr.PLAYER_KEYS,
+                 f"(e) player ask -> {player.status_code} {player.text[:200]}")
+        r.expect(rumor not in _user_text(prose_stub) and rumor not in player.text,
+                 "(e) the secret rumor reached the player's render prompt or answer")
+        row = pr._one("CP7 (e)", engine, pr._attempt(702), "perspective_ask", "ok", f"player:{ana}")
+        audit = {(x["reason"], x["subject"], x["content"]) for x in (row.payload.get("withheld") or [])} if row else set()
+        r.expect(row is not None and ("concealed", "tunnel", rumor) in audit
+                 and row.payload.get("character_id") == ids["lune"], f"(e) journal withheld {sorted(audit)!r}")
+        # (f) Bo with Lune's id
+        before = pr._all_events(engine)
+        foreign = client.post("/api/joueur/personnage/savoir/ask", json={
+            "profile_id": bo, "world_id": wid, "character_id": ids["lune"], "question": "?"})
+        r.expect(foreign.status_code == 404 and foreign.json().get("detail") == "Personnage introuvable."
+                 and pr._all_events(engine) == before, f"(f) foreign character -> {foreign.status_code}")
+        # (g) a binding outside Lune's candidates
+        refused = client.post("/api/joueur/personnage/savoir/resolve", json={
+            "profile_id": ana, "world_id": wid, "character_id": ids["lune"], "plan": pr.TWIN_PLAN,
+            "bindings": {"m1": ids["twin3"]}, "question": "Twin ?", "attempt_id": pr._attempt(703)})
+        r.expect(refused.status_code == 422 and refused.json().get("detail") == pr.REFUSED,
+                 f"(g) binding to twin3 -> {refused.status_code} {refused.text[:200]}")
+        r.expect(pr._one("CP7 (g)", engine, pr._attempt(703), "perspective_resolve", "refused") is not None,
+                 "(g) no refused row")
+    finally:
+        ollama_client.ping = original_ping
+        lore_plan.chat = plan_original
+        lore_render.chat = prose_original
+    return r.reached
+
+
 def main() -> int:
     engine = pr._fresh_engine()
     try:
@@ -435,7 +622,8 @@ def main() -> int:
         print(f"FAIL: fixture raised {type(exc).__name__}: {exc}")
         return 1
     for rule, count, args in ((rule_cp1, 1, ()), (rule_cp2, 7, (engine, ids)), (rule_cp3, 5, (engine, ids)),
-                              (rule_cp4, 15, (engine, ids)), (rule_cp5, 5, (engine, ids))):
+                              (rule_cp4, 15, (engine, ids)), (rule_cp5, 5, (engine, ids)),
+                              (rule_cp6, 15, (engine, ids)), (rule_cp7, 15, (engine, ids))):
         reached = 0
         try:
             reached = rule(*args)
@@ -448,7 +636,8 @@ def main() -> int:
             print(f"FAIL: {msg}")
         return 1
     print("PASS: character_perspective -- a character's view holds exactly what he knows, the player's door "
-          "drops his secret rows, and the character name regime names only his entities")
+          "drops his secret rows, the character name regime names only his entities, the audit names every "
+          "withheld line, and both doors journal every question")
     return 0
 
 

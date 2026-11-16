@@ -228,9 +228,9 @@
 - `passages.py` — Place registry writer (TICKET-0105, BRIEF-0105-B, C-02).
 - `pc_draft_reads.py` — The read shape of a character draft, for the player (through the public view) and for the creator (TICKET-0126, BRIEF-0126-G).
 - `pc_review_reads.py` — The creator's review of a character draft, as the screens read it (TICKET-0129, BRIEF-0129-C).
-- `perspective_audit.py` — The public perspective's audit: every line a public answer withheld, and why (TICKET-0125, BRIEF-0125-D, C-07).
-- `perspective_query.py` — The public perspective's executor: a plan run over what everybody knows (TICKET-0125, BRIEF-0125-D, C-05, C-06).
-- `perspective_render.py` — The public perspective's renderer: the answer to a public question, in prose or by code (TICKET-0125, BRIEF-0125-D, C-08).
+- `perspective_audit.py` — The perspective audit: every line an answer withheld, and why (TICKET-0125, BRIEF-0125-D, C-07; TICKET-0127, C-10).
+- `perspective_query.py` — The perspective executor: a plan run over what a view knows (TICKET-0125, BRIEF-0125-D, C-05, C-06; TICKET-0127, C-09).
+- `perspective_render.py` — The perspective renderer: the answer to a question asked as everybody or as one character, in prose or by code (TICKET-0125, BRIEF-0125-D, C-08; TICKET-0127, C-11).
 - `perspective_selectors.py` — The perspective selectors: what a view -- everybody, or one character -- knows about a world (TICKET-0125, BRIEF-0125-D, C-04; TICKET-0127, C-06).
 - `perspective_view.py` — A character's perspective view: what one character knows of his world, and the player's own character (TICKET-0127, BRIEF-0127-B, C-03).
 - `placement.py` — Pure NPC placement for the spatial workstream (TICKET-0031, BRIEF-0031-a).
@@ -284,7 +284,7 @@
 - `npc_group_commit.py` — The NPC group agent's row commit (TICKET-0129, BRIEF-0129-A): one staged row written to canon through the creator-direct cores, in the caller's transaction; shared by the agent's batch commit and the character approval.
 - `origin_guard.py` — Origin guard for every write route (TICKET-0098, BRIEF-0098-A, decision I1).
 - `pc_approval.py` — The creator's approval of a character draft (TICKET-0129): the review batches, one per group of people to create, and the one transaction that writes the draft to canon.
-- `perspective_flow.py` — The shared public-perspective flow behind two doors (TICKET-0125, BRIEF-0125-E, C-15).
+- `perspective_flow.py` — The shared perspective flow behind two doors, as everybody or as one character (TICKET-0125, BRIEF-0125-E, C-15; TICKET-0127, C-12).
 - `play.py` — The `say`/`_stream` play path (BRIEF-0027-b/-d): mode interpretation, NPC selection/run, mutation-proposal assembly, narration streaming.
 - `play_discovery.py` — Engine discovery proposal (TICKET-0091 BRIEF-B, pure move).
 - `play_initiative.py` — NPC-initiative branch of the `say` play path (TICKET-0035, extracted from play_stream.py at BRIEF-0027-b/-d's module boundary).
@@ -332,7 +332,7 @@
 - `lore.py` — Lore consultation routes (TICKET-0085, BRIEF-0085-c).
 - `lore_choices.py` — Model-choice review routes (TICKET-0095, K1, C-07).
 - `lore_mentions.py` — Name-resolution panel routes (TICKET-0091, BRIEF-0091-K, contract C-16, decision Q17d).
-- `lore_perspective.py` — The creator's public-perspective routes (TICKET-0125, BRIEF-0125-E, C-10).
+- `lore_perspective.py` — The creator's perspective routes: Lore as everybody or as any character (TICKET-0125, BRIEF-0125-E, C-10; TICKET-0127, C-13).
 - `lore_write.py` — The Lore shell's writing panel routes (TICKET-0098, BRIEF-0098-E).
 - `mutations.py` — The mutation review queue: list/reject/approve/batch-review, the `_apply_mutation` thin dispatcher, the applied-duplicate guard, and mutation serialization.
 - `npc_agent.py` — NPC group agent — batch staging lifecycle, run driver, and commit routes (TICKET-0037, BRIEF-0037-a/b/c).
