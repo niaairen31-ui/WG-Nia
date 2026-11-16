@@ -35,9 +35,10 @@ SCRIPTS = ROOT / "scripts"
 MIGRATION = SCRIPTS / "migrate_v2_31_player_entry.py"
 
 C09_KEYS = {
-    "perspective_ask": {"question", "perspective", "asked_by", "response", "withheld", "error"},
-    "perspective_resolve": {"question", "perspective", "asked_by", "plan", "bindings", "response",
-                            "withheld", "error"},
+    "perspective_ask": {"question", "perspective", "character_id", "asked_by", "response", "withheld",
+                        "error"},
+    "perspective_resolve": {"question", "perspective", "character_id", "asked_by", "plan", "bindings",
+                            "response", "withheld", "error"},
 }
 RAW_ROW = ("raw-1", "attempt-1", "world-1", "Monde", "consult", "ask", "ok",
            '{"question": "q", "response": "r", "error": null}', "[]", None, "2026-01-01 00:00:00")

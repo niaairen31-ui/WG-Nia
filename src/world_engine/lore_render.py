@@ -31,7 +31,8 @@ class RenderedAnswer:
 # (facets: TICKET-0091, BRIEF-0091-H); factions
 # from world_factions (BRIEF-0085-d item 3); coverage, knowers from
 # who_knows_about (BRIEF-0087-e); members, laws, public_mentions from the
-# public perspective (TICKET-0125). Sections are grouped in the order their
+# public perspective (TICKET-0125); acquaintances, own_skills from the
+# character perspective (TICKET-0127). Sections are grouped in the order their
 # first row appears in `rows`, for both the model prompt and the template
 # fallback -- not in the order of the dict below.
 
@@ -39,10 +40,14 @@ def _format_identity(row: dict) -> str:
     return f"{row.get('name')} ({row.get('type')})"
 
 
+def _certainty(row: dict) -> str:
+    return f" (certitude : {row['certainty']})" if row.get("certainty") else ""
+
+
 def _format_facets(row: dict) -> str:
     aspect = f" ({row['aspect']})" if row.get("aspect") else ""
     secret = " [secret]" if row.get("secret") else ""
-    return f"{row.get('label')}{aspect} : {row.get('content')}{secret}"
+    return f"{row.get('label')}{aspect} : {row.get('content')}{_certainty(row)}{secret}"
 
 
 def _format_relations(row: dict) -> str:
@@ -125,6 +130,9 @@ def _format_public_mentions(row: dict) -> str:
     line = f"« {row.get('content')} »"
     if row.get("participants"):
         line += " -- " + ", ".join(row["participants"])
+    line += _certainty(row)
+    if row.get("secret"):
+        line += " [secret]"
     return line
 
 
@@ -135,6 +143,15 @@ def _format_skills(row: dict) -> str:
     if row.get("description"):
         line += f" -- {row['description']}"
     return line
+
+
+def _format_acquaintances(row: dict) -> str:
+    return f"{row.get('name')} ({row.get('type')})"
+
+
+def _format_own_skills(row: dict) -> str:
+    return (f"{row.get('name')} ({row.get('system') or 'sans système'}, {row.get('base_domain')}) : "
+            f"{row.get('rank_label')}")
 
 
 _SECTION_FORMATTERS: dict[str, Callable[[dict], str]] = {
@@ -152,6 +169,8 @@ _SECTION_FORMATTERS: dict[str, Callable[[dict], str]] = {
     "laws": _format_laws,
     "public_mentions": _format_public_mentions,
     "skills": _format_skills,
+    "acquaintances": _format_acquaintances,
+    "own_skills": _format_own_skills,
 }
 
 

@@ -28,7 +28,7 @@ from ...db import get_session
 from ...llm_parse import LlmParseError
 from ...models import Character, Entity, PcDraft, PcDraftSkill
 from ...pc_draft_reads import draft_view, open_draft_of
-from ...perspective_selectors import public_factions, public_skills, public_view
+from ...perspective_selectors import known_factions, known_skills, public_view
 from ...skill_ranks import world_ladder
 from ...writes.pc_drafts import (
     DRAFT_LOCKED_MESSAGE, OPEN_STATUSES, DraftLocked, PcExists, apply_design, open_draft, save_player_draft,
@@ -157,7 +157,7 @@ def creation_catalogue(profile_id: str, world_id: str, db: Session = Depends(get
     _door(profile_id, world_id, db)
     view = public_view(db, world_id)
     rules = world_creation_rules(db, world_id)
-    known = {row["skill_id"]: row for row in public_skills(world_id, view, db)}
+    known = {row["skill_id"]: row for row in known_skills(world_id, view, db)}
     skills = []
     for line in start_sheet(db, world_id, rules):
         base = line.skill_key == line.base_domain
@@ -170,7 +170,7 @@ def creation_catalogue(profile_id: str, world_id: str, db: Session = Depends(get
             "requires_master": line.requires_master, "start_rank": line.start_rank, "max_rank": line.max_rank,
         })
     factions = [{"entity_id": f["entity_id"], "name": f["name"], "description": f["description"]}
-                for f in public_factions(world_id, view, db)]
+                for f in known_factions(world_id, view, db)]
     return {
         "rules": rules_dict(rules),
         "ranks": [step.label for step in world_ladder(db, world_id)],

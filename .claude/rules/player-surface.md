@@ -18,15 +18,19 @@ never on `world.is_active`.
 
 ## Invariants
 
-- **INV-66** A player surface learns about the world only through the
-  public view (`perspective_selectors`, or `perspective_query` for a
-  planned question), never a creator selector, the creator name regime,
-  a trace, near names or the audit. A skill is in that view only when
-  visible at creation (`creation_rules`); the creation rules themselves
-  (pool, costs, caps) are game rules, read through `creation_rules`.
+- **INV-66** A player surface learns about the world only through a
+  perspective view (`perspective_selectors` over `public_view`, or over
+  `perspective_view.character_view` of its own character at the player's
+  door; `perspective_query` for a planned question), never a creator
+  selector, the creator name regime, a trace, near names or the audit. A
+  skill is in the public view only when visible at creation
+  (`creation_rules`); the creation rules themselves (pool, costs, caps)
+  are game rules, read through `creation_rules`.
   Every perspective question is journaled with what was withheld, and
   every character-designer call with what it read. The perspective
   selectors read `faction_membership` with the `read_public_memberships`
-  WHERE triplet, keyed by faction (a third sanctioned reader, INV-03).
+  WHERE triplet, keyed by faction (a third sanctioned reader, INV-03); a
+  character's own factions come through `read_public_membership_faction_ids`.
   -- enforced by `perspective_isolation.py`, `player_routes.py`,
-  `player_shell.py`, `creation_designer.py`, `player_creation.py`
+  `player_shell.py`, `creation_designer.py`, `player_creation.py`,
+  `character_perspective.py`

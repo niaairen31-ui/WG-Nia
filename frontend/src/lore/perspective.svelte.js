@@ -1,6 +1,7 @@
-/* TICKET-0125 (BRIEF-0125-F). Non-render state + API calls for Lore >
-   Perspective: the same question asked "as the public", through the
-   creator perspective routes (/api/lore/perspective/ask|resolve).
+/* TICKET-0125 (BRIEF-0125-F), TICKET-0127 (I1). Non-render state + API
+   calls for Lore > Perspective: the same question asked "as the public" or
+   as one character (`characterId`, from /api/lore/perspective/characters),
+   through the creator perspective routes (/api/lore/perspective/ask|resolve).
 
    `result` holds the response body unchanged (verdict, answer, renderer,
    candidates, plan, rows, withheld); `selections` is the creator's choice
@@ -13,6 +14,8 @@ import { serverState } from '../lib/serverState.svelte.js';
 
 export const perspectiveState = $state({
   perspective: 'public',
+  characterId: '',
+  characters: [],
   question: '',
   asking: false,
   error: '',
@@ -24,6 +27,22 @@ export const perspectiveState = $state({
 // The world the state was last reset for -- a plain variable, never
 // reactive, so a remount of the panel keeps its result.
 let stateWorldId = null;
+
+function characterIdSent() {
+  return perspectiveState.perspective === 'character' ? perspectiveState.characterId : null;
+}
+
+export async function loadPerspectiveCharacters() {
+  const worldId = serverState.worldId;
+  try {
+    const characters = await api(
+      '/api/lore/perspective/characters?world_id=' + encodeURIComponent(worldId),
+    );
+    if (worldId === serverState.worldId) perspectiveState.characters = characters;
+  } catch (e) {
+    perspectiveState.error = e.message;
+  }
+}
 
 export async function askPerspective() {
   const question = perspectiveState.question.trim();
@@ -39,6 +58,7 @@ export async function askPerspective() {
         question,
         world_id: serverState.worldId,
         perspective: perspectiveState.perspective,
+        character_id: characterIdSent(),
         attempt_id: perspectiveState.attemptId,
       }),
     });
@@ -77,6 +97,7 @@ export async function confirmPerspective() {
         world_id: serverState.worldId,
         question: perspectiveState.question,
         perspective: perspectiveState.perspective,
+        character_id: characterIdSent(),
         attempt_id: perspectiveState.attemptId,
       }),
     });
@@ -98,4 +119,6 @@ export function resetPerspectiveForWorld() {
   perspectiveState.result = null;
   perspectiveState.selections = {};
   perspectiveState.attemptId = '';
+  perspectiveState.characterId = '';
+  perspectiveState.characters = [];
 }

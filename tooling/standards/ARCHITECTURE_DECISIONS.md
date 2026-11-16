@@ -20934,6 +20934,73 @@ preview in `.claude/launch.json` sets `WORLD_ENGINE_ENV=test` itself
 Deferred: a link from the creator's shell to the home page; the
 player profiles on the home page (H2).
 
+## TICKET-0127 -- a character's perspective (BRIEF-0127-a, BRIEF-0127-b, BRIEF-0127-c, BRIEF-0127-d, BRIEF-0127-e, no schema change)
+
+A1 -- one code for both perspectives. `PublicView` became
+`PerspectiveView` (`kind` public or character); the selectors, executor
+(`execute_perspective_plan`), audit (`withheld_for`) and renderer
+(`render_perspective`) take it, and « public » is one case
+(`execute_public_plan`, `withheld`, `render_public` stay as delegates). The
+selectors took neutral names in a pure-rename commit first. Rejected: A2, a
+sibling module of character selectors -- a second copy, against « the same
+code as the player's surface ».
+
+B1 -- the resolution is the authority. A character's line reads what he
+believes: his knowledge row's own wording when he has one, else the version
+of the fact he last saw (`fact_texts_at`); certainty is said in words
+(« rumeur », « soupçon », « partiel »), never the raw level. A false belief
+shows only in the audit (`false_belief`) and the creator's detail; a stored
+`unaware` row hides even a public fact. Rejected: B2, the fact's current
+text with no level -- the player would learn a version his character never
+saw, and a rumor would read as certain.
+
+C1 -- at the creator's door a character's perspective holds what he knows
+and conceals, marked `[secret]` (the tick's precedent); at the player's door
+`character_view` drops those rows by construction and the audit names them
+`concealed`. Secret memberships never enter rows (INV-03); the audit names
+them. INV-01 gained the holder's-own-view sentence. Rejected: C2, secrets
+excluded everywhere; reactivation: a discrepancy Nia finds while checking an
+NPC.
+
+D1, D1-a -- the entities a character knows: the public ones, the ones he
+met, himself, the factions of his non-secret memberships, and the
+participants of his facts (and of their events). A name regime `character`
+is restricted to them, and a binding outside them is refused. Of a faction
+he does not belong to he reads the public information plus what he learned
+himself, with its certainty (rule M). Rejected: D2, the `perceiver` regime
+as is (an unknown homonym would surface in « Laquelle ? »); D1-b, only the
+public information of a foreign faction (one more rule, and a rumor learned
+in play would vanish).
+
+E1 -- a « self » selector for the character only (`self_sheet`): the people
+he met and his skills with their rank. The public table refuses it as
+`unsupported_selector`. Rejected: E2, nothing more.
+
+F1 -- known event facts enter the dossier of their participants, for both
+perspectives (one code), labelled « Événement ». Supersedes drafting
+decision 8 of TICKET-0125. Rejected: F2, the character only (one selector,
+two behaviours); F3, not now.
+
+G1 -- `/api/joueur/personnage` names the profile's own character in a world;
+`/api/joueur/personnage/savoir/{ask,resolve}` take the world, the profile
+and the character and refuse (404, unjournaled) unless it is that profile's
+character there; they run the shared flow at the player's door and answer
+only `PLAYER_ANSWER_KEYS`. « Mes savoirs » replaces the public section of
+the world page when the profile has a character; the public routes stay for
+creation. Rejected: G2, one route whose perspective the server picks.
+
+H1 -- the journal keeps its kind and steps; both perspective payloads gain
+`character_id`, and `perspective` reads `character` when asked as one. No
+migration; older rows lack the key and are history. Gate:
+`character_perspective.py` (CP1-CP7, the secret never leaves the creator's
+door). Rejected: H2, a relational column; reactivation: Nia wants a
+per-character metric in « Suivi ».
+
+I1 -- Lore's Perspective tab offers everybody or « Un personnage », with
+every character of the world (`/api/lore/perspective/characters`), players
+and NPCs grouped; answer, rows and audit as before, the audit gaining the
+character's reasons. Gate: `player_shell.py` PSH6.
+
 ---
 
 *Co-built with Claude, June 2026.*

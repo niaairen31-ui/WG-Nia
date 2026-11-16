@@ -2,8 +2,8 @@
 
 Every name of the backstory resolves under the public name scope
 (`perspective_query.public_scope`), so a non-public entity is no surface
-at all; a matched entity's lines come from `public_dossier`, a keyword's
-from `public_facts_mentioning`. A starting place is a public active
+at all; a matched entity's lines come from `known_dossier`, a keyword's
+from `known_facts_mentioning`. A starting place is a public active
 location that is not a zone (`zone_rules.zone_ids`). No write, no flush,
 no commit, no model call.
 """
@@ -17,7 +17,7 @@ from sqlmodel import Session, select
 from .lore_resolve import CATEGORIES, normalize_surface, resolve_named
 from .models import Entity
 from .perspective_query import public_scope
-from .perspective_selectors import PublicView, public_dossier, public_factions, public_facts_mentioning, public_view
+from .perspective_selectors import PerspectiveView, known_dossier, known_factions, known_facts_mentioning, public_view
 from .zone_rules import zone_ids
 
 MAX_NAMES = 10
@@ -34,7 +34,7 @@ class CreationLore:
     factions: tuple[dict, ...]   # {"entity_id", "name", "description"}
 
 
-def public_places(db: Session, world_id: str, view: PublicView) -> list[dict]:
+def public_places(db: Session, world_id: str, view: PerspectiveView) -> list[dict]:
     """The public active locations of the world that are not zones, by name then id."""
     zones = zone_ids(db, world_id)
     locations = db.exec(
@@ -87,16 +87,16 @@ def gather_creation_lore(db: Session, world_id: str, *, names: list[str], keywor
     lines: list[str] = []
     people: list[dict] = []
     for entity_id in entity_ids:
-        lines += [_dossier_line(row) for row in public_dossier(entity_id, world_id, view, db)]
+        lines += [_dossier_line(row) for row in known_dossier(entity_id, world_id, view, db)]
         entity = db.get(Entity, entity_id)
         if entity is not None and entity.type == "character":
             people.append({"entity_id": entity.id, "name": entity.name})
     for keyword in _distinct(keywords, MAX_KEYWORDS):
-        lines += [f"• {row['content']}" for row in public_facts_mentioning(keyword, world_id, view, db)]
+        lines += [f"• {row['content']}" for row in known_facts_mentioning(keyword, world_id, view, db)]
 
     factions = [
         {"entity_id": row["entity_id"], "name": row["name"], "description": row["description"]}
-        for row in public_factions(world_id, view, db)
+        for row in known_factions(world_id, view, db)
     ]
     return CreationLore(
         lines=tuple(dict.fromkeys(lines))[:MAX_LORE_LINES],

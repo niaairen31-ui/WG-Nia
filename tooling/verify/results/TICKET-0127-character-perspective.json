@@ -1,0 +1,32 @@
+{
+  "ticket": "TICKET-0127-character-perspective",
+  "when": "2026-11-16T18:37:53.897676+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "character_perspective.py",
+      "status": "PASS",
+      "msg": "PASS: character_perspective -- a character's view holds exactly what he knows, the player's door drops his secret rows, the character name regime names only his entities, the audit names every withheld line, and both doors journal every question"
+    },
+    {
+      "check": "perspective_isolation.py",
+      "status": "PASS",
+      "msg": "PASS: perspective_isolation -- public view, selectors, executor, audit and renderer: nothing creator-only, secret or non-public reaches the public answer"
+    },
+    {
+      "check": "player_routes.py",
+      "status": "PASS",
+      "msg": "PASS: player_routes -- profiles, open worlds and public questions for the player; the creator's perspective with its audit; every question journaled"
+    },
+    {
+      "check": "player_shell.py",
+      "status": "PASS",
+      "msg": "PASS: player_shell -- the Lore perspective tab is wired; the player shell calls only /api/joueur and imports nothing of the creator; the creation screen is wired to /api/joueur/creation and built; a character's perspective is wired in Lore and \u00ab Mes savoirs \u00bb in /jouer"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u2014 201 check(s) discovered, 201 executed, 201 passed"
+    }
+  ]
+}

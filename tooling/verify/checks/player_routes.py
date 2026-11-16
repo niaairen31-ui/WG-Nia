@@ -9,7 +9,7 @@ PR2 -- worlds: with the fixture world closed, GET `/api/joueur/mondes` ->
    item with keys exactly `{id, name, description, laws}`.
 PR3 -- savoir on a closed world -> 404 `"Monde introuvable."`; an unknown
    profile -> 404 `"Profil introuvable."`; neither journals.
-PR4 -- savoir answered (stubbed plan: `public_dossier` on « Hero »; stubbed
+PR4 -- savoir answered (stubbed plan: `known_dossier` on « Hero »; stubbed
    prose) -> 200, answer keys exactly `{verdict, answer, renderer,
    candidates, plan}`; the response text contains neither F2's nor F3's
    text nor `withheld`; one journal row kind `perspective`, step
@@ -60,9 +60,9 @@ CREATOR_KEYS = PLAYER_KEYS | {"rows", "withheld"}
 TAKEN = "Ce nom de joueur existe déjà."
 REFUSED = "Choix refusé."
 HERO_PLAN = {"mentions": [{"ref": "m1", "surface_form": "Hero", "category": "person"}],
-             "calls": [{"selector": "public_dossier", "args": ["m1", "$world"]}]}
+             "calls": [{"selector": "known_dossier", "args": ["m1", "$world"]}]}
 TWIN_PLAN = {"mentions": [{"ref": "m1", "surface_form": "Twin", "category": "person"}],
-             "calls": [{"selector": "public_dossier", "args": ["m1", "$world"]}]}
+             "calls": [{"selector": "known_dossier", "args": ["m1", "$world"]}]}
 
 FAILURES: list[str] = []
 

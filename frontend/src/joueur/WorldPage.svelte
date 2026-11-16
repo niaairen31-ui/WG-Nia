@@ -36,7 +36,7 @@
     {/if}
 
     <section class="savoir">
-      <h2>Ce que tout le monde sait</h2>
+      <h2>{joueurState.character ? `Mes savoirs — ${joueurState.character.name}` : 'Ce que tout le monde sait'}</h2>
       <textarea
         bind:value={joueurState.question}
         rows="3"
