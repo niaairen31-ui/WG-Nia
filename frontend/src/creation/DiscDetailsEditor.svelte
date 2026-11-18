@@ -24,6 +24,9 @@
      `#disc-edit-status-{id}` in legacy), never the shared `#author-status`
      header -- this sub-editor never touched that line, so no legacyDoc/
      sheetRequest dependency is needed here, unlike Relations/Knowledge/Goals. */
+
+  import { errorMessage } from '../lib/errorMessage.js';
+
   let { entityId, worldId } = $props();
 
   let rows = $state([]);
@@ -32,7 +35,7 @@
   async function api(path, options) {
     const res = await fetch(path, options);
     const data = await res.json().catch(() => ({ detail: res.statusText }));
-    if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+    if (!res.ok) throw new Error(errorMessage(data, JSON.stringify(data)));
     return data;
   }
 

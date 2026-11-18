@@ -24,6 +24,7 @@
    entity sheet's own selection into frontend/src/creation/sheetState.svelte.js
    -- a plain Svelte-to-Svelte import replaces the bridge call. */
 import { getSelectedEntityId } from '../../creation/sheetState.svelte.js';
+import { errorMessage } from '../../lib/errorMessage.js';
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({
@@ -37,7 +38,7 @@ async function api(path, options) {
     let msg = `${path} -> ${res.status}`;
     try {
       const body = await res.json();
-      if (body && typeof body.detail === 'string') msg = body.detail;
+      msg = errorMessage(body, msg);
     } catch (_err) {
       // response body wasn't JSON -- keep the status-based message
     }

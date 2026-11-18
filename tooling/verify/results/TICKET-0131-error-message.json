@@ -1,0 +1,17 @@
+{
+  "ticket": "TICKET-0131-error-message",
+  "when": "2026-11-18T03:29:12.722112+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "frontend_error_message.py",
+      "status": "PASS",
+      "msg": "PASS: frontend_error_message -- 151 file(s) scanned outside joueur/, none reads `detail` itself; 33 caller(s) import errorMessage from lib/errorMessage.js; 8 behaviour row(s) answered under Node"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u2014 202 check(s) discovered, 202 executed, 202 passed"
+    }
+  ]
+}

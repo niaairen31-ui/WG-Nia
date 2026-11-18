@@ -497,6 +497,7 @@
 - `faction_roster_panel.py` — G1 check for TICKET-0054 (BRIEF-0054-c): faction sheet grouped roster panel + member authoring.
 - `file_map.py` — G1 check for TICKET-0117 (BRIEF-0117-d, B1) -- the module map is generated and never stale.
 - `frontend_build_fresh.py` — G1 check: frontend build-freshness gate (TICKET-0055, BRIEF-0055-c).
+- `frontend_error_message.py` — G1 check: a failed request's body becomes text only through frontend/src/lib/errorMessage.js (TICKET-0131, BRIEF-0131-a).
 - `function_length.py` — G1 check: function length ceiling (TICKET-0027 R1, BRIEF-0027-a).
 - `gathering_lifecycle.py` — Structural gate for the gathering lifecycle (TICKET-0089, BRIEF-0089-g).
 - `geometry_unit.py` — G1 check: permanent regression guard for the sole collision authority (TICKET-0030, BRIEF-0030-a).

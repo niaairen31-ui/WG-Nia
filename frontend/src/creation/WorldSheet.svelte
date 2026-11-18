@@ -8,6 +8,7 @@
      TICKET-0125 (BRIEF-0125-C, C1): the « Ouvert aux joueurs » checkbox
      sends open_to_players with the rest of the page. */
   import { serverState, refreshServerState } from '../lib/serverState.svelte.js';
+  import { errorMessage } from '../lib/errorMessage.js';
 
   let name = $state('');
   let description = $state('');
@@ -69,7 +70,7 @@
         let msg = `PUT /api/worlds/${worldId} -> ${res.status}`;
         try {
           const body = await res.json();
-          if (body && typeof body.detail === 'string') msg = body.detail;
+          msg = errorMessage(body, msg);
         } catch (_err) {
           // response body wasn't JSON -- keep the status-based message
         }

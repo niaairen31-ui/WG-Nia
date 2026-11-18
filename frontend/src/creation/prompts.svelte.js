@@ -45,6 +45,9 @@
    here to invalidate/reload an open history list, matching the legacy
    promptsSaveEdit/_promptsRefreshDetail's full behaviour now that history
    state exists. */
+
+import { errorMessage } from '../lib/errorMessage.js';
+
 export const promptsState = $state({
   usages: [],
   selectedId: null,
@@ -79,7 +82,7 @@ export const promptsState = $state({
 async function api(path, options) {
   const res = await fetch(path, options);
   const data = await res.json().catch(() => ({ detail: res.statusText }));
-  if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+  if (!res.ok) throw new Error(errorMessage(data, JSON.stringify(data)));
   return data;
 }
 

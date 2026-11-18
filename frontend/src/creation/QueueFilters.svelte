@@ -22,6 +22,7 @@
      own .f-btn/.tick-controls classes verbatim. */
   import { serverState } from '../lib/serverState.svelte.js';
   import { queueState, setFilter } from './queue.svelte.js';
+  import { errorMessage } from '../lib/errorMessage.js';
 
   const FILTERS = [
     { status: 'proposed', label: 'Proposed' },
@@ -33,7 +34,7 @@
   async function api(path, options) {
     const res = await fetch(path, options);
     const data = await res.json().catch(() => ({ detail: res.statusText }));
-    if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+    if (!res.ok) throw new Error(errorMessage(data, JSON.stringify(data)));
     return data;
   }
 

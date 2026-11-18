@@ -19,6 +19,7 @@
    else owned yet (pendingCreationMutationId, local to this file -- no other
    reader exists for it). */
 import { creationState } from './state.svelte.js';
+import { errorMessage } from '../lib/errorMessage.js';
 
 let pendingCreationMutationId = $state(null);
 
@@ -74,7 +75,7 @@ async function api(path, options) {
     let msg = `${path} -> ${res.status}`;
     try {
       const body = await res.json();
-      if (body && typeof body.detail === 'string') msg = body.detail;
+      msg = errorMessage(body, msg);
     } catch (_err) {
       // response body wasn't JSON -- keep the status-based message
     }

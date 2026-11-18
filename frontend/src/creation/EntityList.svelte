@@ -59,13 +59,14 @@
   import { loadAgendas } from './intrigues.svelte.js';
   import { loadCatalogue } from './competences.svelte.js';
   import CompetencesList from './CompetencesList.svelte';
+  import { errorMessage } from '../lib/errorMessage.js';
 
   let { legacyDoc } = $props();
 
   const GENERIC_TYPE_BY_TAB = { npc: 'character', pj: 'character', lieux: 'location', factions: 'faction', objets: 'item' };
 
   let mode = $state('loading'); // 'loading' | 'flat' | 'lieux' | 'record' | 'error'
-  let errorMessage = $state('');
+  let loadError = $state('');
   let recordsReady = $state(false);
   let previousTabKey = null;
 
@@ -117,7 +118,7 @@
         },
       }));
     } catch (err) {
-      errorMessage = err.message;
+      loadError = err.message;
       mode = 'error';
     }
   }
@@ -132,7 +133,7 @@
     try {
       creationState.events = await api('/api/events');
     } catch (err) {
-      errorMessage = err.message;
+      loadError = err.message;
       mode = 'error';
       return;
     }
@@ -149,7 +150,7 @@
     try {
       await loadAgendas();
     } catch (err) {
-      errorMessage = err.message;
+      loadError = err.message;
       mode = 'error';
       return;
     }
@@ -165,7 +166,7 @@
     try {
       await loadCatalogue();
     } catch (err) {
-      errorMessage = err.message;
+      loadError = err.message;
       mode = 'error';
       return;
     }
@@ -230,7 +231,7 @@
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
       });
       const result = await res.json().catch(() => ({ detail: res.statusText }));
-      if (!res.ok) throw new Error(result.detail || JSON.stringify(result));
+      if (!res.ok) throw new Error(errorMessage(result, JSON.stringify(result)));
       npcGoalsBackfillStatus = `Traités : ${result.processed} · déjà complets : ${result.skipped_complete} · `
         + `écrits (long/court) : ${result.written.long}/${result.written.short}`
         + (result.failures.length ? ` · échecs : ${result.failures.length}` : '');
@@ -352,7 +353,7 @@
 {#if mode === 'loading'}
   <div class="empty"><span class="spin">⟳</span></div>
 {:else if mode === 'error'}
-  <div class="empty">{errorMessage}</div>
+  <div class="empty">{loadError}</div>
 {:else if mode === 'flat'}
   {@render germGroup()}
   {@render submittedGroup()}

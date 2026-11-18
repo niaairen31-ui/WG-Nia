@@ -21,6 +21,7 @@
    `connects_to`; the server derives `borde` whenever a zone is an end. A
    `borde` edge is drawn dashed. */
 import { getSelectedEntityId, selectEntity } from '../../creation/sheetState.svelte.js';
+import { errorMessage } from '../../lib/errorMessage.js';
 
 const MODES = [
   { id: 'visitable', label: 'Lieux visitables' },
@@ -36,7 +37,7 @@ async function api(path, options) {
     let msg = `${path} -> ${res.status}`;
     try {
       const body = await res.json();
-      if (body && typeof body.detail === 'string') msg = body.detail;
+      msg = errorMessage(body, msg);
     } catch (_err) {
       // response body wasn't JSON -- keep the status-based message
     }

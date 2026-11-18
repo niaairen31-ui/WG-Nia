@@ -52,6 +52,7 @@
   import { reviewRegister } from './review/registry.js';
   import Review from './Review.svelte';
   import Modal from './Modal.svelte';
+  import { errorMessage } from '../lib/errorMessage.js';
 
   let { legacyDoc } = $props();
 
@@ -78,7 +79,7 @@
   async function api(path, opts = {}) {
     const res = await fetch(path, opts);
     const data = await res.json().catch(() => ({ detail: res.statusText }));
-    if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+    if (!res.ok) throw new Error(errorMessage(data, JSON.stringify(data)));
     return data;
   }
 

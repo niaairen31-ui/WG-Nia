@@ -51,6 +51,7 @@
    a one-off local-state exception. */
 import { creationState } from './state.svelte.js';
 import { loadBatch as loadLinkBatch } from './linkAgent.svelte.js';
+import { errorMessage } from '../lib/errorMessage.js';
 
 export const npcAgentState = $state({
   loading: false,
@@ -93,7 +94,7 @@ export function resetNpcAgent() {
 async function api(path, opts = {}) {
   const res = await fetch(path, opts);
   const data = await res.json().catch(() => ({ detail: res.statusText }));
-  if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+  if (!res.ok) throw new Error(errorMessage(data, JSON.stringify(data)));
   return data;
 }
 

@@ -5,6 +5,7 @@
    module imports nothing from tabs.js. */
 
 import { creationState } from './state.svelte.js';
+import { errorMessage } from '../lib/errorMessage.js';
 
 async function api(path) {
   const res = await fetch(path);
@@ -12,7 +13,7 @@ async function api(path) {
     let msg = `${path} -> ${res.status}`;
     try {
       const body = await res.json();
-      if (body && typeof body.detail === 'string') msg = body.detail;
+      msg = errorMessage(body, msg);
     } catch (_err) {
       // response body wasn't JSON -- keep the status-based message
     }

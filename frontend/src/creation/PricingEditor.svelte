@@ -10,6 +10,9 @@
      the {tag: amount} dict and PUTting the whole thing back -- kept
      verbatim here (mutateFn below) rather than trusting the `detail` prop,
      since another path could have changed prices between renders. */
+
+  import { errorMessage } from '../lib/errorMessage.js';
+
   let { entityId, prices, legacyDoc, onSaved } = $props();
 
   let rows = $state([]);
@@ -33,7 +36,7 @@
         body: JSON.stringify({ prices: priceList }),
       });
       const data = await res.json().catch(() => ({ detail: res.statusText }));
-      if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+      if (!res.ok) throw new Error(errorMessage(data, JSON.stringify(data)));
       onSaved(data);
       if (statusEl) { statusEl.className = 'author-status ok'; statusEl.textContent = 'Tarifs mis à jour.'; }
     } catch (e) {

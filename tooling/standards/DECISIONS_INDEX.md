@@ -391,3 +391,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 20891 | TICKET-0129 — the creator reviews a submitted character (BRIEF-0129-a, BRIEF-0129-b, BRIEF-0129-c, BRIEF-0129-d, BRIEF-0129-e, BRIEF-0129-f, BRIEF-0129-g, schema v2.33) | BRIEF-0129-a, BRIEF-0129-b, BRIEF-0129-c, BRIEF-0129-d, BRIEF-0129-e, BRIEF-0129-f, BRIEF-0129-g | v2.33 |
 | 20921 | TICKET-0130 — the home page and the launcher (BRIEF-0130-a, no schema change) | BRIEF-0130-a |  |
 | 20937 | TICKET-0127 -- a character's perspective (BRIEF-0127-a, BRIEF-0127-b, BRIEF-0127-c, BRIEF-0127-d, BRIEF-0127-e, no schema change) | BRIEF-0127-a, BRIEF-0127-b, BRIEF-0127-c, BRIEF-0127-d, BRIEF-0127-e |  |
+| 21004 | TICKET-0131 -- one reader for a failed request's body (BRIEF-0131-a, no schema change) | BRIEF-0131-a |  |

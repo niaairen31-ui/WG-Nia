@@ -11,6 +11,9 @@
    Sheet.svelte's own async tail calls this instead of a two-step legacyCall
    pair -- roles load first, same as before, just as a plain import instead
    of a cross-realm bridge call. */
+
+import { errorMessage } from '../lib/errorMessage.js';
+
 export const factionPanelState = $state({
   // isNew-mode draft rows (name/description/limit), read directly by
   // Sheet.svelte's submitEntity at faction-creation time -- replaces
@@ -25,7 +28,7 @@ export const factionPanelState = $state({
 async function api(path, options) {
   const res = await fetch(path, options);
   const data = await res.json().catch(() => ({ detail: res.statusText }));
-  if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+  if (!res.ok) throw new Error(errorMessage(data, JSON.stringify(data)));
   return data;
 }
 

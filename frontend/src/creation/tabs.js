@@ -75,6 +75,7 @@
 import { creationState } from './state.svelte.js';
 import { loadSubmittedDrafts } from './pcDrafts.svelte.js';
 import { replace } from '../lib/router.js';
+import { errorMessage } from '../lib/errorMessage.js';
 
 let _triggerPrimaryActionImpl = null;
 let _activateIslandImpl = null;
@@ -109,7 +110,7 @@ async function api(path, options) {
     let msg = `${path} -> ${res.status}`;
     try {
       const body = await res.json();
-      if (body && typeof body.detail === 'string') msg = body.detail;
+      msg = errorMessage(body, msg);
     } catch (_err) {
       // response body wasn't JSON -- keep the status-based message
     }

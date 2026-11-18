@@ -18,6 +18,7 @@
      legacy iframe document, where Svelte's shell-injected scoped CSS never
      reaches. Markup reuses the legacy document's own classes/CSS vars. */
   import { serverState } from '../lib/serverState.svelte.js';
+  import { errorMessage } from '../lib/errorMessage.js';
 
   let { legacyDoc } = $props();
 
@@ -56,7 +57,7 @@
       let msg = `${path} -> ${res.status}`;
       try {
         const body = await res.json();
-        if (body && typeof body.detail === 'string') msg = body.detail;
+        msg = errorMessage(body, msg);
       } catch (_err) {
         // response body wasn't JSON -- keep the status-based message
       }

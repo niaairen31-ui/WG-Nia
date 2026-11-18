@@ -20,6 +20,7 @@
      No scoped <style> block: like every other Creation island, this
      renders inside the legacy iframe document. */
   import { serverState } from '../lib/serverState.svelte.js';
+  import { errorMessage } from '../lib/errorMessage.js';
 
   let entities = $state([]);   // {id, name, type}[] -- fetched once per world
   let entitiesLoaded = false;
@@ -41,7 +42,7 @@
   async function api(path, options) {
     const res = await fetch(path, options);
     const data = await res.json().catch(() => ({ detail: res.statusText }));
-    if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+    if (!res.ok) throw new Error(errorMessage(data, JSON.stringify(data)));
     return data;
   }
 
