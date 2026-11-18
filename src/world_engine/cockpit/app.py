@@ -76,6 +76,7 @@ from .routes import npc_agent as _routes_npc_agent
 from .routes import observation as _routes_observation
 from .routes import play as _routes_play
 from .routes import player as _routes_player
+from .routes import player_day as _routes_player_day
 from .routes import player_creation as _routes_player_creation
 from .routes import pc_drafts as _routes_pc_drafts
 from .routes import pc_review as _routes_pc_review
@@ -158,6 +159,7 @@ app.include_router(_routes_lore_choices.router)
 app.include_router(_routes_lore_write.router)
 app.include_router(_routes_lore_perspective.router)
 app.include_router(_routes_player.router)
+app.include_router(_routes_player_day.router)
 app.include_router(_routes_player_creation.router)
 app.include_router(_routes_pc_drafts.router)
 app.include_router(_routes_pc_review.router)

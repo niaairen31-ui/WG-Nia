@@ -392,3 +392,4 @@ Source: tooling/standards/ARCHITECTURE_DECISIONS.md (byte-intact archive)
 | 20921 | TICKET-0130 — the home page and the launcher (BRIEF-0130-a, no schema change) | BRIEF-0130-a |  |
 | 20937 | TICKET-0127 -- a character's perspective (BRIEF-0127-a, BRIEF-0127-b, BRIEF-0127-c, BRIEF-0127-d, BRIEF-0127-e, no schema change) | BRIEF-0127-a, BRIEF-0127-b, BRIEF-0127-c, BRIEF-0127-d, BRIEF-0127-e |  |
 | 21004 | TICKET-0131 -- one reader for a failed request's body (BRIEF-0131-a, no schema change) | BRIEF-0131-a |  |
+| 21027 | TICKET-0128 -- the player's day and the active player character (BRIEF-0128-a, BRIEF-0128-b, BRIEF-0128-c, BRIEF-0128-d, BRIEF-0128-e, BRIEF-0128-f, BRIEF-0128-g, schema v2.34) | BRIEF-0128-a, BRIEF-0128-b, BRIEF-0128-c, BRIEF-0128-d, BRIEF-0128-e, BRIEF-0128-f, BRIEF-0128-g | v2.34 |

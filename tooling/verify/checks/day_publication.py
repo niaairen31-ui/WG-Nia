@@ -217,8 +217,11 @@ def rule_dp3(client, db, ids: dict) -> int:
     db.add(world)
     db.commit()
     for other in db.exec(__import__("sqlmodel").select(World)).all():
-        other.is_active = other.id == world.id
+        other.is_active = False  # all off first: one active world at every flush
         db.add(other)
+    db.commit()
+    world.is_active = True
+    db.add(world)
     db.commit()
     pc = dr._pc(db, world.id, "Eli")
     originals = (day_declare.missing_usages, day_declare.enqueue_day)

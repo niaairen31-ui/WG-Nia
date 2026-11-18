@@ -23,8 +23,8 @@ CR1 -- `check_review`. Ana's clean submitted draft (name, story, Port,
    two sketches attached to Garde -> `attach_duplicate` on the second; the
    master attached to Garde -> `master_not_master`; relation type
    `connects_to` -> `relation_type_invalid`; the membership on `Ancienne` ->
-   `membership_invalid`; Bea holding a player character in the world ->
-   `world_has_pc` alone; Ana holding one -> `pc_exists, world_has_pc`.
+   `membership_invalid`; Bea holding a player character in the world -> no
+   violation (G2 lifted, TICKET-0128); Ana holding one -> `pc_exists`.
    Review place `Cave` (not public) and the master attached to `Ombre` once
    Ombre is a Maître -> no violation (the review reads all the lore). Every
    code of `REVIEW_VIOLATION_CODES` is reached.
@@ -149,7 +149,6 @@ MESSAGES = {
     "relation_type_invalid": "« Sœur » : le lien « connects_to » ne peut pas être choisi.",
     "membership_invalid": "Cette faction ne peut pas être choisie.",
     "pc_exists": "Ce joueur a déjà un personnage dans ce monde.",
-    "world_has_pc": "Ce monde a déjà un personnage joueur : l'approbation attend le sélecteur « PJ actif ».",
 }
 
 
@@ -347,8 +346,8 @@ def _cases(ids: dict) -> list[tuple[str, object, list[str] | None]]:
          ["relation_type_invalid"]),
         ("the membership on Ancienne", lambda db, d: _set(db, membership(db, d), faction_id=ids["ancienne"]),
          ["membership_invalid"]),
-        ("Bea holds a player character", lambda db, d: _add_pc(db, ids, "bea"), ["world_has_pc"]),
-        ("Ana holds a player character", lambda db, d: _add_pc(db, ids, "ana"), ["pc_exists", "world_has_pc"]),
+        ("Bea holds a player character", lambda db, d: _add_pc(db, ids, "bea"), []),
+        ("Ana holds a player character", lambda db, d: _add_pc(db, ids, "ana"), ["pc_exists"]),
         ("review place Cave (not public)", lambda db, d: _set(db, d, review_location_id=ids["cave"]), []),
     ]
 

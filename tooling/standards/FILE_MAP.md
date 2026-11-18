@@ -349,6 +349,7 @@
 - `play.py` — Play-path routes: conversations, travel, world-tick.
 - `player.py` — The player's door (TICKET-0125, BRIEF-0125-E, C-11): profiles, open worlds, what everybody knows.
 - `player_creation.py` — The player's character creation (TICKET-0126, BRIEF-0126-G; E1', B2, S1, U1, V1).
+- `player_day.py` — The player's days (TICKET-0128, BRIEF-0128-G; G1, D1, E1): he declares, the worker runs, the creator publishes, he reads the published narrative only.
 - `prompts.py` — Prompt dry-run preview routes (BRIEF-0008-b, C3): zero model calls, zero writes, reuse the real context assemblers and the real system-prompt construction so the preview never drifts from the live path.
 - `quest_requests.py` — The quest requests' routes (TICKET-0121, BRIEF-0121-E, C-12).
 - `quests.py` — Quest routes (TICKET-0108, BRIEF-0108-B, contracts C-03 to C-05).
@@ -567,6 +568,7 @@
 - `placement_unit.py` — G1 check: permanent regression guard for the sole placement/distance authority (TICKET-0031, BRIEF-0031-a).
 - `player_creation.py` — G1 check for TICKET-0126 (BRIEF-0126-G) -- the player's draft lives and is submitted only through the one check, and the creation routes stay in the public view.
 - `player_entry_schema.py` — G1 check for TICKET-0125 (BRIEF-0125-B) -- schema v2.31: a world opens to players and the Lore journal admits the perspective kind.
+- `player_journee.py` — G1 check for TICKET-0128 (BRIEF-0128-G) -- the player declares his day and reads only what the creator published (INV-66, D1, E1).
 - `player_routes.py` — G1 check for TICKET-0125 (BRIEF-0125-E) -- the perspective and player routes answer only what everybody knows, refuse a closed world, and journal every question.
 - `player_shell.py` — G1 check for TICKET-0125 -- the Lore perspective tab and the player shell are wired and confined.
 - `player_worlds.py` — G1 check for TICKET-0125 (BRIEF-0125-C) -- a world opens to players from the « Monde » page and only when told.

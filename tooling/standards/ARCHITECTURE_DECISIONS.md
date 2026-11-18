@@ -21024,6 +21024,72 @@ Held in `.claude/rules/frontend.md`. Gate: `frontend_error_message.py`.
 
 Deferred: `legacy.html`'s two sites; the player shell's `call()`.
 
+## TICKET-0128 -- the player's day and the active player character (BRIEF-0128-a, BRIEF-0128-b, BRIEF-0128-c, BRIEF-0128-d, BRIEF-0128-e, BRIEF-0128-f, BRIEF-0128-g, schema v2.34)
+
+A world may hold several player characters, and the player lives his
+days. A1 -- `world.active_pc_id`, chosen in the cockpit header; one
+resolver, `active_pc.resolve_active_pc`, replaces the three that refused
+a second PC (`_player_character_id`, `_resolve_player_character`,
+`_resolve_player_id`); one PC needs no choice, several and none chosen
+answer « Choisissez le PJ actif. »; deleting the character clears the
+choice. Rejected: A2, the choice kept in the browser (reactivation: two
+cockpit tabs on two PCs at once).
+
+B2, K1, S1 -- the declaration answers at once; one background worker
+(`cockpit/day_runner.py`) plans then resolves each day in arrival order;
+the plan and resolve HTTP routes are gone. Rejected: B1, each step
+launched by hand (reactivation: « Suivi » shows many failures); K2, the
+chain in the declaration request; S2, one thread per day.
+P1 -- the chain takes its world and its character from the day, never
+the active world; the premise, the extraction, the feasibility and the
+presence rung receive that world. Rejected: P2, advancing only when the
+player's world is active. Q1 -- the quest pin is chosen with the
+declaration (`pass_play.quest_id`); none on the player's side.
+Rejected: Q2, manual days in the cockpit.
+
+L1, M1, R1, Z1 -- a failure writes `day_run_failure` (stage, closed code,
+reason) and turns the day `flagged`; Journée lists it with « Relancer »
+(resume at the failed stage) and « Abandonner » (`abandoned`); the player
+sees only « en attente de la créatrice »; « Suivi » counts failures by
+stage and code. At startup every day left `submitted` or `resolving` is
+an « interrompue » failure. Rejected: L2, the failure in
+`pass_play.history` (JSON, INV-20); M2, no metric; R2, relaunching at
+startup; Z2, « Relancer » only.
+
+C1, C′2, T1, E1, W1 -- a resolved day waits in « À publier » until no
+proposal of that day is `proposed` or `approved`; the creator may
+rewrite it; `pass_play.published_text` / `published_at` hold the
+publication, `batch.final_result` keeps the narrator's text; a published
+day is never replayed; a character has at most one unpublished day; the
+migration published the days already resolved with the narrator's text.
+Rejected: C2, publishing without review; C3, the narrative visible at
+resolution; C′1, publishing as is; T2, a `day_publication` table; E2,
+declaring freely; W2, the old days in « À publier ».
+
+D1 -- the player sees the day, his declaration, « en cours » / « en
+attente de la créatrice » and the published narrative; his knowledge
+still comes through « Mes savoirs ». INV-66 amended. Rejected: D2,
+showing the gains (reactivation: Nia asks after the live gate). F1 --
+the day counter stays the world's, shared by its PCs. Rejected: F2, a
+counter per PC (reactivation: TICKET-0120 opens). G2 (TICKET-0129)
+lifted: a world approves a second player character. J1 -- one ticket.
+
+**INV-70.** A creator surface's player character comes from one
+resolver, `active_pc.resolve_active_pc`. Held in
+`.claude/rules/day-chain.md`. Gate: `pc_resolution.py`.
+
+**INV-71.** The day chain takes its world and its character from the
+day, never from the active world nor the active PC. Held in
+`.claude/rules/day-chain.md`. Gate: `day_chain_world.py`.
+
+**INV-66 (amended).** The one text a player reads outside a perspective
+is a day's published narrative. Gate: `player_journee.py`.
+
+Deferred: Y2, the plan's model calls outside its write transaction
+(reactivation: a write fails « database is locked » while a day plans);
+dated encounters and the calendar (TICKET-0120); Play and the scene for
+the player (I); quests, debts and services on the player's side.
+
 ---
 
 *Co-built with Claude, June 2026.*

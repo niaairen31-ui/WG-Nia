@@ -2,12 +2,13 @@
   /* TICKET-0125 (BRIEF-0125-G). One open world: its name, description and
      laws, and « Ce que tout le monde sait » -- the public perspective, answer
      only (INV-66). « Créer mon personnage » opens the creation screen
-     (TICKET-0126, BRIEF-0126-H). */
+     (TICKET-0126, BRIEF-0126-H). « Ma journée » (TICKET-0128, BRIEF-0128-G). */
   import {
     joueurState, openWorld, askSavoir, selectSavoirCandidate, allSavoirChoicesMade, confirmSavoir,
   } from './joueur.svelte.js';
   import { characterState, openCreation } from './character.svelte.js';
   import CharacterCreation from './CharacterCreation.svelte';
+  import PlayerDay from './PlayerDay.svelte';
 </script>
 
 {#if joueurState.world}
@@ -34,6 +35,8 @@
         <button onclick={() => openCreation()}>Créer mon personnage</button>
       </div>
     {/if}
+
+    {#if joueurState.character}<PlayerDay />{/if}
 
     <section class="savoir">
       <h2>{joueurState.character ? `Mes savoirs — ${joueurState.character.name}` : 'Ce que tout le monde sait'}</h2>

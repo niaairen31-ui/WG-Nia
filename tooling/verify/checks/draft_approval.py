@@ -36,9 +36,10 @@ DA2 -- atomicity. `pc_approval.write_relation` replaced by a stub raising
    `character_id`; the batch `open`, its rows `proposed`.
 DA3 -- refusals, each 409 `Ce personnage ne peut pas encore être approuvé.`
    with every count unchanged: Rival undecided; the `Famille` batch
-   abandoned (`lot_missing`); a row rejected (`row_missing`); Bea holding a
-   player character in the world (`world_has_pc`). After DA1, the approved
-   draft approved again -> 404 `Brouillon introuvable.`.
+   abandoned (`lot_missing`); a row rejected (`row_missing`). After DA1,
+   the approved draft approved again -> 404 `Brouillon introuvable.`.
+   DA1 runs with Bea's character in the world: a second player character
+   is approved (G2 lifted, TICKET-0128).
 DA4 -- the creator's route `POST /api/characters/player` still creates a
    character at the four base domains and the open skills at rank 1
    (`write_player_character` called without `ranks` nor `teachers`), no
@@ -327,23 +328,11 @@ def rule_da3(engine, client, ids: dict) -> int:
 
     from sqlmodel import select
 
-    from world_engine.models import Character, Entity, NpcBatch, NpcBatchRow, PcDraftSketch
+    from world_engine.models import NpcBatch, NpcBatchRow, PcDraftSketch
 
     def first_row(db):
         return db.exec(select(NpcBatchRow).where(NpcBatchRow.batch_id == ids["batch"])
                        .order_by(NpcBatchRow.line_index)).first().id
-
-    def bea_pc(db):
-        entity = Entity(world_id=ids["world"], type="character", name="PJ de Bea", status="active")
-        db.add(entity)
-        db.flush()
-        db.add(Character(id=entity.id, world_id=ids["world"], character_type="player", user_id=ids["bea"]))
-        ids["bea_pc"] = entity.id
-
-    def no_bea_pc(db):
-        db.delete(db.get(Character, ids["bea_pc"]))
-        db.flush()
-        db.delete(db.get(Entity, ids["bea_pc"]))
 
     cases = [
         ("Rival undecided", lambda db: _set(db, PcDraftSketch, ids["rival_sketch"], review_action=None),
@@ -353,7 +342,6 @@ def rule_da3(engine, client, ids: dict) -> int:
          lambda db: _set(db, NpcBatch, ids["batch"], status="open", closed_at=None)),
         ("a row rejected", lambda db: _set(db, NpcBatchRow, first_row(db), row_status="rejected"),
          lambda db: _set(db, NpcBatchRow, first_row(db), row_status="proposed")),
-        ("Bea holding a player character", bea_pc, no_bea_pc),
     ]
     for label, change, restore in cases:
         _refusal(engine, client, ids, label, change, restore)
@@ -427,11 +415,28 @@ def _da1_lore(db, ids: dict, kael: str) -> None:
         fail(f"DA1 Kael's histoire facts: {len(facts)} for {len(STORY.splitlines())} story lines")
 
 
+def _add_bea_pc(engine, ids: dict) -> None:
+    """Bea's player character, in the world before Kael's approval (G2
+    lifted, TICKET-0128): it stays."""
+    from sqlmodel import Session
+
+    from world_engine.models import Character, Entity
+
+    with Session(engine) as db:
+        entity = Entity(world_id=ids["world"], type="character", name="PJ de Bea", status="active")
+        db.add(entity)
+        db.flush()
+        db.add(Character(id=entity.id, world_id=ids["world"], character_type="player", user_id=ids["bea"]))
+        db.commit()
+        ids["bea_pc"] = entity.id
+
+
 def rule_da1(engine, client, ids: dict) -> int:
     from sqlmodel import Session, select
 
     from world_engine.models import Character, NpcBatch, NpcBatchRow, PcDraft
 
+    _add_bea_pc(engine, ids)
     resp = _approve(client, ids)
     data = resp.json() if resp.status_code == 200 else {}
     if not data.get("ok") or not data.get("character_id") or data.get("name") != "Kael":
@@ -439,10 +444,13 @@ def rule_da1(engine, client, ids: dict) -> int:
         return 0
     kael = data["character_id"]
     with Session(engine) as db:
-        pcs = db.exec(select(Character).where(Character.world_id == ids["world"],
-                                              Character.character_type == "player")).all()
+        every_pc = db.exec(select(Character).where(Character.world_id == ids["world"],
+                                                   Character.character_type == "player")).all()
+        pcs = [c for c in every_pc if c.user_id == ids["ana"]]
         if [(c.id, c.user_id, c.current_location_id) for c in pcs] != [(kael, ids["ana"], ids["quai"])]:
-            fail(f"DA1 the world's player characters read {[(c.id, c.user_id) for c in pcs]!r}")
+            fail(f"DA1 Ana's player characters read {[(c.id, c.user_id) for c in pcs]!r}")
+        if len(every_pc) != 2:
+            fail(f"DA1 the world holds {len(every_pc)} player character(s), expected Bea's and Kael")
         draft = db.get(PcDraft, ids["draft"])
         if draft.status != "approved" or draft.character_id != kael:
             fail(f"DA1 the draft reads {draft.status!r}, {draft.character_id!r}")
