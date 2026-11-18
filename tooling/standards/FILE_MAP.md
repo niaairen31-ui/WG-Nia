@@ -422,6 +422,7 @@
 
 ## tooling/verify/checks/
 
+- `active_pc_selector.py` — G1 check for TICKET-0128 (BRIEF-0128-C) -- the cockpit header carries the « PJ actif » selector.
 - `agenda_assist.py` — G1 check for TICKET-0021/BRIEF-0021-b — AI agenda-draft assistant.
 - `analyzer_seam.py` — G1 check for TICKET-0051 (BRIEF-0051-c, decision R1) — the analyzer transcript seam.
 - `attribute_conditions.py` — G1 check for TICKET-0113 -- the attribute condition form: a leaf reads any attribute of any entity it applies to, and a player never reads a hidden one.

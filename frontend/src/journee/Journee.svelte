@@ -41,6 +41,7 @@
 
   $effect(() => {
     void serverState.worldId;
+    void serverState.playerId;
     reloadForWorld();
     questState.pin = '';
     loadQuests();
