@@ -167,6 +167,8 @@ _FIXTURE: tuple[tuple[str, dict], ...] = (
                                   "template_id": "t", "version": 1}),
     ("pass_play", {"id": "pp-{w}", "batch_id": "bat-{w}", "session_id": "ses-{w}",
                    "character_id": "{w}-char", "declared_action": "a"}),
+    ("day_run_failure", {"id": "drf-{w}", "world_id": "{w}", "pass_play_id": "pp-{w}",
+                         "stage": "plan", "code": "crashed", "reason": "r"}),
     ("skill_definition", {"id": "sd-{w}", "world_id": "{w}", "name": "Escrime",
                           "base_domain": "agility", "system_id": "ss-{w}"}),
     ("unresolved_mention", {"id": "um-{w}", "world_id": "{w}", "surface": "s",
@@ -357,6 +359,10 @@ def _build_world(engine, world_id: str) -> None:
                    {"u": f"u-{world_id}"})
         for table, row in _FIXTURE:
             _insert(db, table, row, world_id)
+        # v2.34: a world naming its active PC still deletes under FK
+        # enforcement (TICKET-0128, BRIEF-0128-A).
+        db.execute(text("UPDATE world SET active_pc_id = :c WHERE id = :w"),
+                   {"c": f"{world_id}-char", "w": world_id})
         db.commit()
 
 

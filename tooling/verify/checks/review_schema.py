@@ -9,7 +9,7 @@ RS1 -- static, by import. Every C-03 column sits on its model with its
    (`PC_REVIEW_ACTIONS`, `PC_REVIEW_DEFAULT_RELATION`,
    `PC_REVIEW_DEFAULT_INTENSITY`, exported by `models`);
    `ENCOUNTER_SOURCES[-1] == "pc_creation"`;
-   `EXPECTED_STATIC_SCHEMA_VERSION == "v2.33"`; the migration exists with
+   `EXPECTED_STATIC_SCHEMA_VERSION` is at least v2.33; the migration exists with
    `_PREVIOUS_VERSION = "v2.32"`; the JSON columns of the five tables are
    exactly `npc_batch.scope` and `npc_batch_row.payload` (INV-20).
 RS2 -- CHECKs, raw INSERTs after a fresh `create_all`, each refusal paired
@@ -52,6 +52,11 @@ SRC = ROOT / "src"
 MIGRATION = ROOT / "scripts" / "migrate_v2_33_creator_review.py"
 
 FAILURES: list[str] = []
+
+
+def _version_key(version: str) -> tuple[int, int]:
+    major, minor = version.lstrip("v").split(".")
+    return int(major), int(minor)
 
 
 def fail(msg: str) -> None:
@@ -268,7 +273,7 @@ def _rs1_constants() -> int:
             fail(f"RS1 models.{name} is {getattr(models, name, None)!r} or not exported, expected {value!r}")
     if models.ENCOUNTER_SOURCES[-1] != "pc_creation":
         fail(f"RS1 ENCOUNTER_SOURCES is {models.ENCOUNTER_SOURCES!r}")
-    if EXPECTED_STATIC_SCHEMA_VERSION != "v2.33":
+    if _version_key(EXPECTED_STATIC_SCHEMA_VERSION) < _version_key("v2.33"):
         fail(f"RS1 EXPECTED_STATIC_SCHEMA_VERSION is {EXPECTED_STATIC_SCHEMA_VERSION!r}")
     if not MIGRATION.exists():
         fail(f"RS1 {MIGRATION.name} is missing")

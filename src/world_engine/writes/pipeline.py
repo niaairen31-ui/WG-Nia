@@ -21,11 +21,12 @@ never done), so it never inflates the replay count.
 Every function here follows the same commit-free contract as the rest of
 `writes/`: none commits, the caller adds the returned row(s) to the session
 and commits. `PASS_PLAY_STATUSES` is declared here because `routes/day.py`
-renders it; `flagged` is reserved for a future input classifier and is
-never written by anything in this module. `BATCH_STATUSES` is the same
-idiom for `batch.status` (BRIEF-0075-d): `write_batch` only ever writes
-`"pending"`; `BATCH_RESOLVED_STATUS` is the value the resolve route moves
-a batch to once its day narration is judged and accepted.
+renders it; `flagged` is a day whose chain failed (`day_run_failure`,
+written by `writes/day_runs.py`); `abandoned` a failed day the creator gave
+up (TICKET-0128). `BATCH_STATUSES` is the same idiom for `batch.status`
+(BRIEF-0075-d): `write_batch` only ever writes `"pending"`;
+`BATCH_RESOLVED_STATUS` is the value the resolve route moves a batch to
+once its day narration is judged and accepted.
 """
 
 from __future__ import annotations
@@ -59,7 +60,7 @@ _CHOICE_VERDICTS: tuple[str, ...] = ("accepted", "rejected", "declined", "failed
 _REVIEW_VERDICTS: tuple[str, ...] = ("agreed", "disagreed")
 _REVIEW_SCOPES: tuple[str, ...] = ("rencontre", "world", "none")
 
-PASS_PLAY_STATUSES: tuple[str, ...] = ("submitted", "resolving", "resolved", "flagged")
+PASS_PLAY_STATUSES: tuple[str, ...] = ("submitted", "resolving", "resolved", "flagged", "abandoned")
 
 BATCH_STATUSES: tuple[str, ...] = ("pending", "resolved_awaiting_review")
 BATCH_RESOLVED_STATUS: str = BATCH_STATUSES[1]

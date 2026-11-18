@@ -84,6 +84,7 @@ _DIRECT_WORLD_SCOPED_DELETES: tuple[str, ...] = (
     "quest_request",
     "creation_rules", "pc_draft", "pc_draft_skill", "pc_draft_sketch",
     "pc_draft_membership", "pc_draft_knowledge",
+    "day_run_failure",
 )
 
 # Refusing tables (root_table, label_column, guarded_children, message) —

@@ -13,6 +13,14 @@ boot guard checks against the stored `schema_meta` row.
 
 ## CHANGELOG
 
+- **v2.34** — TICKET-0128, BRIEF-0128-A: several player characters and
+  the player's days. `world` gains `active_pc_id` (FK `character`, ON
+  DELETE SET NULL); `pass_play` gains `quest_id` (FK `quest`),
+  `published_text` and `published_at`; `PASS_PLAY_STATUSES` adds
+  `abandoned` (no CHECK); new table `day_run_failure` (stage, closed
+  code, reason, two CHECKs, two indexes), cascaded with its world.
+  `migrate_v2_34_player_day.py` publishes every day already resolved
+  with the narrator's text (W1), once.
 - **v2.33** — TICKET-0129, BRIEF-0129-B: the creator reviews a
   submitted character. `pc_draft` gains `review_location_id` (her
   starting place) and `character_id` (the character the approval

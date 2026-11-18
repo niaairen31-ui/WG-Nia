@@ -128,6 +128,7 @@
 - `migrate_v2_31_player_entry.py` — Migration v2.31 — a world opens to players; the Lore journal admits the perspective kind (TICKET-0125, BRIEF-0125-B; decisions C1, H1-c).
 - `migrate_v2_32_character_creation.py` — Migration v2.32 — a world's character creation rules, the creation overrides, a player's character draft, the creation journal kind (TICKET-0126, BRIEF-0126-B; decisions J1', L2, B1, U1).
 - `migrate_v2_33_creator_review.py` — Migration v2.33 — the creator's review of a submitted character: the review columns, the approved character, the review batches (TICKET-0129, BRIEF-0129-B).
+- `migrate_v2_34_player_day.py` — Migration v2.34 — the active player character, the day's pin, publication and failures (TICKET-0128, BRIEF-0128-A).
 - `observation_metrics.py` — Observation run metrics (TICKET-0051, BRIEF-0051-g, decision J2/Q).
 - `preview_npc_schedule.py` — Preview `where_is` / `who_is_at` / `unresolved_npcs` — the concrete reader for `world.current_phase` (T-A1) and the live-gate instrument for TICKET-0074, BRIEF-0074-a.
 - `preview_tick_context.py` — Preview the full-interiority briefing a world tick would send to one NPC (TICKET-0014, BRIEF-0014-a; TICKET-0015, BRIEF-0015-a adds --interval) — the concrete reader for `assemble_tick_context` in this brief, and the live-gate instrument for the T1 review.
@@ -460,6 +461,7 @@
 - `day_plan.py` — Structural gate for the day-plan emission-and-budget step (TICKET-0075, BRIEF-0075-b).
 - `day_prompt_delivery.py` — Structural gate for the day-chain prompt delivery and coverage guard (TICKET-0076, BRIEF-0076-a).
 - `day_rewrite.py` — Structural gate for the declaration rewrite (TICKET-0081, BRIEF-0081-b — decisions A2'/B2/J2).
+- `day_schema.py` — G1 check for TICKET-0128 (BRIEF-0128-A) -- schema v2.34: the active player character, the day's pin, its publication and its failures.
 - `debts.py` — G1 check for TICKET-0110 -- debts and services.
 - `decisions_index.py` — Regenerate-and-diff gate: the committed DECISIONS_INDEX.md must equal a fresh regeneration from ARCHITECTURE_DECISIONS.md, and every header added since the grandfathered baseline must match the strict header pattern.
 - `door_coverage.py` — G1 check for TICKET-0039 (BRIEF-0039-e) — door coverage invariant.

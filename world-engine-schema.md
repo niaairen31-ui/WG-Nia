@@ -1,6 +1,6 @@
 # WORLD ENGINE — Database Schema
 
-Current schema version: v2.33
+Current schema version: v2.34
 Append-only history: world-engine-schema-changelog.md (repo root)
 
 -----
@@ -37,6 +37,8 @@ CREATE TABLE world (
                                        -- creator-set day-cycle phase (v1.92, TICKET-0074,
                                        -- T-A1). Per-world; advancing it writes only this
                                        -- column -- no tick, no cascade.
+  active_pc_id          TEXT REFERENCES character(id) ON DELETE SET NULL,
+                                       -- creator-set « PJ actif » (v2.34, TICKET-0128, A1)
   created_at            DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at            DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -970,10 +972,44 @@ CREATE TABLE pass_play (
   batch_order         INTEGER,
   history             JSON DEFAULT '[]', -- all successive versions
   submitted_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
-  applied_at          DATETIME
+  applied_at          DATETIME,
+  quest_id            TEXT REFERENCES quest(id),
+                      -- pinned at the declaration (v2.34, TICKET-0128, Q1)
+  published_text      TEXT,             -- the narrative the player reads (v2.34, TICKET-0128, C′2)
+  published_at        DATETIME
+                      -- published iff set; never replayed after (v2.34, TICKET-0128, T1)
 );
 -- NOTE: the old `local_proposal` column is removed.
 -- Proposed changes now live in `proposed_mutation` (one pass-play can spawn several).
+```
+
+`status`: submitted | resolving | resolved | flagged | abandoned (v2.34) — `flagged`
+when the chain failed (`day_run_failure`), `abandoned` when the creator gave it up.
+
+-----
+
+### `day_run_failure`
+
+One row per failed run of a day's chain (schema v2.34, TICKET-0128, L1): the
+stage, a closed code, the reason as text. The day turns `flagged`.
+Append-only; non-canon; deleted with its world.
+
+```sql
+CREATE TABLE day_run_failure (
+  id                  TEXT PRIMARY KEY,
+  world_id            TEXT NOT NULL REFERENCES world(id),
+  pass_play_id        TEXT NOT NULL REFERENCES pass_play(id),
+  stage               TEXT NOT NULL,
+  code                TEXT NOT NULL,
+  reason              TEXT NOT NULL,
+  created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT ck_day_run_failure_stage CHECK (stage IN ('plan','resolve')),
+  CONSTRAINT ck_day_run_failure_code CHECK (code IN
+    ('model_failed','blocked','rejected','refused','crashed','interrupted'))
+);
+
+CREATE INDEX idx_day_run_failure_pass_play ON day_run_failure(pass_play_id, created_at);
+CREATE INDEX idx_day_run_failure_world ON day_run_failure(world_id, created_at);
 ```
 
 -----
