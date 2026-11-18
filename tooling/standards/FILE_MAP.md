@@ -145,6 +145,7 @@
 ## src/world_engine/
 
 - `__init__.py` — World Engine — local, single-player-first RPG world engine.
+- `active_pc.py` — The player character a creator surface acts for: one resolver for every surface of the cockpit (TICKET-0128, A1; INV-70).
 - `analyzer.py` — Conversation analysis — extract proposed mutations from unanalyzed turns.
 - `analyzer_transcript.py` — Conversation-agnostic analysis core (TICKET-0051, BRIEF-0051-c).
 - `attribute_proposals.py` — The attributes the interpreter proposes (TICKET-0113, BRIEF-0113-E; decisions WK2 and WN2 of the conditions series).
@@ -322,6 +323,7 @@
 ## src/world_engine/cockpit/routes/
 
 - `__init__.py` — Domain routers mounted on the cockpit app (TICKET-0027, BRIEF-0027-d).
+- `active_pc.py` — The creator's choice of the player character her cockpit acts for (TICKET-0128, BRIEF-0128-B, A1).
 - `attributes.py` — The state of the world's routes (TICKET-0113, BRIEF-0113-C; decisions WA3, WB2, WD1, WI1, WJ2 and WK2 of the conditions series) -- creator CRUD, a sanctioned canon-write path:
 - `conditions.py` — The condition interpreter's routes (TICKET-0112, BRIEF-0112-D; decisions IB1, IG1, IH1, IJ1).
 - `creator.py` — Creator-mode generation + composite routes: entity/world/player/skill- catalogue/agenda/event draft generation, world CRUD, bootstrap, player-character composite create, NPC listing.
@@ -372,6 +374,7 @@
 
 - `__init__.py` — Shared canon-write primitives (TICKET-0028, BRIEF-0028-b — package split of the former `writes.py`, by canon domain).
 - `_shared.py` — Closed shared-helper set for the `writes/` package (TICKET-0028, BRIEF-0028-b — decomposed from `writes.py`).
+- `active_pc.py` — The one writer of `world.active_pc_id`, the creator's choice of the player character her cockpit acts for (TICKET-0128, A1).
 - `attributes.py` — The writer of the state of the world (TICKET-0113, BRIEF-0113-A; decisions WA3, WB2, WC1, WD1, WE1 and WJ2 of the conditions series): the one writer of `attribute_definition`, `attribute_definition_type`, `attribute_choice`, `attribute_value` and `attribute_change`.
 - `characters.py` — `character`/`skill`/`ledger` canon-write chokepoints (TICKET-0028, BRIEF-0028-b — decomposed from `writes.py`).
 - `condition_drafts.py` — The condition interpreter's journal writer (TICKET-0112, BRIEF-0112-B, decision IH1).
@@ -548,7 +551,7 @@
 - `origin_guard.py` — G1 check for TICKET-0098 (BRIEF-0098-A, decision I1) -- the origin guard.
 - `page_contract.py` — G1 check for TICKET-0005 (BRIEF-0005-a/b/c) — Création page-contract structural gate.
 - `parked_plan_guard.py` — Structural gate for the parked-plan socle (TICKET-0077, BRIEF-0077-a).
-- `pc_resolution.py` — G1 check for TICKET-0125 -- a world with several player characters is refused, never resolved to one of them.
+- `pc_resolution.py` — G1 check for TICKET-0128 (BRIEF-0128-B; first written for TICKET-0125) -- one resolver gives the cockpit its player character; several and none chosen is a refusal.
 - `perspective_isolation.py` — G1 check for TICKET-0125 (BRIEF-0125-D) -- the public perspective returns only what everybody knows, and its audit names every line it withheld.
 - `pipeline_state.py` — Structural gate for ticket front-matter conformity (pipeline glue, BRIEF-0004), extended by BRIEF-0006-b (TICKET-0006) with sentinel checks on the command files -- moved to `session_config.py` by TICKET-0117 (BRIEF-0117-b), which owns the Claude Code session configuration.
 - `pipeline_wiring.py` — Structural gate for the day-declaration socle (TICKET-0075, BRIEF-0075-a).

@@ -144,6 +144,10 @@ src/world_engine/cockpit/routes/creator.py::set_world_phase               world
 # description and tone; its laws go through write_world_laws (above).
 # TICKET-0125, BRIEF-0125-C (C1): and its open_to_players flag, only when sent.
 src/world_engine/cockpit/routes/creator.py::update_world                  world
+# TICKET-0128, BRIEF-0128-B (A1): the creator's choice of the active player character,
+# one column of `world`; set from the cockpit header, cleared when the character is deleted.
+src/world_engine/writes/active_pc.py::write_active_pc           world
+src/world_engine/writes/active_pc.py::clear_active_pc_of        world
 # TICKET-0129, BRIEF-0129-A: create_player_character's body relocated to writes/player_characters.py::write_player_character, commit-free; the route keeps the transaction. Same tables, same site count: a relocation, not a broadening.
 src/world_engine/writes/player_characters.py::write_player_character entity character skill
 # TICKET-0129, BRIEF-0129-E: write_master_rank sets a master's skill to Maître at a character's approval -- write_skill_rank's row added here, or write_skill_row's.

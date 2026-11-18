@@ -60,7 +60,8 @@ from sqlmodel import Session, select
 
 from . import llm_parse, ollama_client
 from .event_analysis import AnalysisVocabulary, analysis_vocabulary, typed_payload
-from .models import Character, Entity, Fact, Knowledge, ProposedMutation, PromptTemplate
+from .active_pc import active_pc_id_or_none
+from .models import Entity, Fact, Knowledge, ProposedMutation, PromptTemplate
 from .prompt_registry import effective_model
 from .prompt_store import current_prompt
 from .fact_refs import CodedRefs, code_facts, find_held, knowledge_key
@@ -245,19 +246,6 @@ def _first_of(item: dict, *keys: str, default: Any = None) -> Any:
     return default
 
 
-def _resolve_player_id(db: Session, world_id: str) -> str | None:
-    """Resolve the active world's player character id (character_type='player').
-
-    TICKET-0125 (M2): None unless the world has exactly one PC.
-    """
-    chars = db.exec(
-        select(Character)
-        .join(Entity, Entity.id == Character.id)
-        .where(Entity.world_id == world_id, Character.character_type == "player")
-    ).all()
-    return chars[0].id if len(chars) == 1 else None
-
-
 def _normalize_mutation_type(item: dict) -> None:
     """mutation_type / target_table / target_id, in place."""
     if "mutation_type" not in item:
@@ -278,7 +266,7 @@ def _build_payload_new_knowledge(
 ) -> tuple[dict, bool]:
     # Infer who learned this from "subject"/"entity" field.
     subj = str(_first_of(item, "subject", "entity", default="")).lower()
-    resolved_player_id = _resolve_player_id(db, world_id)
+    resolved_player_id = active_pc_id_or_none(db, world_id)
     player_hints = {"player", "joueur", attribution.default_counterparty_id, resolved_player_id} - {None}
     if not subj or any(h in subj for h in player_hints):
         entity_id = attribution.default_counterparty_id

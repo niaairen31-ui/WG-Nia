@@ -121,22 +121,6 @@ def _get_or_open_session(world_id: str, db: Session) -> GameSession:
     return sess
 
 
-def _resolve_player_character(world_id: str, db: Session) -> Character:
-    rows = db.exec(
-        select(Character).where(
-            Character.world_id == world_id, Character.character_type == "player",
-        )
-    ).all()
-    if len(rows) != 1:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"expected exactly one player character for this world, found {len(rows)}"
-            ),
-        )
-    return rows[0]
-
-
 def _day_dict(batch: Batch, pass_play: PassPlay) -> dict:
     # `status` is the pass_play lifecycle (PASS_PLAY_STATUSES) -- the
     # player's own declaration, not `batch.status` (a separate, larger
@@ -173,7 +157,7 @@ def declare_day(body: DayDeclareBody, db: Session = Depends(get_session)) -> dic
 
     world_id = _crud._world_id(db)
     game_session = _get_or_open_session(world_id, db)
-    character = _resolve_player_character(world_id, db)
+    character = _crud._player_character(db, world_id)
 
     batch = write_batch(db, session_id=game_session.id, changed_by="player")
     try:
@@ -550,7 +534,7 @@ def plan_day(batch_id: str, body: Optional[PlanDayBody] = None, db: Session = De
     the reconciliation runs against it as against any selected plan."""
     world_id = _crud._world_id(db)
     pass_play = _load_plannable_day(batch_id, world_id, db)
-    character = _resolve_player_character(world_id, db)
+    character = _crud._player_character(db, world_id)
 
     # Extraction and concordance run BEFORE plan emission, selection or
     # reconciliation (BRIEF-0075-c, C1; ordering re-asserted by
@@ -856,7 +840,7 @@ def resolve_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     row = _load_resolvable_day(batch_id, world_id, db)
     batch: Batch = row[0]
     pass_play: PassPlay = row[1]
-    character = _resolve_player_character(world_id, db)
+    character = _crud._player_character(db, world_id)
     agenda = _load_active_agenda(character, pass_play, db)
     _guard_no_pending_agenda_step_change(agenda, db)
     is_replay = pass_play.status == "resolved"

@@ -28,6 +28,7 @@ from ...event_author import generate_agenda_draft as _generate_agenda_draft
 from ...event_author import generate_event_draft as _generate_event_draft
 from ...link_author import purge_world_link_batches
 from ...npc_group_author import purge_world_npc_batches
+from ...active_pc import active_pc_id_or_none
 from ...db import get_session
 from ...facet_reads import facts_of, joined
 from ...models import (
@@ -757,18 +758,16 @@ def get_bootstrap(db: Session = Depends(get_session)) -> dict:
     """Resolved play context for index.html, which is served as a static file
     with no server-side templating. Read-only; opens no session.
 
-    Returns the active world's id, the structurally-resolved player character
-    id (character_type='player'), and that character's current_location_id.
-    `player_id`/`current_location_id` are null when the active world has no
-    PC yet (BRIEF-46: a freshly created world has none until the creator uses
-    the create-PC form) — `world_id` must still resolve so that form can
-    scope its starting-location dropdown.
+    Returns the active world's id, the player character id, and that
+    character's current_location_id. `player_id` is the active player
+    character (`active_pc.active_pc_id_or_none`, TICKET-0128): null when the
+    world has none, or several and none chosen. `current_location_id` is
+    null with it (BRIEF-46: a freshly created world has no PC until the
+    creator uses the create-PC form) — `world_id` must still resolve so that
+    form can scope its starting-location dropdown.
     """
     world_id = _crud._world_id(db)
-    try:
-        player_id = _crud._player_character_id(db, world_id)
-    except HTTPException:
-        player_id = None
+    player_id = active_pc_id_or_none(db, world_id)
     player_char = db.get(Character, player_id) if player_id else None
     return {
         "world_id": world_id,

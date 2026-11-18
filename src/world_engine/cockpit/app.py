@@ -54,6 +54,7 @@ from ..models import LinkBatch, LinkBatchRow, NpcBatch, NpcBatchRow, SchemaMeta
 from ..schema_version import EXPECTED_STATIC_SCHEMA_VERSION
 from . import crud as _crud
 from .origin_guard import origin_guard
+from .routes import active_pc as _routes_active_pc
 from .routes import attributes as _routes_attributes
 from .routes import conditions as _routes_conditions
 from .routes import creator as _routes_creator
@@ -136,6 +137,7 @@ app.middleware("http")(origin_guard)
 app.include_router(_crud.router)
 app.include_router(_routes_creator.router)
 app.include_router(_routes_day.router)
+app.include_router(_routes_active_pc.router)
 app.include_router(_routes_regions.router)
 app.include_router(_routes_prompts.router)
 app.include_router(_routes_mutations.router)

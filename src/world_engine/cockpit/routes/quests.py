@@ -42,7 +42,6 @@ from .. import crud as _crud
 # shared with the quest_offer_creation applier; the old names stay importable here.
 from ..quest_offer_save import OfferBody, OfferStepBody, TermBody, _mark_drafts, save_offer_body
 from ..quest_offer_save import term_spec as _term
-from .day import _resolve_player_character
 
 router = APIRouter()
 
@@ -135,14 +134,14 @@ def set_economy(body: EconomyBody, db: Session = Depends(get_session)) -> dict:
 
 @router.get("/api/quests")
 def journee_quests(db: Session = Depends(get_session)) -> dict:
-    character = _resolve_player_character(_crud._world_id(db), db)
+    character = _crud._player_character(db, _crud._world_id(db))
     return quest_reads.journee_payload(character, db)
 
 
 @router.post("/api/quests/accept", status_code=201)
 def accept(body: AcceptBody, db: Session = Depends(get_session)) -> dict:
     world_id = _crud._world_id(db)
-    character = _resolve_player_character(world_id, db)
+    character = _crud._player_character(db, world_id)
     offer = db.get(QuestOffer, body.offer_id)
     if offer is None or offer.world_id != world_id:
         raise HTTPException(status_code=404, detail=f"quest offer {body.offer_id!r} not found")
@@ -158,7 +157,7 @@ def accept(body: AcceptBody, db: Session = Depends(get_session)) -> dict:
 @router.post("/api/quests/{quest_id}/abandon")
 def abandon(quest_id: str, db: Session = Depends(get_session)) -> dict:
     world_id = _crud._world_id(db)
-    character = _resolve_player_character(world_id, db)
+    character = _crud._player_character(db, world_id)
     quest = db.get(Quest, quest_id)
     if quest is None or quest.character_id != character.id:
         raise HTTPException(status_code=404, detail=f"quest {quest_id!r} not found")
@@ -172,7 +171,7 @@ def abandon(quest_id: str, db: Session = Depends(get_session)) -> dict:
 
 
 def _players_quest(quest_id: str, db: Session) -> tuple[Quest, object]:
-    character = _resolve_player_character(_crud._world_id(db), db)
+    character = _crud._player_character(db, _crud._world_id(db))
     quest = db.get(Quest, quest_id)
     if quest is None or quest.character_id != character.id:
         raise HTTPException(status_code=404, detail=f"quest {quest_id!r} not found")
