@@ -178,6 +178,7 @@
 - `day_reconcile.py` — Reconciliation pass (TICKET-0075, BRIEF-0075-f — decision R1; Z4 and AA2 correcting the original brief, per AMENDMENT 1).
 - `day_resolve.py` — Step resolution and the frozen fact sheet (TICKET-0075, BRIEF-0075-d — decisions B4-as-amended and T1; dice are Python, never a model — as corrected by BRIEF-0075-d-amendment-1, decision V1).
 - `day_rewrite.py` — The declaration rewrite (TICKET-0081, BRIEF-0081-b — decisions A2'/B2/J2).
+- `day_run_reads.py` — What the day's run looks like: its failures, what awaits publication, what a character may still declare (TICKET-0128).
 - `db.py` — Database engine and session management.
 - `debt_reads.py` — Debts: what the two surfaces read (TICKET-0110, BRIEF-0110-B, contract C-06).
 - `draft_world.py` — What a draft adds from its world -- the names it may cite, the fields it fills, and code's judgment of its answer (TICKET-0124, BRIEF-0124-G; A2, G2).
@@ -280,8 +281,10 @@
 - `__init__.py` — Cockpit sub-package — local review web UI for World Engine.
 - `app.py` — Cockpit — local review web UI for World Engine.
 - `browser_open.py` — Open the browser on the cockpit once it answers (TICKET-0130, O1).
+- `day_declare.py` — A declared day, from either shell: written at once, then handed to the day worker (TICKET-0128, K1).
 - `day_plan_finalize.py` — Plan finalizers, relocated from `cockpit/routes/day.py` for module-budget headroom (TICKET-0121, BRIEF-0121-D) -- the `day_reconcile_apply.py` precedent.
 - `day_reconcile_apply.py` — Reconciliation finalizers, relocated from `cockpit/routes/day.py` for module-budget headroom (TICKET-0077, BRIEF-0077-a) — the `models/config.py::AgendaStep` relocation precedent.
+- `day_runner.py` — One background worker plans then resolves each declared day, one at a time, in arrival order; a failure is written, never silent (TICKET-0128, B2, K1, S1, R1, L1).
 - `mutations.py` — Per-mutation-type canon appliers (TICKET-0027, BRIEF-0027-c).
 - `npc_group_commit.py` — The NPC group agent's row commit (TICKET-0129, BRIEF-0129-A): one staged row written to canon through the creator-direct cores, in the caller's transaction; shared by the agent's batch commit and the character approval.
 - `origin_guard.py` — Origin guard for every write route (TICKET-0098, BRIEF-0098-A, decision I1).
@@ -329,6 +332,7 @@
 - `creator.py` — Creator-mode generation + composite routes: entity/world/player/skill- catalogue/agenda/event draft generation, world CRUD, bootstrap, player-character composite create, NPC listing.
 - `dashboard.py` — The « Suivi » tab's routes -- the creator's dashboard and its export (TICKET-0115, BRIEF-0115-D; decisions H1, E2, I1, J1 and M1 of the conditions series' dashboard).
 - `day.py` — Day declaration, plan-emission and resolution routes (TICKET-0075, BRIEF-0075-a — the declaration socle: plumbing only; BRIEF-0075-b — plan emission and budget; BRIEF-0075-c — extraction and concordance; BRIEF-0075-d — resolution, the fact sheet and narration; BRIEF-0075-g — the feasibility veto, decision Y1).
+- `day_runs.py` — The creator's view of the day worker: failed days, relaunch, abandon, what runs now (TICKET-0128, M1, Z1, Y1).
 - `debts.py` — Debt routes (TICKET-0110, BRIEF-0110-B, contract C-07).
 - `event_types.py` — The event journal's vocabulary routes (TICKET-0114, BRIEF-0114-B; decisions B1, C1, D1, T3 and W1 of the conditions series) -- creator CRUD, a sanctioned canon-write path:
 - `link_agent.py` — NPC link agent — batch staging lifecycle, pair-pass, coherence pass and commit routes (TICKET-0036, BRIEF-0036-a/b/c).
@@ -381,6 +385,7 @@
 - `conditions.py` — The condition writer and reader (TICKET-0111, BRIEF-0111-C, decisions O-a and I1): one `condition` row per owner and role, its tree as `condition_node` rows.
 - `config.py` — Full-replace curated-config canon-write chokepoints (TICKET-0028, BRIEF-0028-b — decomposed from `writes.py`).
 - `creation_rules.py` — The creation rules' writer (TICKET-0126, BRIEF-0126-C, C-05).
+- `day_runs.py` — The writers of a day's run: its failures, its reopening, its abandonment and its publication (TICKET-0128, L1, M1, Z1, C1, T1).
 - `debt_sources.py` — Where a debt comes from besides the creator's hand (TICKET-0110, BRIEF-0110-B, S2 and A2, contract C-05).
 - `debts.py` — Debts: the writers (TICKET-0110, BRIEF-0110-B, J2, C2, T1, F-a, F-b1, U1, V1, X1, contract C-03).
 - `entity_states.py` — The writer of the system states an event may change (TICKET-0119, BRIEF-0119-C; decision E1 of the conditions series): `character.vital_status` (`sys:vital_status`) and `entity.status` (`sys:status`), the two columns `writes.event_types.EFFECT_SYSTEM_KEYS` names.
@@ -466,6 +471,7 @@
 - `day_plan.py` — Structural gate for the day-plan emission-and-budget step (TICKET-0075, BRIEF-0075-b).
 - `day_prompt_delivery.py` — Structural gate for the day-chain prompt delivery and coverage guard (TICKET-0076, BRIEF-0076-a).
 - `day_rewrite.py` — Structural gate for the declaration rewrite (TICKET-0081, BRIEF-0081-b — decisions A2'/B2/J2).
+- `day_runs.py` — G1 check for TICKET-0128 (BRIEF-0128-E) -- a declared day runs in the background; every failure is written, listed, relaunched or abandoned.
 - `day_schema.py` — G1 check for TICKET-0128 (BRIEF-0128-A) -- schema v2.34: the active player character, the day's pin, its publication and its failures.
 - `debts.py` — G1 check for TICKET-0110 -- debts and services.
 - `decisions_index.py` — Regenerate-and-diff gate: the committed DECISIONS_INDEX.md must equal a fresh regeneration from ARCHITECTURE_DECISIONS.md, and every header added since the grandfathered baseline must match the strict header pattern.

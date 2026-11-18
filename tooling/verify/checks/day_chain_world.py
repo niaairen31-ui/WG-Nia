@@ -23,8 +23,9 @@ DW2 -- fixture: world A active (PC Ana, description « Monde A »), world B
    phase, is_present=True, world_id=B)` holds Garde; without `world_id` it
    does not.
 DW3 -- the pin at the declaration, `TestClient(app,
-   base_url="http://127.0.0.1")`, `routes.day.missing_usages` swapped for
-   an empty answer and restored in `finally`, on `quests._qb_world` made
+   base_url="http://127.0.0.1")`, `cockpit.day_declare.missing_usages`
+   swapped for an empty answer and `cockpit.day_declare.enqueue_day` for a
+   recorder, both restored in `finally`, on `quests._qb_world` made
    active, an offer (`quests._offer_kwargs(ids, eligibility=None)`)
    accepted by its PC. `POST /api/day/declare` with that quest -> 200 and
    the day's `quest_id` is it; with an unknown quest -> 404 and no new day;
@@ -287,13 +288,14 @@ def rule_dw3(engine) -> int:
 
     import quests as q_check  # the check module, for its fixture helpers
     from world_engine.cockpit.app import app
-    from world_engine.cockpit.routes import day as day_route
+    from world_engine.cockpit import day_declare
     from world_engine.models import Character, PassPlay, Quest, World
     from world_engine.writes.quests import abandon_quest, accept_quest, write_quest_offer
 
     reached = 0
-    original = day_route.missing_usages
-    day_route.missing_usages = lambda *a, **k: []
+    originals = (day_declare.missing_usages, day_declare.enqueue_day)
+    day_declare.missing_usages = lambda *a, **k: []
+    day_declare.enqueue_day = lambda batch_id: None
     try:
         with Session(engine) as db:
             for world in db.exec(__import__("sqlmodel").select(World)).all():
@@ -352,7 +354,7 @@ def rule_dw3(engine) -> int:
                 if row is None or row.quest_id is not None:
                     fail(f"DW3: an unpinned day's quest_id is {getattr(row, 'quest_id', None)!r}")
     finally:
-        day_route.missing_usages = original
+        day_declare.missing_usages, day_declare.enqueue_day = originals
     return reached
 
 

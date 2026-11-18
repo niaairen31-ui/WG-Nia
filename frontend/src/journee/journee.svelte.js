@@ -2,9 +2,8 @@
    Non-render state + API calls for the Journée surface, same shape as
    observation.svelte.js: a $state object Journee.svelte renders, plus the
    functions that mutate it. No agenda data is fetched, rendered or
-   referenced anywhere here (Scope OUT) -- `plan`/`resolve` responses never
-   carry an agenda_id/step_id (backend Scope OUT, re-asserted at this
-   surface), and the account block (BRIEF-0075-e item 4) is read-only: no
+   referenced anywhere here (Scope OUT) -- the day worker plans and
+   resolves (TICKET-0128, K1), and the account block (BRIEF-0075-e item 4) is read-only: no
    approve/reject control lives here, that is the review queue's job. */
 import { api } from '../creation/sheetRequest.svelte.js';
 
@@ -18,16 +17,23 @@ export const journeeState = $state({
   detail: null,
   detailLoading: false,
   detailError: '',
-  planning: false,
-  planError: '',
-  resolving: false,
-  resolveError: '',
-  // BRIEF-0075-f: the /plan response's transient `reconciliation` block
-  // (verdict, cited objective, rationale) -- only present when the
-  // declaration was reconciled against a standing agenda, cleared on the
-  // next plan/select so it never shows stale for a different day.
-  reconciliation: null,
 });
+
+// TICKET-0128 (K1): the worker plans and resolves a declared day in the
+// background; while one is under way the list re-reads itself.
+export const DAY_POLL_MS = 5000;
+let pollTimer = null;
+
+function schedulePoll() {
+  if (pollTimer !== null) clearTimeout(pollTimer);
+  pollTimer = null;
+  if (!journeeState.days.some((d) => d.status === 'submitted' || d.status === 'resolving')) return;
+  pollTimer = setTimeout(async () => {
+    pollTimer = null;
+    await loadDays();
+    if (journeeState.selectedId) await loadDayDetail(journeeState.selectedId);
+  }, DAY_POLL_MS);
+}
 
 export function selectedDay() {
   return journeeState.days.find((d) => d.id === journeeState.selectedId) || null;
@@ -42,6 +48,7 @@ export async function loadDays() {
   } finally {
     journeeState.daysLoading = false;
   }
+  schedulePoll();
 }
 
 /** Full day detail (account included once resolved) -- a separate fetch
@@ -63,42 +70,7 @@ export async function loadDayDetail(id) {
 
 export function selectDay(id) {
   journeeState.selectedId = id;
-  journeeState.planError = '';
-  journeeState.resolveError = '';
-  journeeState.reconciliation = null;
   loadDayDetail(id);
-}
-
-/** O1, Q1 (TICKET-0128): the day's pin was chosen at its declaration and
- *  is stored on the day; the plan call carries no body. */
-export async function planDay(id) {
-  journeeState.planning = true;
-  journeeState.planError = '';
-  journeeState.reconciliation = null;
-  try {
-    const result = await api('/api/day/' + id + '/plan', { method: 'POST' });
-    journeeState.reconciliation = result.reconciliation || null;
-    await loadDays();
-    await loadDayDetail(id);
-  } catch (e) {
-    journeeState.planError = e.message;
-  } finally {
-    journeeState.planning = false;
-  }
-}
-
-export async function resolveDay(id) {
-  journeeState.resolving = true;
-  journeeState.resolveError = '';
-  try {
-    await api('/api/day/' + id + '/resolve', { method: 'POST' });
-    await loadDays();
-    await loadDayDetail(id);
-  } catch (e) {
-    journeeState.resolveError = e.message;
-  } finally {
-    journeeState.resolving = false;
-  }
 }
 
 /** Q1 (TICKET-0128): `questId` pins the declared day to one open quest;
@@ -130,6 +102,5 @@ export async function reloadForWorld() {
   journeeState.selectedId = null;
   journeeState.detail = null;
   journeeState.detailError = '';
-  journeeState.reconciliation = null;
   await loadDays();
 }

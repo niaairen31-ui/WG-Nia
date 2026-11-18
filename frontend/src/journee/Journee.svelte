@@ -18,8 +18,9 @@
   import { navigate } from '../lib/router.js';
   import {
     journeeState, selectedDay, loadDays, selectDay, submitDeclaration, reloadForWorld,
-    planDay, resolveDay,
   } from './journee.svelte.js';
+  import DayFailures from './DayFailures.svelte';
+  import { loadFailures } from './dayRuns.svelte.js';
   import QuestPanel from './QuestPanel.svelte';
   import DebtsPanel from './DebtsPanel.svelte';
   import ServiceForm from './ServiceForm.svelte';
@@ -29,6 +30,11 @@
   let { active = false } = $props();
 
   const SUB_TABS = { journee: 'Journée', quetes: 'Quêtes', dettes: 'Dettes' };
+  // TICKET-0128 (K1, L1, Z1): the day's lifecycle, as the creator reads it.
+  const STATUS_LABELS = {
+    submitted: 'plan en cours', resolving: 'résolution en cours', resolved: 'résolue',
+    flagged: 'en échec', abandoned: 'abandonnée',
+  };
   let subTab = $state('journee');
 
   function goToPlay() {
@@ -50,21 +56,16 @@
     loadJourneeDebts();
   });
 
-  // A plan or a resolution moves a quest's steps: re-read the panel after either.
-  async function plan(id) {
-    await planDay(id);
-    await loadQuests();
-  }
+  // The worker's progress shows in the day list: re-read the failures with it.
+  $effect(() => {
+    void journeeState.days;
+    loadFailures();
+  });
 
   // Q1: the pin goes with the declaration, then resets for the next day.
   async function declare() {
     await submitDeclaration(questState.pin);
     if (!journeeState.submitError) questState.pin = '';
-  }
-
-  async function resolve(id) {
-    await resolveDay(id);
-    await loadQuests();
   }
 </script>
 
@@ -114,6 +115,8 @@
 
   <ServiceForm />
 
+  <DayFailures />
+
   <div class="queue-panel" id="journee-list-panel">
     <div class="panel-head">
       <h2>Jours précédents</h2>
@@ -128,7 +131,7 @@
         {#each journeeState.days as d (d.id)}
           <div class="day-row" class:selected={journeeState.selectedId === d.id} onclick={() => selectDay(d.id)}>
             <span class="badge b-other">Jour {d.day_number}</span>
-            <span class="target-ref">{d.status}</span>
+            <span class="target-ref">{d.character_name} — {STATUS_LABELS[d.status] || d.status}</span>
           </div>
         {/each}
       {/if}
@@ -136,29 +139,8 @@
       {#if selectedDay()}
         {@const day = selectedDay()}
         <div class="day-detail">
-          <h3>Jour {day.day_number} — {day.status}</h3>
+          <h3>Jour {day.day_number} — {STATUS_LABELS[day.status] || day.status}</h3>
           <p>{day.declared_action}</p>
-
-          {#if day.status === 'submitted'}
-            <button disabled={journeeState.planning} onclick={() => plan(day.id)}>
-              {journeeState.planning ? '⟳ Émission du plan…' : 'Émettre le plan'}
-            </button>
-          {:else if day.status === 'resolving'}
-            <button disabled={journeeState.resolving} onclick={() => resolve(day.id)}>
-              {journeeState.resolving ? '⟳ Résolution…' : 'Résoudre la journée'}
-            </button>
-          {/if}
-          {#if journeeState.planError}<div class="r-err">{journeeState.planError}</div>{/if}
-          {#if journeeState.resolveError}<div class="r-err">{journeeState.resolveError}</div>{/if}
-
-          {#if journeeState.reconciliation}
-            {@const recon = journeeState.reconciliation}
-            <p class="muted reconciliation-note">
-              Plan en cours — {recon.verdict === 'continue' ? 'poursuite' : 'ajustement'} :
-              {recon.rationale}
-              {#if recon.cited_objective} (étape citée : « {recon.cited_objective} »){/if}
-            </p>
-          {/if}
 
           {#if journeeState.detail?.feasibility}
             {@const feas = journeeState.detail.feasibility}

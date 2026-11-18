@@ -54,7 +54,6 @@ from ...day_resolve import (
 )
 from ...db import get_session
 from ...llm_parse import LlmParseError
-from ...prompt_coverage import DAY_CHAIN_USAGES, missing_usages
 from ...models import (
     Agenda,
     AgendaStep,
@@ -73,13 +72,12 @@ from ...writes import (
     read_latest_feasibility,
     read_latest_resolution,
     resolution_count,
-    write_batch,
     write_day_mention_choices,
     write_day_rewrite,
-    write_pass_play,
     write_pass_play_resolution,
 )
 from .. import crud as _crud
+from ..day_declare import declare
 from ..day_plan_finalize import (
     _feasibility_dict,
     _finalize_plan,
@@ -169,45 +167,13 @@ class DayDeclareBody(BaseModel):
 
 @router.post("/api/day/declare")
 def declare_day(body: DayDeclareBody, db: Session = Depends(get_session)) -> dict:
-    missing = missing_usages(DAY_CHAIN_USAGES, db)
-    if missing:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "day chain unavailable: no active prompt_template with a version for "
-                f"{', '.join(missing)} -- run "
-                "python scripts/apply_ticket_0077_plan_select_seed.py"
-            ),
-        )
-
+    """The creator declares a day for the active PC; the worker plans and
+    resolves it (TICKET-0128, K1, B2)."""
     world_id = _crud._world_id(db)
-    game_session = _get_or_open_session(world_id, db)
     character = _crud._player_character(db, world_id)
-    if body.quest_id:
-        try:
-            quest_reads.pinned_plan(body.quest_id, character, db)
-        except (LookupError, ValueError) as exc:
-            raise HTTPException(status_code=404 if isinstance(exc, LookupError) else 409,
-                                detail=str(exc)) from exc
-
-    batch = write_batch(db, session_id=game_session.id, changed_by="player")
-    try:
-        pass_play = write_pass_play(
-            db,
-            batch_id=batch.id,
-            session_id=game_session.id,
-            character_id=character.id,
-            declared_action=body.declared_action,
-            quest_id=body.quest_id or None,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    db.add(batch)
-    db.add(pass_play)
-    db.commit()
-    db.refresh(batch)
-    db.refresh(pass_play)
+    batch, pass_play = declare(db, world_id=world_id, character=character,
+                               declared_action=body.declared_action, quest_id=body.quest_id,
+                               changed_by="creator")
     return _day_dict(batch, pass_play)
 
 
@@ -215,13 +181,14 @@ def declare_day(body: DayDeclareBody, db: Session = Depends(get_session)) -> dic
 def list_days(db: Session = Depends(get_session)) -> list[dict]:
     world_id = _crud._world_id(db)
     rows = db.exec(
-        select(Batch, PassPlay)
+        select(Batch, PassPlay, Entity.name)
         .join(GameSession, GameSession.id == Batch.session_id)
         .join(PassPlay, PassPlay.batch_id == Batch.id)
+        .join(Entity, Entity.id == PassPlay.character_id)
         .where(GameSession.world_id == world_id)
         .order_by(Batch.day_number.desc())
     ).all()
-    return [_day_dict(batch, pass_play) for batch, pass_play in rows]
+    return [{**_day_dict(batch, pass_play), "character_name": name} for batch, pass_play, name in rows]
 
 
 def _account_gains(mutations: list[ProposedMutation], db: Session) -> dict:
@@ -539,9 +506,9 @@ def _record_refused_choices(world_id: str, pass_play_id: str, records: tuple[dic
         db.commit()
 
 
-@router.post("/api/day/{batch_id}/plan")
-def plan_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
-    """Emit and persist a day plan (TICKET-0075, BRIEF-0075-b; extraction and
+def plan_day(batch_id: str, db: Session) -> dict:
+    """Run by the day worker (`cockpit/day_runner.py`), never by a request
+    (TICKET-0128, K1, S1). Emit and persist a day plan (TICKET-0075, BRIEF-0075-b; extraction and
     concordance, BRIEF-0075-c; reconciliation, BRIEF-0075-f as corrected by
     AMENDMENT 1; dedicated plan selection, TICKET-0077/BRIEF-0077-c). ONE
     model call for the plan (F1), preceded by the extraction/concordance
@@ -836,9 +803,9 @@ def _finalize_resolution(
     return _resolve_response(fact_sheet, prose, is_replay)
 
 
-@router.post("/api/day/{batch_id}/resolve")
-def resolve_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
-    """Resolve the budgeted portion of a declared day (TICKET-0075,
+def resolve_day(batch_id: str, db: Session) -> dict:
+    """Run by the day worker (`cockpit/day_runner.py`), never by a request
+    (TICKET-0128, K1, S1). Resolve the budgeted portion of a declared day (TICKET-0075,
     BRIEF-0075-d, resolution+narration; BRIEF-0075-e, mutation emission —
     V1; BRIEF-0075-g, the feasibility veto — Y1): Python dice (`resolve_
     steps`, capped at the retained count the veto decided once at `/plan`
