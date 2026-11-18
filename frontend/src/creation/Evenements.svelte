@@ -26,6 +26,7 @@
   import { vocabState, loadVocabulary } from './eventVocab.svelte.js';
   import Field from './Field.svelte';
   import EventEditor from './EventEditor.svelte';
+  import { errorMessage } from '../lib/errorMessage.js';
 
   let { legacyDoc, isNew, event, entities, playerCharIds, eventFields, onSave } = $props();
 
@@ -59,7 +60,7 @@
         body: JSON.stringify({ brief, location_id: locationId }),
       });
       result = await res.json().catch(() => ({ detail: res.statusText }));
-      if (!res.ok) throw new Error(result.detail || JSON.stringify(result));
+      if (!res.ok) throw new Error(errorMessage(result, JSON.stringify(result)));
     } catch (e) {
       genStatus = e.message;
       return;

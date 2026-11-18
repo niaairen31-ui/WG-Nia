@@ -20,6 +20,7 @@
    field the brief did not enumerate. */
 import { api } from '../creation/sheetRequest.svelte.js';
 import { serverState } from '../lib/serverState.svelte.js';
+import { errorMessage } from '../lib/errorMessage.js';
 
 export const OBS_OUTCOME_LABEL = Object.freeze({
   acted: 'a agi', silence: 'silence', degraded: 'dégradé', event: 'événement',
@@ -110,7 +111,7 @@ export async function startRun() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const failures = (data.detail && data.detail.failures) || [String(data.detail || res.statusText)];
+      const failures = (data.detail && data.detail.failures) || [errorMessage(data, res.statusText)];
       observationState.launchErrors = failures.map((f) => `✗ ${f}`);
       return;
     }

@@ -16,6 +16,7 @@
    from) and classifyLocationType (the POST + catalog refresh + reverse-
    bridge dispatch, still legacyCall-free -- it never opened the modal). */
 import { creationState } from './state.svelte.js';
+import { errorMessage } from '../lib/errorMessage.js';
 
 export function locationTypeOptionLabel(row) {
   if (row.default_width == null || row.default_height == null) return row.name;
@@ -48,7 +49,7 @@ export async function classifyLocationType(legacyDoc, typeName, classification, 
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
   const postData = await postRes.json().catch(() => ({ detail: postRes.statusText }));
-  if (!postRes.ok) throw new Error(postData.detail || JSON.stringify(postData));
+  if (!postRes.ok) throw new Error(errorMessage(postData, JSON.stringify(postData)));
 
   const catalog = await fetch('/api/location-types').then((r) => r.json());
   creationState.locationTypeCatalog = catalog;

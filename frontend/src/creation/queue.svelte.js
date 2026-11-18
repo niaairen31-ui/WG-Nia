@@ -40,6 +40,8 @@
    bridge.js/callLegacy) -- it adds no baseline record and closes none;
    the check is structurally blind to it, not silently wrong. */
 
+import { errorMessage } from '../lib/errorMessage.js';
+
 export const queueState = $state({
   currentFilter: 'proposed',
   reloadToken: 0,
@@ -56,7 +58,7 @@ export const queueState = $state({
 async function api(path, options) {
   const res = await fetch(path, options);
   const data = await res.json().catch(() => ({ detail: res.statusText }));
-  if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+  if (!res.ok) throw new Error(errorMessage(data, JSON.stringify(data)));
   return data;
 }
 

@@ -18,6 +18,7 @@
      "autre" option; no faction selected, or a faction with no roles,
      degrades to "autre" only (decision 3.4). */
   import { creationState } from './state.svelte.js';
+  import { errorMessage } from '../lib/errorMessage.js';
 
   let { entityId, legacyDoc } = $props();
 
@@ -36,7 +37,7 @@
   async function api(path, options) {
     const res = await fetch(path, options);
     const data = await res.json().catch(() => ({ detail: res.statusText }));
-    if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+    if (!res.ok) throw new Error(errorMessage(data, JSON.stringify(data)));
     return data;
   }
 

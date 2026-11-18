@@ -44,6 +44,7 @@ import { serverState } from '../lib/serverState.svelte.js';
 import {
   loadCreationRules, saveCreationRules, creationOverrides, creationOverridesBody,
 } from './creationRules.svelte.js';
+import { errorMessage } from '../lib/errorMessage.js';
 
 export const competencesState = $state({
   draft: [],   // proposed rows awaiting Save: {key, name, base_domain, system_id, description}
@@ -120,7 +121,7 @@ let nextDraftKey = 1;
 async function api(path, options) {
   const res = await fetch(path, options);
   const data = await res.json().catch(() => ({ detail: res.statusText }));
-  if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+  if (!res.ok) throw new Error(errorMessage(data, JSON.stringify(data)));
   return data;
 }
 

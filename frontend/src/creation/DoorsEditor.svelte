@@ -19,6 +19,9 @@
      time. Number inputs bound via bind:value coerce to a number (or
      undefined when cleared), not a string -- x/y are compared against
      null/undefined, never against ''. */
+
+  import { errorMessage } from '../lib/errorMessage.js';
+
   let { entityId, relations, doors, legacyDoc, onSaved } = $props();
 
   // TICKET-0062. neighbours and orphans are pure derivations of props, not
@@ -64,7 +67,7 @@
         body: JSON.stringify({ doors: doorsPayload }),
       });
       const data = await res.json().catch(() => ({ detail: res.statusText }));
-      if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+      if (!res.ok) throw new Error(errorMessage(data, JSON.stringify(data)));
       onSaved(data);
       if (statusEl) { statusEl.className = 'author-status ok'; statusEl.textContent = 'Portes mises à jour.'; }
     } catch (e) {

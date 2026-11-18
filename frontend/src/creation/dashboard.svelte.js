@@ -5,6 +5,7 @@
    export, the same scope as a JSON file to save
    (GET /api/dashboard/export). Reads only. */
 import { api } from './sheetRequest.svelte.js';
+import { errorMessage } from '../lib/errorMessage.js';
 
 export const dashboardState = $state({
   world: 'all',
@@ -49,7 +50,7 @@ export async function exportDashboard() {
     const res = await fetch('/api/dashboard/export?' + query());
     if (!res.ok) {
       const data = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(data.detail || res.statusText);
+      throw new Error(errorMessage(data, res.statusText));
     }
     const disposition = res.headers.get('content-disposition') || '';
     const match = disposition.match(/filename="([^"]+)"/);

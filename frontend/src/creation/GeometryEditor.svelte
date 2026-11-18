@@ -27,6 +27,9 @@
      used to trigger via _authorRefreshSheet) instead of a DOM CustomEvent
      round-trip -- parent and child are both real Svelte now, so a direct
      callback prop replaces the event. */
+
+  import { errorMessage } from '../lib/errorMessage.js';
+
   let { entityId, geometry, legacyDoc, onSaved } = $props();
 
   let items = $state([]);
@@ -74,7 +77,7 @@
         body: JSON.stringify({ bounds_width: bw, bounds_height: bh, obstacles }),
       });
       const data = await res.json().catch(() => ({ detail: res.statusText }));
-      if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+      if (!res.ok) throw new Error(errorMessage(data, JSON.stringify(data)));
       onSaved(data);
       if (statusEl) { statusEl.className = 'author-status ok'; statusEl.textContent = 'Géométrie mise à jour.'; }
     } catch (e) {

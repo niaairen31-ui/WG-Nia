@@ -46,6 +46,7 @@
   import { roomBatchState, resetRoomBatch } from './roomBatch.svelte.js';
   import PromotionModal from './PromotionModal.svelte';
   import { loadNeighbours } from './neighbourDraft.svelte.js';
+  import { errorMessage } from '../lib/errorMessage.js';
 
   let { legacyDoc } = $props();
 
@@ -78,7 +79,7 @@
   async function api(path, opts = {}) {
     const res = await fetch(path, opts);
     const data = await res.json().catch(() => ({ detail: res.statusText }));
-    if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+    if (!res.ok) throw new Error(errorMessage(data, JSON.stringify(data)));
     return data;
   }
 

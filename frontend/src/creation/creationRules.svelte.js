@@ -11,6 +11,8 @@
    This file imports nothing from competences.svelte.js: that one imports
    from here, never the other way round. */
 
+import { errorMessage } from '../lib/errorMessage.js';
+
 export const CREATION_RECORD_ID = 'creation';
 
 export const creationRulesState = $state({ rules: null });
@@ -22,7 +24,7 @@ const INTEGER_ERROR = 'Un coût, un plafond ou la réserve est un nombre entier,
 async function api(path, options) {
   const res = await fetch(path, options);
   const data = await res.json().catch(() => ({ detail: res.statusText }));
-  if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+  if (!res.ok) throw new Error(errorMessage(data, JSON.stringify(data)));
   return data;
 }
 

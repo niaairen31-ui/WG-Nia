@@ -42,6 +42,8 @@
    ...) already established for a `.svelte.js` module that needs the legacy
    document without owning a bridge import of its own. */
 
+import { errorMessage } from '../lib/errorMessage.js';
+
 export const linkAgentState = $state({
   loading: false,
   loadError: '',
@@ -79,7 +81,7 @@ export function resetLinkAgent() {
 async function api(path, opts = {}) {
   const res = await fetch(path, opts);
   const data = await res.json().catch(() => ({ detail: res.statusText }));
-  if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+  if (!res.ok) throw new Error(errorMessage(data, JSON.stringify(data)));
   return data;
 }
 
