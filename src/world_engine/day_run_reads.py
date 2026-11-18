@@ -10,9 +10,11 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
-from .models import Batch, DayRunFailure, Entity, PassPlay
+from .models import Batch, DayRunFailure, Entity, PassPlay, ProposedMutation
 from .models import Session as GameSession
 
+DAY_IN_PROGRESS = "Ce personnage a déjà une journée en cours : elle doit être publiée avant la suivante."
+PENDING_REVIEW = "Des propositions de cette journée attendent encore ta revue."
 STAGE_LABELS_FR = {"plan": "Plan", "resolve": "Résolution"}
 CODE_LABELS_FR = {
     "model_failed": "Modèle indisponible ou réponse illisible",
@@ -62,3 +64,45 @@ def failed_days(db: Session, world_id: str) -> list[dict]:
         }))
     out.sort(key=lambda item: (item[0], item[1]), reverse=True)
     return [item[2] for item in out]
+
+
+def unpublished_day(db: Session, character_id: str) -> Optional[PassPlay]:
+    """E1: the character's day not yet published nor abandoned (the oldest),
+    or None."""
+    return db.exec(
+        select(PassPlay)
+        .where(PassPlay.character_id == character_id, PassPlay.published_at.is_(None),
+               PassPlay.status != "abandoned")
+        .order_by(PassPlay.submitted_at, PassPlay.id)
+    ).first()
+
+
+def pending_proposals(db: Session, pass_play_id: str) -> int:
+    """C1: the day's proposals still awaiting the creator (`proposed`, or
+    `approved` and not yet applied)."""
+    return len(db.exec(
+        select(ProposedMutation.id)
+        .where(ProposedMutation.pass_play_id == pass_play_id,
+               ProposedMutation.status.in_(("proposed", "approved")))
+    ).all())
+
+
+def days_to_publish(db: Session, world_id: str) -> list[dict]:
+    """The world's resolved, unpublished days, oldest first."""
+    rows = db.exec(
+        select(Batch, PassPlay, Entity.name)
+        .join(GameSession, GameSession.id == Batch.session_id)
+        .join(PassPlay, PassPlay.batch_id == Batch.id)
+        .join(Entity, Entity.id == PassPlay.character_id)
+        .where(GameSession.world_id == world_id, PassPlay.status == "resolved",
+               PassPlay.published_at.is_(None))
+        .order_by(PassPlay.submitted_at, PassPlay.id)
+    ).all()
+    return [{
+        "batch_id": batch.id,
+        "day_number": batch.day_number,
+        "character_name": character_name,
+        "declared_action": pass_play.declared_action,
+        "narrator_text": batch.final_result,
+        "pending_proposals": pending_proposals(db, pass_play.id),
+    } for batch, pass_play, character_name in rows]

@@ -153,6 +153,7 @@ def _day_dict(batch: Batch, pass_play: PassPlay) -> dict:
         "status": pass_play.status,
         "declared_action": pass_play.declared_action,
         "created_at": batch.created_at.isoformat() if batch.created_at else None,
+        "published_at": pass_play.published_at.isoformat() if pass_play.published_at else None,
     }
 
 
@@ -337,6 +338,7 @@ def get_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
             feasibility_entry["python_retained"], feasibility_entry["veto_retained"],
             feasibility_entry["reason"], feasibility_entry["cited_objective"], feasibility_entry["outcome"],
         )
+    result["published_text"] = pass_play.published_text
     if pass_play.status == "resolved":
         result["account"] = _day_account_dict(pass_play, batch, db)
     return result
@@ -605,6 +607,8 @@ def _load_resolvable_day(batch_id: str, world_id: str, db: Session) -> tuple[Bat
             status_code=409,
             detail=f"day {batch_id!r} is not awaiting resolution (status={pass_play.status!r})",
         )
+    if pass_play.published_at is not None:  # T1 (TICKET-0128): a published day is final
+        raise HTTPException(status_code=409, detail=f"day {batch_id!r} is published and cannot be replayed")
     return batch, pass_play
 
 

@@ -26,8 +26,9 @@ DR4 -- routes, `TestClient(app, base_url="http://127.0.0.1")`, active world
    `resolving`; `abandonner` -> 200, `abandoned`; a batch of world B -> 404
    « Journée introuvable. »; `GET /api/day-runs/etat` -> `{"running": None,
    "queued": <n>}`.
-DR5 -- the declaration, `day_declare.missing_usages` and
-   `day_declare.enqueue_day` (a recorder) swapped: `POST /api/day/declare`
+DR5 -- the declaration, `day_declare.missing_usages`,
+   `day_declare.enqueue_day` (a recorder) and `day_declare.unpublished_day`
+   (None: E1 is `day_publication.py`'s) swapped: `POST /api/day/declare`
    on A's only PC -> 200, the day `submitted`, its batch id recorded once;
    an empty declaration -> 422 and the recorder not called.
 DR6 -- `compute_metrics` with two `plan` failures (`blocked`, `crashed`)
@@ -408,9 +409,10 @@ def rule_dr5(client, db, ids: dict) -> int:
     from world_engine.cockpit import day_declare
 
     recorded: list[str] = []
-    originals = (day_declare.missing_usages, day_declare.enqueue_day)
+    originals = (day_declare.missing_usages, day_declare.enqueue_day, day_declare.unpublished_day)
     day_declare.missing_usages = lambda *a, **k: []
     day_declare.enqueue_day = recorded.append
+    day_declare.unpublished_day = lambda *a, **k: None
     reached = 0
     try:
         reached += 1
@@ -429,7 +431,7 @@ def rule_dr5(client, db, ids: dict) -> int:
         if resp.status_code != 422 or recorded:
             fail(f"DR5: an empty declaration -> {resp.status_code}, recorded {recorded!r}")
     finally:
-        day_declare.missing_usages, day_declare.enqueue_day = originals
+        day_declare.missing_usages, day_declare.enqueue_day, day_declare.unpublished_day = originals
     return reached
 
 

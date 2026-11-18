@@ -470,6 +470,7 @@
 - `day_narration_beats.py` — G1 check for TICKET-0093 — day narration beats.
 - `day_plan.py` — Structural gate for the day-plan emission-and-budget step (TICKET-0075, BRIEF-0075-b).
 - `day_prompt_delivery.py` — Structural gate for the day-chain prompt delivery and coverage guard (TICKET-0076, BRIEF-0076-a).
+- `day_publication.py` — G1 check for TICKET-0128 (BRIEF-0128-F) -- a resolved day is published by the creator once its proposals are reviewed; one unpublished day per character; a published day is never replayed.
 - `day_rewrite.py` — Structural gate for the declaration rewrite (TICKET-0081, BRIEF-0081-b — decisions A2'/B2/J2).
 - `day_runs.py` — G1 check for TICKET-0128 (BRIEF-0128-E) -- a declared day runs in the background; every failure is written, listed, relaunched or abandoned.
 - `day_schema.py` — G1 check for TICKET-0128 (BRIEF-0128-A) -- schema v2.34: the active player character, the day's pin, its publication and its failures.

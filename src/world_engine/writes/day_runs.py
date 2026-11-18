@@ -8,11 +8,15 @@ canon.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from sqlmodel import Session
 
 from ..models import DAY_RUN_FAILURE_CODES, DAY_RUN_STAGES, DayRunFailure, PassPlay
 
 DAY_NOT_FLAGGED = "Cette journée n'est pas en échec."
+DAY_NOT_PUBLISHABLE = "Cette journée n'est pas à publier."
+EMPTY_NARRATIVE = "Le récit publié est vide."
 MAX_REASON_CHARS = 2000
 
 
@@ -53,3 +57,18 @@ def abandon_day(db: Session, *, pass_play: PassPlay) -> None:
         raise ValueError(DAY_NOT_FLAGGED)
     pass_play.status = "abandoned"
     db.add(pass_play)
+
+
+def publish_day(db: Session, *, pass_play: PassPlay, text: str) -> PassPlay:
+    """C1, C′2, T1: the creator publishes a resolved day once, with the
+    text the player will read; `batch.final_result` (the narrator's text)
+    is never touched."""
+    if pass_play.status != "resolved" or pass_play.published_at is not None:
+        raise ValueError(DAY_NOT_PUBLISHABLE)
+    cleaned = (text or "").strip()
+    if not cleaned:
+        raise ValueError(EMPTY_NARRATIVE)
+    pass_play.published_text = cleaned
+    pass_play.published_at = datetime.now(UTC)
+    db.add(pass_play)
+    return pass_play

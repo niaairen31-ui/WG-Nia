@@ -24,8 +24,9 @@ DW2 -- fixture: world A active (PC Ana, description « Monde A »), world B
    does not.
 DW3 -- the pin at the declaration, `TestClient(app,
    base_url="http://127.0.0.1")`, `cockpit.day_declare.missing_usages`
-   swapped for an empty answer and `cockpit.day_declare.enqueue_day` for a
-   recorder, both restored in `finally`, on `quests._qb_world` made
+   swapped for an empty answer, `cockpit.day_declare.enqueue_day` for a
+   recorder and `cockpit.day_declare.unpublished_day` for None (E1 is
+   `day_publication.py`'s), all restored in `finally`, on `quests._qb_world` made
    active, an offer (`quests._offer_kwargs(ids, eligibility=None)`)
    accepted by its PC. `POST /api/day/declare` with that quest -> 200 and
    the day's `quest_id` is it; with an unknown quest -> 404 and no new day;
@@ -293,9 +294,10 @@ def rule_dw3(engine) -> int:
     from world_engine.writes.quests import abandon_quest, accept_quest, write_quest_offer
 
     reached = 0
-    originals = (day_declare.missing_usages, day_declare.enqueue_day)
+    originals = (day_declare.missing_usages, day_declare.enqueue_day, day_declare.unpublished_day)
     day_declare.missing_usages = lambda *a, **k: []
     day_declare.enqueue_day = lambda batch_id: None
+    day_declare.unpublished_day = lambda *a, **k: None
     try:
         with Session(engine) as db:
             for world in db.exec(__import__("sqlmodel").select(World)).all():
@@ -354,7 +356,7 @@ def rule_dw3(engine) -> int:
                 if row is None or row.quest_id is not None:
                     fail(f"DW3: an unpinned day's quest_id is {getattr(row, 'quest_id', None)!r}")
     finally:
-        day_declare.missing_usages, day_declare.enqueue_day = originals
+        day_declare.missing_usages, day_declare.enqueue_day, day_declare.unpublished_day = originals
     return reached
 
 

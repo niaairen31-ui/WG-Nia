@@ -20,7 +20,8 @@
     journeeState, selectedDay, loadDays, selectDay, submitDeclaration, reloadForWorld,
   } from './journee.svelte.js';
   import DayFailures from './DayFailures.svelte';
-  import { loadFailures } from './dayRuns.svelte.js';
+  import DayPublish from './DayPublish.svelte';
+  import { loadFailures, loadToPublish } from './dayRuns.svelte.js';
   import QuestPanel from './QuestPanel.svelte';
   import DebtsPanel from './DebtsPanel.svelte';
   import ServiceForm from './ServiceForm.svelte';
@@ -31,6 +32,10 @@
 
   const SUB_TABS = { journee: 'Journée', quetes: 'Quêtes', dettes: 'Dettes' };
   // TICKET-0128 (K1, L1, Z1): the day's lifecycle, as the creator reads it.
+  // A published day reads « publiée » whatever its status (C1).
+  function statusLabel(d) {
+    return d.published_at ? 'publiée' : STATUS_LABELS[d.status] || d.status;
+  }
   const STATUS_LABELS = {
     submitted: 'plan en cours', resolving: 'résolution en cours', resolved: 'résolue',
     flagged: 'en échec', abandoned: 'abandonnée',
@@ -60,6 +65,7 @@
   $effect(() => {
     void journeeState.days;
     loadFailures();
+    loadToPublish();
   });
 
   // Q1: the pin goes with the declaration, then resets for the next day.
@@ -117,6 +123,8 @@
 
   <DayFailures />
 
+  <DayPublish />
+
   <div class="queue-panel" id="journee-list-panel">
     <div class="panel-head">
       <h2>Jours précédents</h2>
@@ -131,7 +139,7 @@
         {#each journeeState.days as d (d.id)}
           <div class="day-row" class:selected={journeeState.selectedId === d.id} onclick={() => selectDay(d.id)}>
             <span class="badge b-other">Jour {d.day_number}</span>
-            <span class="target-ref">{d.character_name} — {STATUS_LABELS[d.status] || d.status}</span>
+            <span class="target-ref">{d.character_name} — {statusLabel(d)}</span>
           </div>
         {/each}
       {/if}
@@ -139,7 +147,7 @@
       {#if selectedDay()}
         {@const day = selectedDay()}
         <div class="day-detail">
-          <h3>Jour {day.day_number} — {STATUS_LABELS[day.status] || day.status}</h3>
+          <h3>Jour {day.day_number} — {statusLabel(day)}</h3>
           <p>{day.declared_action}</p>
 
           {#if journeeState.detail?.feasibility}
@@ -156,6 +164,10 @@
           {:else if journeeState.detailError}
             <div class="r-err">{journeeState.detailError}</div>
           {:else if journeeState.detail?.account}
+            {#if journeeState.detail.published_text}
+              <h4>Récit publié</h4>
+              <p class="account-prose">{journeeState.detail.published_text}</p>
+            {/if}
             {@const account = journeeState.detail.account}
             <div class="day-account">
               {#if account.is_replay}<div class="badge b-other">journée rejouée — dernière résolution</div>{/if}

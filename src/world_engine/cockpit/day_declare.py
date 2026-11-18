@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from sqlmodel import Session
 
 from .. import quest_reads
+from ..day_run_reads import DAY_IN_PROGRESS, unpublished_day
 from ..models import Batch, Character, PassPlay
 from ..prompt_coverage import DAY_CHAIN_USAGES, missing_usages
 from ..writes import write_batch, write_pass_play
@@ -22,7 +23,8 @@ def declare(
     db: Session, *, world_id: str, character: Character, declared_action: str,
     quest_id: Optional[str], changed_by: str,
 ) -> tuple[Batch, PassPlay]:
-    """Write the day (one commit), then enqueue it for the worker."""
+    """Write the day (one commit), then enqueue it for the worker. E1: one
+    unpublished day per character."""
     missing = missing_usages(DAY_CHAIN_USAGES, db)
     if missing:
         raise HTTPException(
@@ -33,6 +35,8 @@ def declare(
                 "python scripts/apply_ticket_0077_plan_select_seed.py"
             ),
         )
+    if unpublished_day(db, character.id) is not None:
+        raise HTTPException(status_code=409, detail=DAY_IN_PROGRESS)
     if quest_id:
         try:
             quest_reads.pinned_plan(quest_id, character, db)
