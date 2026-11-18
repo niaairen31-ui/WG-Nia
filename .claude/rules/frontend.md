@@ -40,3 +40,7 @@ beside one fiche; `Sans système` is a rendered group, never a stored row.
 - **INV-55** Inside a `$effect` body, a `$state` binding assigned there is
   never read afterwards in the same body. -- enforced by
   `effect_self_write.py`
+- **INV-69** A failed request's body becomes the creator shell's error
+  text only through `errorMessage` (`frontend/src/lib/errorMessage.js`);
+  no other file under `frontend/src` outside `joueur/` reads `detail`
+  into a message. -- enforced by `frontend_error_message.py`

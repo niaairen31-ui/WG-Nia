@@ -21001,6 +21001,29 @@ every character of the world (`/api/lore/perspective/characters`), players
 and NPCs grouped; answer, rows and audit as before, the audit gaining the
 character's reasons. Gate: `player_shell.py` PSH6.
 
+## TICKET-0131 -- one reader for a failed request's body (BRIEF-0131-a, no schema change)
+
+Thirty-three sites of the creator's shell read a response's `detail`
+themselves. FastAPI answers it as a string, as an object (the day judge's
+`{message, ...}`, the observation gate's `{failures}`) or as a validation
+list of `{loc, msg}`: an object or a list rendered « [object Object] », or
+lost the server's reason behind a status line. N1: one function,
+`errorMessage(body, fallback)` in `frontend/src/lib/errorMessage.js`, reads
+a string, an object's `message`, a `failures` list and a validation list as
+text, and anything else as the fallback; every site calls it.
+`EntityList.svelte`'s local state of the same name became `loadError`
+(AMENDMENT-0131-01). The player shell keeps its own `call()`, which shows a
+string `detail` only: PSH3 keeps its imports inside its folder.
+`legacy.html` is untouched. Rejected: N2, a brief of TICKET-0128; N3,
+fixing `sheetRequest.svelte.js` alone.
+
+**INV-69.** A failed request's body becomes the creator shell's error text
+only through `errorMessage` (`frontend/src/lib/errorMessage.js`); no other
+file under `frontend/src` outside `joueur/` reads `detail` into a message.
+Held in `.claude/rules/frontend.md`. Gate: `frontend_error_message.py`.
+
+Deferred: `legacy.html`'s two sites; the player shell's `call()`.
+
 ---
 
 *Co-built with Claude, June 2026.*
