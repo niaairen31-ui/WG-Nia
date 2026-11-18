@@ -52,8 +52,14 @@
 
   // A plan or a resolution moves a quest's steps: re-read the panel after either.
   async function plan(id) {
-    await planDay(id, questState.pin);
+    await planDay(id);
     await loadQuests();
+  }
+
+  // Q1: the pin goes with the declaration, then resets for the next day.
+  async function declare() {
+    await submitDeclaration(questState.pin);
+    if (!journeeState.submitError) questState.pin = '';
   }
 
   async function resolve(id) {
@@ -90,8 +96,16 @@
       {#if journeeState.submitError}
         <div class="r-err">{journeeState.submitError}</div>
       {/if}
+      {#if openQuests().length > 0}
+        <label class="quest-pin">Cette journée avance
+          <select bind:value={questState.pin} disabled={journeeState.submitting}>
+            <option value="">— le jeu choisit —</option>
+            {#each openQuests() as q (q.quest_id)}<option value={q.quest_id}>la quête « {q.title} »</option>{/each}
+          </select>
+        </label>
+      {/if}
       <div style="margin-top:8px">
-        <button disabled={journeeState.submitting || !journeeState.declaration.trim()} onclick={() => submitDeclaration()}>
+        <button disabled={journeeState.submitting || !journeeState.declaration.trim()} onclick={() => declare()}>
           Déclarer
         </button>
       </div>
@@ -126,14 +140,6 @@
           <p>{day.declared_action}</p>
 
           {#if day.status === 'submitted'}
-            {#if openQuests().length > 0}
-              <label class="quest-pin">Cette journée avance
-                <select bind:value={questState.pin} disabled={journeeState.planning}>
-                  <option value="">— le jeu choisit —</option>
-                  {#each openQuests() as q (q.quest_id)}<option value={q.quest_id}>la quête « {q.title} »</option>{/each}
-                </select>
-              </label>
-            {/if}
             <button disabled={journeeState.planning} onclick={() => plan(day.id)}>
               {journeeState.planning ? '⟳ Émission du plan…' : 'Émettre le plan'}
             </button>

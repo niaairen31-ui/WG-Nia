@@ -451,6 +451,7 @@
 - `creator_review_ui.py` — G1 check for TICKET-0129 -- the creator's review section and the player's returned and accepted states are wired.
 - `dashboard_registry.py` — G1 check for TICKET-0115 -- the dashboard is a registry in code: its metrics read relational columns only, its deferrals point at the passage that declares them, and its export carries what the tab does not show.
 - `dashboard_tab.py` — G1 check for TICKET-0115 -- the « Suivi » tab shows the dashboard's metrics and deferrals, exports the same scope, and warns that the export holds secrets.
+- `day_chain_world.py` — G1 check for TICKET-0128 (BRIEF-0128-D) -- the day chain takes its world and its character from the day, never from the active world (INV-71).
 - `day_choice.py` — G1 check for TICKET-0094 — Concordance H2, the model chooses and the code judges.
 - `day_concordance.py` — Structural gate for the extraction-and-concordance step (TICKET-0075, BRIEF-0075-c — decision C1: the resolver never authors).
 - `day_concordance_golden.py` — Golden-case fixture for `day_concordance.concord` (TICKET-0081, BRIEF-0081-a) and `day_concordance.emit_germs` (BRIEF-0081-c).

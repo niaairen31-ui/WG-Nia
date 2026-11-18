@@ -133,15 +133,19 @@ def where_is(npc_id: str, phase: str, db: Session, *, is_present: bool) -> Resol
     return Resolution(npc_id=npc_id, phase=phase, location_id=None, source="unknown")
 
 
-def _active_npc_ids(db: Session) -> list[str]:
-    world = db.exec(select(World).where(World.is_active == True)).first()  # noqa: E712
-    if world is None:
-        return []
+def _active_npc_ids(db: Session, world_id: Optional[str] = None) -> list[str]:
+    """Alive, active NPCs of `world_id`'s world; None: the active world
+    (TICKET-0128, P1: the day chain names the day's own world)."""
+    if world_id is None:
+        world = db.exec(select(World).where(World.is_active == True)).first()  # noqa: E712
+        if world is None:
+            return []
+        world_id = world.id
     rows = db.exec(
         select(Character.id)
         .join(Entity, Entity.id == Character.id)
         .where(
-            Character.world_id == world.id,
+            Character.world_id == world_id,
             Character.character_type == "npc",
             Character.vital_status == "alive",
             Entity.status == "active",
@@ -150,13 +154,16 @@ def _active_npc_ids(db: Session) -> list[str]:
     return list(rows)
 
 
-def who_is_at(location_id: str, phase: str, db: Session, *, is_present: bool) -> list[str]:
+def who_is_at(
+    location_id: str, phase: str, db: Session, *, is_present: bool, world_id: Optional[str] = None,
+) -> list[str]:
     """NPCs `where_is` resolves to `location_id` at `phase`. Scoped to the
-    ACTIVE world's alive, active NPCs. One resolution rule, two readers
-    (this and `unresolved_npcs`); neither reimplements precedence."""
+    alive, active NPCs of `world_id`'s world (None: the ACTIVE world). One
+    resolution rule, two readers (this and `unresolved_npcs`); neither
+    reimplements precedence."""
     return [
         npc_id
-        for npc_id in _active_npc_ids(db)
+        for npc_id in _active_npc_ids(db, world_id)
         if where_is(npc_id, phase, db, is_present=is_present).location_id == location_id
     ]
 

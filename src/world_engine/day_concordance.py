@@ -249,7 +249,7 @@ def _rung_presence(mention: Mention, ctx: _ConcordContext, db: Session) -> Optio
     found: set[str] = set()
     for location_id in ctx.place_candidate_ids:
         for phase in SCHEDULE_PHASES:
-            found.update(who_is_at(location_id, phase, db, is_present=True))
+            found.update(who_is_at(location_id, phase, db, is_present=True, world_id=ctx.world_id))
     return list(found) or None
 
 
@@ -288,7 +288,7 @@ def _cast_presence(candidates: list[str], ctx: _ConcordContext, character: Chara
     present: set[str] = set()
     for location_id in ctx.place_candidate_ids:
         for phase in SCHEDULE_PHASES:
-            present.update(who_is_at(location_id, phase, db, is_present=True))
+            present.update(who_is_at(location_id, phase, db, is_present=True, world_id=ctx.world_id))
     return [cid for cid in candidates if cid in present]
 
 

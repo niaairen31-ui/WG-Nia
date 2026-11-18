@@ -78,12 +78,15 @@ def write_batch(db: Session, *, session_id: str, changed_by: str) -> Batch:
 
 def write_pass_play(
     db: Session, *, batch_id: str, session_id: str, character_id: str, declared_action: str,
+    quest_id: Optional[str] = None,
 ) -> PassPlay:
     """Write one `pass_play` row bound to `batch_id`. Validates all-or-
     nothing before any write: `declared_action` stripped must be non-empty
     and at most `MAX_DECLARATION_CHARS` long. `declared_action` is
     write-once by construction — this constructor is the ONLY place it is
-    ever assigned; there is no update path for it anywhere."""
+    ever assigned; there is no update path for it anywhere. `quest_id` is
+    the quest the day was pinned to at its declaration (Q1), stored as
+    given: the caller validated it."""
     cleaned = declared_action.strip()
     if not cleaned:
         raise ValueError("write_pass_play: declared_action must be non-empty")
@@ -96,6 +99,7 @@ def write_pass_play(
         session_id=session_id,
         character_id=character_id,
         declared_action=cleaned,
+        quest_id=quest_id,
         status="submitted",
         batch_order=1,
         history=[],

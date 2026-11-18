@@ -69,16 +69,14 @@ export function selectDay(id) {
   loadDayDetail(id);
 }
 
-/** O1 (TICKET-0108): `questId` pins the day to one open quest -- no plan
- *  selection; '' or null lets the day choose, as before. */
-export async function planDay(id, questId) {
+/** O1, Q1 (TICKET-0128): the day's pin was chosen at its declaration and
+ *  is stored on the day; the plan call carries no body. */
+export async function planDay(id) {
   journeeState.planning = true;
   journeeState.planError = '';
   journeeState.reconciliation = null;
   try {
-    const result = await api('/api/day/' + id + '/plan', questId
-      ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quest_id: questId }) }
-      : { method: 'POST' });
+    const result = await api('/api/day/' + id + '/plan', { method: 'POST' });
     journeeState.reconciliation = result.reconciliation || null;
     await loadDays();
     await loadDayDetail(id);
@@ -103,7 +101,9 @@ export async function resolveDay(id) {
   }
 }
 
-export async function submitDeclaration() {
+/** Q1 (TICKET-0128): `questId` pins the declared day to one open quest;
+ *  '' or null lets the day choose. */
+export async function submitDeclaration(questId) {
   const text = journeeState.declaration.trim();
   if (!text) return;
   journeeState.submitting = true;
@@ -112,7 +112,7 @@ export async function submitDeclaration() {
     const day = await api('/api/day/declare', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ declared_action: text }),
+      body: JSON.stringify({ declared_action: text, quest_id: questId || null }),
     });
     journeeState.declaration = '';
     await loadDays();

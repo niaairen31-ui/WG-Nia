@@ -121,6 +121,29 @@ def _get_or_open_session(world_id: str, db: Session) -> GameSession:
     return sess
 
 
+def _day_world(batch_id: str, db: Session) -> str:
+    """The world of the day's own session (`batch -> session -> world`), never the active one (P1)."""
+    world_id = db.exec(
+        select(GameSession.world_id)
+        .join(Batch, Batch.session_id == GameSession.id)
+        .where(Batch.id == batch_id)
+    ).first()
+    if world_id is None:
+        raise HTTPException(status_code=404, detail=f"day {batch_id!r} not found")
+    return world_id
+
+
+def _day_character(pass_play: PassPlay, db: Session) -> Character:
+    """The day's own player character (`pass_play.character_id`), never the active PC (P1)."""
+    character = db.get(Character, pass_play.character_id)
+    if character is None or character.character_type != "player":
+        raise HTTPException(
+            status_code=409,
+            detail=f"day {pass_play.id!r}'s character {pass_play.character_id!r} is missing",
+        )
+    return character
+
+
 def _day_dict(batch: Batch, pass_play: PassPlay) -> dict:
     # `status` is the pass_play lifecycle (PASS_PLAY_STATUSES) -- the
     # player's own declaration, not `batch.status` (a separate, larger
@@ -140,6 +163,8 @@ class DayDeclareBody(BaseModel):
     # (R4) -- this is a fast client-facing 422, write_pass_play's own check
     # is the structural guarantee.
     declared_action: str = Field(max_length=MAX_DECLARATION_CHARS)
+    # Q1 (TICKET-0128): the quest this day advances, chosen with the declaration; None lets the day choose.
+    quest_id: Optional[str] = None
 
 
 @router.post("/api/day/declare")
@@ -158,6 +183,12 @@ def declare_day(body: DayDeclareBody, db: Session = Depends(get_session)) -> dic
     world_id = _crud._world_id(db)
     game_session = _get_or_open_session(world_id, db)
     character = _crud._player_character(db, world_id)
+    if body.quest_id:
+        try:
+            quest_reads.pinned_plan(body.quest_id, character, db)
+        except (LookupError, ValueError) as exc:
+            raise HTTPException(status_code=404 if isinstance(exc, LookupError) else 409,
+                                detail=str(exc)) from exc
 
     batch = write_batch(db, session_id=game_session.id, changed_by="player")
     try:
@@ -167,6 +198,7 @@ def declare_day(body: DayDeclareBody, db: Session = Depends(get_session)) -> dic
             session_id=game_session.id,
             character_id=character.id,
             declared_action=body.declared_action,
+            quest_id=body.quest_id or None,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -444,9 +476,9 @@ def _extract_and_concord(
     all-or-nothing). H2 (TICKET-0094) runs between concordance and germs: a
     mention the model chose and the code accepted is matched, never a germ."""
     mentions = [
-        *extract_places(pass_play.declared_action, db),
-        *extract_persons(pass_play.declared_action, db),
-        *extract_factions(pass_play.declared_action, db),
+        *extract_places(pass_play.declared_action, db, world_id=character.world_id),
+        *extract_persons(pass_play.declared_action, db, world_id=character.world_id),
+        *extract_factions(pass_play.declared_action, db, world_id=character.world_id),
     ]
     outcome = choose(concord(mentions, character, db), pass_play.declared_action, character, db)
     concordance_result = outcome.result
@@ -507,19 +539,15 @@ def _record_refused_choices(world_id: str, pass_play_id: str, records: tuple[dic
         db.commit()
 
 
-class PlanDayBody(BaseModel):
-    quest_id: Optional[str] = None  # O1 (TICKET-0108): the quest this day advances
-
-
 @router.post("/api/day/{batch_id}/plan")
-def plan_day(batch_id: str, body: Optional[PlanDayBody] = None, db: Session = Depends(get_session)) -> dict:
+def plan_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     """Emit and persist a day plan (TICKET-0075, BRIEF-0075-b; extraction and
     concordance, BRIEF-0075-c; reconciliation, BRIEF-0075-f as corrected by
     AMENDMENT 1; dedicated plan selection, TICKET-0077/BRIEF-0077-c). ONE
     model call for the plan (F1), preceded by the extraction/concordance
     stage (C1: the resolver never authors — an unmatched person only ever
-    reaches canon as a parked germ). Fail-closed: the batch must belong to
-    the active world and its `pass_play.status` must be `submitted` (a
+    reaches canon as a parked germ). Fail-closed: the world is the day's
+    own (`_day_world`, P1) and its `pass_play.status` must be `submitted` (a
     second call on the same batch fails here — `status` is now
     `resolving`). A dedicated model call (`day_plan_select.select_plan`)
     picks which of the player's open plans, if any, the declaration
@@ -529,12 +557,12 @@ def plan_day(batch_id: str, body: Optional[PlanDayBody] = None, db: Session = De
     emitted. K1 (TICKET-0121): the same call also routes an unselected
     declaration -- `quest` spends the day searching (`finalize_inquiry_day`,
     no plan emission). `agenda_id`/`step_id` never appear in the response — the
-    player never sees the agenda (ticket Scope OUT). O1 (TICKET-0108): a
-    `quest_id` pins the day to that open quest's plan -- no selection call,
+    player never sees the agenda (ticket Scope OUT). O1 (TICKET-0108): the
+    day's `quest_id`, chosen at the declaration (Q1), pins it to that open quest's plan -- no selection call,
     the reconciliation runs against it as against any selected plan."""
-    world_id = _crud._world_id(db)
+    world_id = _day_world(batch_id, db)
     pass_play = _load_plannable_day(batch_id, world_id, db)
-    character = _crud._player_character(db, world_id)
+    character = _day_character(pass_play, db)
 
     # Extraction and concordance run BEFORE plan emission, selection or
     # reconciliation (BRIEF-0075-c, C1; ordering re-asserted by
@@ -562,9 +590,9 @@ def plan_day(batch_id: str, body: Optional[PlanDayBody] = None, db: Session = De
     write_day_mention_choices(db, world_id=world_id, pass_play_id=pass_play.id, records=list(choice_records))
 
     route = "plan"  # K1: what an unselected declaration opens; the pinned path never routes
-    if body is not None and body.quest_id:  # O1: the player pinned the quest; no selection call
+    if pass_play.quest_id:  # O1, Q1: the player pinned the quest; no selection call
         try:
-            selected = quest_reads.pinned_plan(body.quest_id, character, db)
+            selected = quest_reads.pinned_plan(pass_play.quest_id, character, db)
         except (LookupError, ValueError) as exc:
             raise HTTPException(status_code=404 if isinstance(exc, LookupError) else 409, detail=str(exc)) from exc
     else:
@@ -823,7 +851,7 @@ def resolve_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     agenda step transition (V1, BRIEF-0075-d-amendment-1): those move only
     when Nia approves.
 
-    Fail-closed: the batch must belong to the active world, and
+    Fail-closed: the world is the day's own (P1), and
     `pass_play.status` must be `resolving` (first resolve) or `resolved`
     (a replay — the SAME immutable `declared_action` re-run, appending a
     SECOND `history` entry; the first stays intact). The character must
@@ -832,7 +860,7 @@ def resolve_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     `status='proposed'` — a replay of THIS day is refused exactly like a
     NEXT day's continuation would be, until Nia clears the queue.
     """
-    world_id = _crud._world_id(db)
+    world_id = _day_world(batch_id, db)
     # Annotated single-name assignments, not a tuple-unpack
     # (single_canon_write.py's static resolver tracks an ast.AnnAssign
     # target's type but not a Tuple target — `_load_plannable_day`'s
@@ -840,7 +868,7 @@ def resolve_day(batch_id: str, db: Session = Depends(get_session)) -> dict:
     row = _load_resolvable_day(batch_id, world_id, db)
     batch: Batch = row[0]
     pass_play: PassPlay = row[1]
-    character = _crud._player_character(db, world_id)
+    character = _day_character(pass_play, db)
     agenda = _load_active_agenda(character, pass_play, db)
     _guard_no_pending_agenda_step_change(agenda, db)
     is_replay = pass_play.status == "resolved"
