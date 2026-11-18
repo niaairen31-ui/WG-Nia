@@ -180,8 +180,8 @@ def veto(budget_result: BudgetResult, character: Character, declaration: str, db
             cited_step_order=None, cited_objective=None, outcome="unavailable",
         )
 
-    world = db.exec(select(World).where(World.is_active == True)).first()  # noqa: E712
-    world_id = world.id if world is not None else None
+    world = db.get(World, character.world_id)
+    world_id = character.world_id
 
     template = _load_feasibility_template(world_id, db)
     if template is None:

@@ -79,7 +79,6 @@ from .entities import (
     _link_entity_creation,
     _location_geometry_dict,
     _npc_prices_dict,
-    _player_character_id,
     _validate_entity_ref,
     _world_id,
     create_entity,
@@ -254,6 +253,7 @@ from .prompts import (
 )
 
 from .items import HoldingBody, list_item_holders, set_holding
+from ._shared import _player_character, _player_character_id
 from .zone_hooks import take_promotion_gatherings
 
 __all__ = ["router", "ENTITY_TYPE_REGISTRY"]

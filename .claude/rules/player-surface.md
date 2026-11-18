@@ -8,6 +8,7 @@ paths:
   - "src/world_engine/creation_lore.py"
   - "src/world_engine/creation_designer.py"
   - "src/world_engine/cockpit/routes/player_creation.py"
+  - "src/world_engine/cockpit/routes/player_day.py"
 ---
 
 # The player surface
@@ -31,6 +32,10 @@ never on `world.is_active`.
   selectors read `faction_membership` with the `read_public_memberships`
   WHERE triplet, keyed by faction (a third sanctioned reader, INV-03); a
   character's own factions come through `read_public_membership_faction_ids`.
+  The one text a player reads outside a perspective is a day's published
+  narrative (`pass_play.published_text`), which the creator read before
+  publishing; the narrator's own text, the gains and a failure's reason
+  never reach him.
   -- enforced by `perspective_isolation.py`, `player_routes.py`,
   `player_shell.py`, `creation_designer.py`, `player_creation.py`,
-  `character_perspective.py`
+  `character_perspective.py`, `player_journee.py`

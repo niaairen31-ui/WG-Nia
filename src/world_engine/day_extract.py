@@ -11,6 +11,8 @@ never sees the registry**: no `select(` against `Entity`, `Faction` or any
 location model appears in this module. Matching mentions against real rows
 is `day_concordance.py`'s job, in Python — a lookup cannot hallucinate an
 id, a model handed the registry can.
+
+The world is the day's own, given by the caller (TICKET-0128, P1).
 """
 
 from __future__ import annotations
@@ -99,9 +101,8 @@ def _validate_mention(raw: object, category: str) -> Optional[Mention]:
     return Mention(category=category, surface_form=surface_form, kind=kind, role_hint=role_hint or None)
 
 
-def _extract(usage: str, category: str, declaration: str, db: Session) -> list[Mention]:
-    world = db.exec(select(World).where(World.is_active == True)).first()  # noqa: E712
-    world_id = world.id if world is not None else None
+def _extract(usage: str, category: str, declaration: str, db: Session, world_id: str) -> list[Mention]:
+    world = db.get(World, world_id)
 
     template = _load_extract_template(usage, world_id, db)
     if template is None:
@@ -145,13 +146,13 @@ def _extract(usage: str, category: str, declaration: str, db: Session) -> list[M
     return mentions
 
 
-def extract_places(declaration: str, db: Session) -> list[Mention]:
-    return _extract("day_extract_place", "place", declaration, db)
+def extract_places(declaration: str, db: Session, *, world_id: str) -> list[Mention]:
+    return _extract("day_extract_place", "place", declaration, db, world_id)
 
 
-def extract_persons(declaration: str, db: Session) -> list[Mention]:
-    return _extract("day_extract_person", "person", declaration, db)
+def extract_persons(declaration: str, db: Session, *, world_id: str) -> list[Mention]:
+    return _extract("day_extract_person", "person", declaration, db, world_id)
 
 
-def extract_factions(declaration: str, db: Session) -> list[Mention]:
-    return _extract("day_extract_faction", "faction", declaration, db)
+def extract_factions(declaration: str, db: Session, *, world_id: str) -> list[Mention]:
+    return _extract("day_extract_faction", "faction", declaration, db, world_id)

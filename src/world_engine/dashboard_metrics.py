@@ -28,7 +28,9 @@ from typing import Callable, Optional
 from sqlmodel import Session, select
 
 from .conditions import and_path_leaves, read_condition
+from .day_run_reads import CODE_LABELS_FR, STAGE_LABELS_FR
 from .models import (
+    DAY_RUN_FAILURE_CODES, DAY_RUN_STAGES, DayRunFailure,
     Agenda, AgendaStep, Character, ConditionDraft, ConditionNode, Entity, MutationReview, MutationReviewChange,
     PassPlay, ProposedMutation, Quest, QuestOffer, QuestRequest, Rencontre, SkillResolution, World,
 )
@@ -327,6 +329,22 @@ def _germs(db: Session, scope: Scope) -> tuple[list[Row], str]:
     return out, "Ce que deviennent les germes ; H2 regarde les germes de Journée rattachés."
 
 
+def _day_run_failures(db: Session, scope: Scope) -> tuple[list[Row], str]:
+    """The day chain's failures by stage and code (TICKET-0128, M1, C-13)."""
+    rows = db.exec(select(DayRunFailure.stage, DayRunFailure.code)
+                   .where(_in_worlds(DayRunFailure.world_id, scope),
+                          *_dated(DayRunFailure.created_at, scope))).all()
+    counts: Counter = Counter(rows)
+    out: list[Row] = []
+    for stage in DAY_RUN_STAGES:
+        total = sum(n for (s, _c), n in counts.items() if s == stage)
+        for code in DAY_RUN_FAILURE_CODES:
+            n = counts[(stage, code)]
+            if n:
+                out.append(Row(STAGE_LABELS_FR[stage], CODE_LABELS_FR[code], n, total))
+    return out, "Chaque échec de la chaîne, par étape et par raison ; B1 se réactive si les échecs sont nombreux."
+
+
 METRICS: tuple[Metric, ...] = (
     Metric("event_reviews", "Événements proposés",
            "Combien d'événements proposés acceptes-tu tels quels ?", ("D1", "D2"), True, _event_reviews),
@@ -353,6 +371,8 @@ METRICS: tuple[Metric, ...] = (
            _quest_requests),
     Metric("germs", "Germes de création",
            "Que deviennent les germes, et combien rejoignent une fiche existante ?", ("H2",), True, _germs),
+    Metric("day_run_failures", "Chaîne de la journée",
+           "Où la chaîne de la journée échoue-t-elle ?", ("B1", "B2"), True, _day_run_failures),
 )
 
 

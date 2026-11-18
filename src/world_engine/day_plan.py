@@ -366,7 +366,7 @@ def emit_plan(
     template = _load_day_plan_template(character.world_id, db)
     if template is None:
         raise llm_parse.LlmParseError("day_plan: no active prompt_template for usage='day_plan'")
-    version = premised_prompt(db, template)
+    version = premised_prompt(db, template, world_id=character.world_id)
 
     character_entity = db.get(Entity, character.id)
     character_name = character_entity.name if character_entity is not None else character.id

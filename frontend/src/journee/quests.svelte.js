@@ -12,7 +12,7 @@ export const questState = $state({
   loadError: '',
   busy: null, // the offer_id or quest_id being acted on
   actionError: '',
-  pin: '', // O1: the quest_id the next planned day advances, '' = the day chooses
+  pin: '', // O1, Q1: the quest_id the next declared day advances, '' = the day chooses
   // TICKET-0109 (D1, G1): the recap shown before « déclarer accomplie ».
   settling: null, // quest_id whose recap is open
   settlement: null, // GET /api/quests/{id}/settlement

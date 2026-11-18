@@ -128,6 +128,7 @@
 - `migrate_v2_31_player_entry.py` — Migration v2.31 — a world opens to players; the Lore journal admits the perspective kind (TICKET-0125, BRIEF-0125-B; decisions C1, H1-c).
 - `migrate_v2_32_character_creation.py` — Migration v2.32 — a world's character creation rules, the creation overrides, a player's character draft, the creation journal kind (TICKET-0126, BRIEF-0126-B; decisions J1', L2, B1, U1).
 - `migrate_v2_33_creator_review.py` — Migration v2.33 — the creator's review of a submitted character: the review columns, the approved character, the review batches (TICKET-0129, BRIEF-0129-B).
+- `migrate_v2_34_player_day.py` — Migration v2.34 — the active player character, the day's pin, publication and failures (TICKET-0128, BRIEF-0128-A).
 - `observation_metrics.py` — Observation run metrics (TICKET-0051, BRIEF-0051-g, decision J2/Q).
 - `preview_npc_schedule.py` — Preview `where_is` / `who_is_at` / `unresolved_npcs` — the concrete reader for `world.current_phase` (T-A1) and the live-gate instrument for TICKET-0074, BRIEF-0074-a.
 - `preview_tick_context.py` — Preview the full-interiority briefing a world tick would send to one NPC (TICKET-0014, BRIEF-0014-a; TICKET-0015, BRIEF-0015-a adds --interval) — the concrete reader for `assemble_tick_context` in this brief, and the live-gate instrument for the T1 review.
@@ -144,6 +145,7 @@
 ## src/world_engine/
 
 - `__init__.py` — World Engine — local, single-player-first RPG world engine.
+- `active_pc.py` — The player character a creator surface acts for: one resolver for every surface of the cockpit (TICKET-0128, A1; INV-70).
 - `analyzer.py` — Conversation analysis — extract proposed mutations from unanalyzed turns.
 - `analyzer_transcript.py` — Conversation-agnostic analysis core (TICKET-0051, BRIEF-0051-c).
 - `attribute_proposals.py` — The attributes the interpreter proposes (TICKET-0113, BRIEF-0113-E; decisions WK2 and WN2 of the conditions series).
@@ -176,6 +178,7 @@
 - `day_reconcile.py` — Reconciliation pass (TICKET-0075, BRIEF-0075-f — decision R1; Z4 and AA2 correcting the original brief, per AMENDMENT 1).
 - `day_resolve.py` — Step resolution and the frozen fact sheet (TICKET-0075, BRIEF-0075-d — decisions B4-as-amended and T1; dice are Python, never a model — as corrected by BRIEF-0075-d-amendment-1, decision V1).
 - `day_rewrite.py` — The declaration rewrite (TICKET-0081, BRIEF-0081-b — decisions A2'/B2/J2).
+- `day_run_reads.py` — What the day's run looks like: its failures, what awaits publication, what a character may still declare (TICKET-0128).
 - `db.py` — Database engine and session management.
 - `debt_reads.py` — Debts: what the two surfaces read (TICKET-0110, BRIEF-0110-B, contract C-06).
 - `draft_world.py` — What a draft adds from its world -- the names it may cite, the fields it fills, and code's judgment of its answer (TICKET-0124, BRIEF-0124-G; A2, G2).
@@ -278,8 +281,10 @@
 - `__init__.py` — Cockpit sub-package — local review web UI for World Engine.
 - `app.py` — Cockpit — local review web UI for World Engine.
 - `browser_open.py` — Open the browser on the cockpit once it answers (TICKET-0130, O1).
+- `day_declare.py` — A declared day, from either shell: written at once, then handed to the day worker (TICKET-0128, K1).
 - `day_plan_finalize.py` — Plan finalizers, relocated from `cockpit/routes/day.py` for module-budget headroom (TICKET-0121, BRIEF-0121-D) -- the `day_reconcile_apply.py` precedent.
 - `day_reconcile_apply.py` — Reconciliation finalizers, relocated from `cockpit/routes/day.py` for module-budget headroom (TICKET-0077, BRIEF-0077-a) — the `models/config.py::AgendaStep` relocation precedent.
+- `day_runner.py` — One background worker plans then resolves each declared day, one at a time, in arrival order; a failure is written, never silent (TICKET-0128, B2, K1, S1, R1, L1).
 - `mutations.py` — Per-mutation-type canon appliers (TICKET-0027, BRIEF-0027-c).
 - `npc_group_commit.py` — The NPC group agent's row commit (TICKET-0129, BRIEF-0129-A): one staged row written to canon through the creator-direct cores, in the caller's transaction; shared by the agent's batch commit and the character approval.
 - `origin_guard.py` — Origin guard for every write route (TICKET-0098, BRIEF-0098-A, decision I1).
@@ -321,11 +326,13 @@
 ## src/world_engine/cockpit/routes/
 
 - `__init__.py` — Domain routers mounted on the cockpit app (TICKET-0027, BRIEF-0027-d).
+- `active_pc.py` — The creator's choice of the player character her cockpit acts for (TICKET-0128, BRIEF-0128-B, A1).
 - `attributes.py` — The state of the world's routes (TICKET-0113, BRIEF-0113-C; decisions WA3, WB2, WD1, WI1, WJ2 and WK2 of the conditions series) -- creator CRUD, a sanctioned canon-write path:
 - `conditions.py` — The condition interpreter's routes (TICKET-0112, BRIEF-0112-D; decisions IB1, IG1, IH1, IJ1).
 - `creator.py` — Creator-mode generation + composite routes: entity/world/player/skill- catalogue/agenda/event draft generation, world CRUD, bootstrap, player-character composite create, NPC listing.
 - `dashboard.py` — The « Suivi » tab's routes -- the creator's dashboard and its export (TICKET-0115, BRIEF-0115-D; decisions H1, E2, I1, J1 and M1 of the conditions series' dashboard).
 - `day.py` — Day declaration, plan-emission and resolution routes (TICKET-0075, BRIEF-0075-a — the declaration socle: plumbing only; BRIEF-0075-b — plan emission and budget; BRIEF-0075-c — extraction and concordance; BRIEF-0075-d — resolution, the fact sheet and narration; BRIEF-0075-g — the feasibility veto, decision Y1).
+- `day_runs.py` — The creator's view of the day worker: failed days, relaunch, abandon, what runs now (TICKET-0128, M1, Z1, Y1).
 - `debts.py` — Debt routes (TICKET-0110, BRIEF-0110-B, contract C-07).
 - `event_types.py` — The event journal's vocabulary routes (TICKET-0114, BRIEF-0114-B; decisions B1, C1, D1, T3 and W1 of the conditions series) -- creator CRUD, a sanctioned canon-write path:
 - `link_agent.py` — NPC link agent — batch staging lifecycle, pair-pass, coherence pass and commit routes (TICKET-0036, BRIEF-0036-a/b/c).
@@ -342,6 +349,7 @@
 - `play.py` — Play-path routes: conversations, travel, world-tick.
 - `player.py` — The player's door (TICKET-0125, BRIEF-0125-E, C-11): profiles, open worlds, what everybody knows.
 - `player_creation.py` — The player's character creation (TICKET-0126, BRIEF-0126-G; E1', B2, S1, U1, V1).
+- `player_day.py` — The player's days (TICKET-0128, BRIEF-0128-G; G1, D1, E1): he declares, the worker runs, the creator publishes, he reads the published narrative only.
 - `prompts.py` — Prompt dry-run preview routes (BRIEF-0008-b, C3): zero model calls, zero writes, reuse the real context assemblers and the real system-prompt construction so the preview never drifts from the live path.
 - `quest_requests.py` — The quest requests' routes (TICKET-0121, BRIEF-0121-E, C-12).
 - `quests.py` — Quest routes (TICKET-0108, BRIEF-0108-B, contracts C-03 to C-05).
@@ -371,12 +379,14 @@
 
 - `__init__.py` — Shared canon-write primitives (TICKET-0028, BRIEF-0028-b — package split of the former `writes.py`, by canon domain).
 - `_shared.py` — Closed shared-helper set for the `writes/` package (TICKET-0028, BRIEF-0028-b — decomposed from `writes.py`).
+- `active_pc.py` — The one writer of `world.active_pc_id`, the creator's choice of the player character her cockpit acts for (TICKET-0128, A1).
 - `attributes.py` — The writer of the state of the world (TICKET-0113, BRIEF-0113-A; decisions WA3, WB2, WC1, WD1, WE1 and WJ2 of the conditions series): the one writer of `attribute_definition`, `attribute_definition_type`, `attribute_choice`, `attribute_value` and `attribute_change`.
 - `characters.py` — `character`/`skill`/`ledger` canon-write chokepoints (TICKET-0028, BRIEF-0028-b — decomposed from `writes.py`).
 - `condition_drafts.py` — The condition interpreter's journal writer (TICKET-0112, BRIEF-0112-B, decision IH1).
 - `conditions.py` — The condition writer and reader (TICKET-0111, BRIEF-0111-C, decisions O-a and I1): one `condition` row per owner and role, its tree as `condition_node` rows.
 - `config.py` — Full-replace curated-config canon-write chokepoints (TICKET-0028, BRIEF-0028-b — decomposed from `writes.py`).
 - `creation_rules.py` — The creation rules' writer (TICKET-0126, BRIEF-0126-C, C-05).
+- `day_runs.py` — The writers of a day's run: its failures, its reopening, its abandonment and its publication (TICKET-0128, L1, M1, Z1, C1, T1).
 - `debt_sources.py` — Where a debt comes from besides the creator's hand (TICKET-0110, BRIEF-0110-B, S2 and A2, contract C-05).
 - `debts.py` — Debts: the writers (TICKET-0110, BRIEF-0110-B, J2, C2, T1, F-a, F-b1, U1, V1, X1, contract C-03).
 - `entity_states.py` — The writer of the system states an event may change (TICKET-0119, BRIEF-0119-C; decision E1 of the conditions series): `character.vital_status` (`sys:vital_status`) and `entity.status` (`sys:status`), the two columns `writes.event_types.EFFECT_SYSTEM_KEYS` names.
@@ -418,6 +428,7 @@
 
 ## tooling/verify/checks/
 
+- `active_pc_selector.py` — G1 check for TICKET-0128 (BRIEF-0128-C) -- the cockpit header carries the « PJ actif » selector.
 - `agenda_assist.py` — G1 check for TICKET-0021/BRIEF-0021-b — AI agenda-draft assistant.
 - `analyzer_seam.py` — G1 check for TICKET-0051 (BRIEF-0051-c, decision R1) — the analyzer transcript seam.
 - `attribute_conditions.py` — G1 check for TICKET-0113 -- the attribute condition form: a leaf reads any attribute of any entity it applies to, and a player never reads a hidden one.
@@ -446,6 +457,7 @@
 - `creator_review_ui.py` — G1 check for TICKET-0129 -- the creator's review section and the player's returned and accepted states are wired.
 - `dashboard_registry.py` — G1 check for TICKET-0115 -- the dashboard is a registry in code: its metrics read relational columns only, its deferrals point at the passage that declares them, and its export carries what the tab does not show.
 - `dashboard_tab.py` — G1 check for TICKET-0115 -- the « Suivi » tab shows the dashboard's metrics and deferrals, exports the same scope, and warns that the export holds secrets.
+- `day_chain_world.py` — G1 check for TICKET-0128 (BRIEF-0128-D) -- the day chain takes its world and its character from the day, never from the active world (INV-71).
 - `day_choice.py` — G1 check for TICKET-0094 — Concordance H2, the model chooses and the code judges.
 - `day_concordance.py` — Structural gate for the extraction-and-concordance step (TICKET-0075, BRIEF-0075-c — decision C1: the resolver never authors).
 - `day_concordance_golden.py` — Golden-case fixture for `day_concordance.concord` (TICKET-0081, BRIEF-0081-a) and `day_concordance.emit_germs` (BRIEF-0081-c).
@@ -459,7 +471,10 @@
 - `day_narration_beats.py` — G1 check for TICKET-0093 — day narration beats.
 - `day_plan.py` — Structural gate for the day-plan emission-and-budget step (TICKET-0075, BRIEF-0075-b).
 - `day_prompt_delivery.py` — Structural gate for the day-chain prompt delivery and coverage guard (TICKET-0076, BRIEF-0076-a).
+- `day_publication.py` — G1 check for TICKET-0128 (BRIEF-0128-F) -- a resolved day is published by the creator once its proposals are reviewed; one unpublished day per character; a published day is never replayed.
 - `day_rewrite.py` — Structural gate for the declaration rewrite (TICKET-0081, BRIEF-0081-b — decisions A2'/B2/J2).
+- `day_runs.py` — G1 check for TICKET-0128 (BRIEF-0128-E) -- a declared day runs in the background; every failure is written, listed, relaunched or abandoned.
+- `day_schema.py` — G1 check for TICKET-0128 (BRIEF-0128-A) -- schema v2.34: the active player character, the day's pin, its publication and its failures.
 - `debts.py` — G1 check for TICKET-0110 -- debts and services.
 - `decisions_index.py` — Regenerate-and-diff gate: the committed DECISIONS_INDEX.md must equal a fresh regeneration from ARCHITECTURE_DECISIONS.md, and every header added since the grandfathered baseline must match the strict header pattern.
 - `door_coverage.py` — G1 check for TICKET-0039 (BRIEF-0039-e) — door coverage invariant.
@@ -546,13 +561,14 @@
 - `origin_guard.py` — G1 check for TICKET-0098 (BRIEF-0098-A, decision I1) -- the origin guard.
 - `page_contract.py` — G1 check for TICKET-0005 (BRIEF-0005-a/b/c) — Création page-contract structural gate.
 - `parked_plan_guard.py` — Structural gate for the parked-plan socle (TICKET-0077, BRIEF-0077-a).
-- `pc_resolution.py` — G1 check for TICKET-0125 -- a world with several player characters is refused, never resolved to one of them.
+- `pc_resolution.py` — G1 check for TICKET-0128 (BRIEF-0128-B; first written for TICKET-0125) -- one resolver gives the cockpit its player character; several and none chosen is a refusal.
 - `perspective_isolation.py` — G1 check for TICKET-0125 (BRIEF-0125-D) -- the public perspective returns only what everybody knows, and its audit names every line it withheld.
 - `pipeline_state.py` — Structural gate for ticket front-matter conformity (pipeline glue, BRIEF-0004), extended by BRIEF-0006-b (TICKET-0006) with sentinel checks on the command files -- moved to `session_config.py` by TICKET-0117 (BRIEF-0117-b), which owns the Claude Code session configuration.
 - `pipeline_wiring.py` — Structural gate for the day-declaration socle (TICKET-0075, BRIEF-0075-a).
 - `placement_unit.py` — G1 check: permanent regression guard for the sole placement/distance authority (TICKET-0031, BRIEF-0031-a).
 - `player_creation.py` — G1 check for TICKET-0126 (BRIEF-0126-G) -- the player's draft lives and is submitted only through the one check, and the creation routes stay in the public view.
 - `player_entry_schema.py` — G1 check for TICKET-0125 (BRIEF-0125-B) -- schema v2.31: a world opens to players and the Lore journal admits the perspective kind.
+- `player_journee.py` — G1 check for TICKET-0128 (BRIEF-0128-G) -- the player declares his day and reads only what the creator published (INV-66, D1, E1).
 - `player_routes.py` — G1 check for TICKET-0125 (BRIEF-0125-E) -- the perspective and player routes answer only what everybody knows, refuse a closed world, and journal every question.
 - `player_shell.py` — G1 check for TICKET-0125 -- the Lore perspective tab and the player shell are wired and confined.
 - `player_worlds.py` — G1 check for TICKET-0125 (BRIEF-0125-C) -- a world opens to players from the « Monde » page and only when told.

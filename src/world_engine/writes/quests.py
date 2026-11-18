@@ -252,13 +252,13 @@ def accept_quest(db: Session, *, offer: QuestOffer, character: Character) -> Que
 
 def abandon_refusal(db: Session, quest: Quest) -> Optional[str]:
     """Why the quest cannot be abandoned now, or None: it is over, a day is
-    resolving against it, or a step change of it awaits review (applying it
+    resolving against it (or failed at its resolution, TICKET-0128), or a step change of it awaits review (applying it
     after the abandon would move an abandoned plan)."""
     agenda = db.get(Agenda, quest.agenda_id)
     if agenda is None or agenda.status not in OPEN_QUEST_STATUSES:
         return "cette quête est terminée"
     resolving = db.exec(select(PassPlay.id).where(
-        PassPlay.agenda_id == agenda.id, PassPlay.status == "resolving")).first()
+        PassPlay.agenda_id == agenda.id, PassPlay.status.in_(("resolving", "flagged")))).first()
     if resolving is not None:
         return "une journée est en cours de résolution sur cette quête"
     # The `routes/day.py::_guard_no_pending_agenda_step_change` query (a

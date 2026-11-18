@@ -30,7 +30,6 @@ from ...db import get_session
 from ...models import Debt
 from ...writes import DebtTermSpec, create_debt, forgive_debt, request_service, settle_debt
 from .. import crud as _crud
-from .day import _resolve_player_character
 from .quests import TermBody, _term
 
 router = APIRouter()
@@ -123,13 +122,13 @@ def forgive(debt_id: str, body: ForgiveBody, db: Session = Depends(get_session))
 
 @router.get("/api/journee/debts")
 def journee_debts(db: Session = Depends(get_session)) -> dict:
-    character = _resolve_player_character(_crud._world_id(db), db)
+    character = _crud._player_character(db, _crud._world_id(db))
     return debt_reads.player_debts(character, db)
 
 
 @router.post("/api/services", status_code=201)
 def ask_service(body: ServiceBody, db: Session = Depends(get_session)) -> dict:
-    character = _resolve_player_character(_crud._world_id(db), db)
+    character = _crud._player_character(db, _crud._world_id(db))
     try:
         request_service(db, character=character, provider_id=body.provider_entity_id,
                         on_behalf_of_id=body.on_behalf_of_id or None, terms=[_term(t) for t in body.terms],

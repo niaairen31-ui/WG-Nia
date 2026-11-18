@@ -12,6 +12,9 @@ a brief. The set, and why each entry is here:
 
 - `_iso`, `_world_id`, `_get_entity` — used across nearly every domain
   module (date serialization, active-world resolution, entity lookup).
+- `_player_character`, `_player_character_id` (TICKET-0128, BRIEF-0128-B,
+  A1) -- the player character every cockpit surface acts for: the HTTP face
+  of `active_pc.resolve_active_pc` (400 none, 409 several and none chosen).
 - `RELATION_TYPES`, `RELATION_DIRECTIONS`, `RELATION_FIELDS`,
   `_relation_dict`, `_list_relations` — the relation field-spec and its
   dict-serializer/lister moved together to avoid a circular import between
@@ -44,7 +47,14 @@ from typing import Any, Optional
 from fastapi import HTTPException
 from sqlmodel import Session as DbSession, select
 
-from ...models import Entity, Fact, FactParticipant, Knowledge, Relation, World
+from ...active_pc import (
+    CHOOSE_PC_MESSAGE,
+    NO_PC_MESSAGE,
+    ActivePcUnchosen,
+    NoPlayerCharacter,
+    resolve_active_pc,
+)
+from ...models import Character, Entity, Fact, FactParticipant, Knowledge, Relation, World
 from ...prose_render import fact_text, knowledge_text
 from ...relation_orientation import is_social
 from ...writes import lien_fact_of
@@ -59,6 +69,21 @@ def _world_id(db: DbSession) -> str:
     if world is None:
         raise HTTPException(status_code=400, detail="No active world. Activate a world before proceeding.")
     return world.id
+
+
+def _player_character(db: DbSession, world_id: str) -> Character:
+    """The world's active PC (`active_pc.resolve_active_pc`): 400 none, 409 unchosen."""
+    try:
+        return resolve_active_pc(db, world_id)
+    except NoPlayerCharacter:
+        raise HTTPException(status_code=400, detail=NO_PC_MESSAGE) from None
+    except ActivePcUnchosen:
+        raise HTTPException(status_code=409, detail=CHOOSE_PC_MESSAGE) from None
+
+
+def _player_character_id(db: DbSession, world_id: str) -> str:
+    """The id of `_player_character(db, world_id)`."""
+    return _player_character(db, world_id).id
 
 
 def _get_entity(db: DbSession, entity_id: str) -> Entity:

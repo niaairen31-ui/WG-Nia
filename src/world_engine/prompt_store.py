@@ -52,9 +52,12 @@ def current_prompt(db: Session, template: PromptTemplate) -> PromptVersion:
 
 def premised_prompt(
     db: Session, template: PromptTemplate, *, entity_type: Optional[str] = None,
+    world_id: Optional[str] = None,
 ) -> PremisedPrompt:
     """`current_prompt`'s text with `{world_premise}` filled in the regime of
-    `template.usage` (`world_premise.fill`). Same RuntimeError on a versionless head."""
+    `template.usage` (`world_premise.fill`). Same RuntimeError on a versionless head.
+    `world_id` names the world whose premise is filled; None keeps the active
+    world (TICKET-0128, P1)."""
     # lazy: `world_premise` imports `attributes` and the registry;
     # `prompt_store` is imported by both sides
     from .world_premise import fill
@@ -63,8 +66,8 @@ def premised_prompt(
     return PremisedPrompt(
         id=version.id,
         version_number=version.version_number,
-        system_prompt=fill(version.system_prompt, db, template.usage, entity_type=entity_type),
-        user_template=fill(version.user_template, db, template.usage, entity_type=entity_type),
+        system_prompt=fill(version.system_prompt, db, template.usage, entity_type=entity_type, world_id=world_id),
+        user_template=fill(version.user_template, db, template.usage, entity_type=entity_type, world_id=world_id),
     )
 
 

@@ -59,6 +59,7 @@ from ...prompt_store import current_prompt, get_version, list_versions
 from ...spatial_author import location_type_template
 from ...tick_normalize import _EVENT_TYPES
 from ...traits import checkable_traits, ext_columns_for, form_fields_for
+from ...writes.active_pc import clear_active_pc_of
 from ...writes.schema import create_entity_type
 from ...zone_rules import ZoneRefusal, require_visitable
 from ...skill_ranks import DEFAULT_RANK, TIER_TO_RANK
@@ -204,29 +205,6 @@ ENTITY_TYPE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
     },
 }
-
-
-def _player_character_id(db: DbSession, world_id: str) -> str:
-    """The world's lone player character id.
-
-    TICKET-0125 (M2): more than one PC in the world is a refusal, never a choice.
-    """
-    chars = db.exec(
-        select(Character)
-        .join(Entity, Entity.id == Character.id)
-        .where(
-            Entity.world_id == world_id,
-            Character.character_type == "player",
-        )
-    ).all()
-    if not chars:
-        raise HTTPException(status_code=400, detail="No player character in the active world.")
-    if len(chars) > 1:
-        raise HTTPException(
-            status_code=409,
-            detail="Plusieurs personnages joueurs dans ce monde : précisez lequel.",
-        )
-    return chars[0].id
 
 
 def _entity_summary(e: Entity) -> dict:
@@ -885,12 +863,17 @@ def update_entity(entity_id: str, body: EntityWriteBody, db: DbSession = Depends
 
 @router.post("/entities/{entity_id}/delete")
 def delete_entity(entity_id: str, db: DbSession = Depends(get_session)) -> dict:
-    """Soft delete — `status = 'inactive'`. Relations/knowledge survive untouched."""
+    """Soft delete — `status = 'inactive'`. Relations/knowledge survive untouched.
+
+    A deleted character is no longer any world's active PC (TICKET-0128, A1).
+    """
     entity = _get_entity(db, entity_id)
     entity.status = "inactive"
     entity.updated_at = datetime.now(UTC)
     db.add(entity)
     closed = close_open_memberships(entity_id, db)
+    if entity.type == "character":
+        clear_active_pc_of(db, character_id=entity_id)
     db.commit()
     dissolve_emptied({row.gathering_id for row in closed}, db)
     db.refresh(entity)

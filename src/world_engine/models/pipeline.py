@@ -91,6 +91,48 @@ class PassPlay(SQLModel, table=True):
     )
     submitted_at: datetime = _created_ts()
     applied_at: Optional[datetime] = None
+    # TICKET-0128 (v2.34): the quest pinned at the declaration (Q1); the
+    # narrative the creator published and when (C1, C′2, T1). Published
+    # iff `published_at` is set; `batch.final_result` keeps the narrator's.
+    quest_id: Optional[str] = Field(default=None, foreign_key="quest.id")
+    published_text: Optional[str] = None
+    published_at: Optional[datetime] = None
+
+
+# -----------------------------------------------------------------------------
+# day_run_failure  (one row per failed run of a day's chain, schema v2.34,
+# TICKET-0128, L1)
+#
+# The background chain plans then resolves a declared day; each failure
+# leaves one row (stage, closed code, the reason as text) and turns the
+# day `flagged`. Append-only; written only by `writes/day_runs.py`;
+# non-canon; deleted with its world.
+# -----------------------------------------------------------------------------
+DAY_RUN_STAGES: tuple[str, ...] = ("plan", "resolve")
+DAY_RUN_FAILURE_CODES: tuple[str, ...] = (
+    "model_failed", "blocked", "rejected", "refused", "crashed", "interrupted",
+)
+
+
+class DayRunFailure(SQLModel, table=True):
+    __tablename__ = "day_run_failure"
+    __table_args__ = (
+        Index("idx_day_run_failure_pass_play", "pass_play_id", "created_at"),
+        Index("idx_day_run_failure_world", "world_id", "created_at"),
+        CheckConstraint("stage IN ('plan','resolve')", name="ck_day_run_failure_stage"),
+        CheckConstraint(
+            "code IN ('model_failed','blocked','rejected','refused','crashed','interrupted')",
+            name="ck_day_run_failure_code",
+        ),
+    )
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    world_id: str = Field(foreign_key="world.id", nullable=False)
+    pass_play_id: str = Field(foreign_key="pass_play.id", nullable=False)
+    stage: str
+    code: str
+    reason: str
+    created_at: datetime = _created_ts()
 
 
 # -----------------------------------------------------------------------------

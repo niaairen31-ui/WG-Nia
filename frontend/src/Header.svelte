@@ -4,6 +4,8 @@
   import { activateWorldCascade } from './creation/tabs.js';
   import { openWorldCreateModal, openWorldDeleteModal } from './creation/worldCrud.svelte.js';
   import { navigate } from './lib/router.js';
+  import ActivePcSelector from './ActivePcSelector.svelte';
+  import DayRunBanner from './DayRunBanner.svelte';
   import { SCHEDULE_PHASES, PHASE_LABELS } from './creation/schedule.js';
 
   // TICKET-0056 (BRIEF-0056-c): the router is the single source of truth for
@@ -85,6 +87,8 @@
         <option value={w.id} selected={w.id === serverState.worldId}>{w.is_active ? `${w.name} (actif)` : w.name}</option>
       {/each}
     </select>
+    <ActivePcSelector />
+    <DayRunBanner />
   {/if}
   <button class="btn-icon" onclick={openWorldCreateModal} title="Créer un nouveau monde">+ Monde</button>
   <button class="btn-icon" onclick={openWorldDeleteModal} title="Supprimer le monde sélectionné">🗑 Monde</button>

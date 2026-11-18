@@ -252,6 +252,7 @@ of them.
 - `authoring-lore.md` — region generation, the Lore surface.
 - `player-surface.md` — the player shell, its routes, the perspective.
 - `character-creation.md` — creation rules, the creation check, drafts.
+- `day-chain.md` — the active player character, the day chain.
 - `schema-migrations.md` — migrations, the boot guard, rollback.
 - `local-models.md` — the local models and their thinking modes.
 - `verify-checks.md` — how a verify check is written.

@@ -155,7 +155,7 @@ def narrate(fact_sheet: FactSheet, declaration: str, db: Session) -> str:
     template = _load_day_prose_template("day_narration", fact_sheet.world_id, db)
     if template is None:
         raise llm_parse.LlmParseError("day_narration: no active prompt_template for usage='day_narration'")
-    version = premised_prompt(db, template)
+    version = premised_prompt(db, template, world_id=fact_sheet.world_id)
 
     user_msg = (
         version.user_template
@@ -182,7 +182,7 @@ def rewrite(fact_sheet: FactSheet, prior_prose: str, delta: LateDelta, db: Sessi
     template = _load_day_prose_template("day_rewrite", fact_sheet.world_id, db)
     if template is None:
         raise llm_parse.LlmParseError("day_narration: no active prompt_template for usage='day_rewrite'")
-    version = premised_prompt(db, template)
+    version = premised_prompt(db, template, world_id=fact_sheet.world_id)
 
     user_msg = (
         version.user_template

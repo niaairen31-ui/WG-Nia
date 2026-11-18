@@ -22,6 +22,7 @@ BRIEF-0027-d (R5):
   and `cockpit/play_stream.py`.
 - `cockpit/routes/scene.py` — scene lifecycle (view/enter/join/leave),
   extracted from `routes/play.py` at TICKET-0032 (C2, module-budget cap).
+- the day worker's start (`day_runner`, TICKET-0128).
 
 Every route keeps its original path, method, and body verbatim (pure move,
 no logic change) — see BRIEF-0027-d for the full census.
@@ -53,11 +54,14 @@ from ..db import engine
 from ..models import LinkBatch, LinkBatchRow, NpcBatch, NpcBatchRow, SchemaMeta
 from ..schema_version import EXPECTED_STATIC_SCHEMA_VERSION
 from . import crud as _crud
+from .day_runner import interrupt_stale_days, start_day_runner
 from .origin_guard import origin_guard
+from .routes import active_pc as _routes_active_pc
 from .routes import attributes as _routes_attributes
 from .routes import conditions as _routes_conditions
 from .routes import creator as _routes_creator
 from .routes import day as _routes_day
+from .routes import day_runs as _routes_day_runs
 from .routes import debts as _routes_debts
 from .routes import event_types as _routes_event_types
 from .routes import dashboard as _routes_dashboard
@@ -72,6 +76,7 @@ from .routes import npc_agent as _routes_npc_agent
 from .routes import observation as _routes_observation
 from .routes import play as _routes_play
 from .routes import player as _routes_player
+from .routes import player_day as _routes_player_day
 from .routes import player_creation as _routes_player_creation
 from .routes import pc_drafts as _routes_pc_drafts
 from .routes import pc_review as _routes_pc_review
@@ -136,6 +141,8 @@ app.middleware("http")(origin_guard)
 app.include_router(_crud.router)
 app.include_router(_routes_creator.router)
 app.include_router(_routes_day.router)
+app.include_router(_routes_active_pc.router)
+app.include_router(_routes_day_runs.router)
 app.include_router(_routes_regions.router)
 app.include_router(_routes_prompts.router)
 app.include_router(_routes_mutations.router)
@@ -152,6 +159,7 @@ app.include_router(_routes_lore_choices.router)
 app.include_router(_routes_lore_write.router)
 app.include_router(_routes_lore_perspective.router)
 app.include_router(_routes_player.router)
+app.include_router(_routes_player_day.router)
 app.include_router(_routes_player_creation.router)
 app.include_router(_routes_pc_drafts.router)
 app.include_router(_routes_pc_review.router)
@@ -285,6 +293,14 @@ def _check_frontend_build_on_startup() -> None:
             "`npm run build` in frontend/ (the output is committed; an "
             "empty tree means a bad checkout, not a missing build step)."
         )
+
+
+@app.on_event("startup")
+def _start_day_runner_on_startup() -> None:
+    """TICKET-0128 (R1, K1): days a stopped server left running become
+    « interrompue » failures, then the one day worker starts."""
+    interrupt_stale_days()
+    start_day_runner()
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────

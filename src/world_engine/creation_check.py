@@ -49,7 +49,6 @@ DRAFT_VIOLATION_CODES: tuple[str, ...] = (
 REVIEW_VIOLATION_CODES: tuple[str, ...] = (
     "review_place_invalid", "sketch_undecided", "attach_invalid",
     "attach_duplicate", "master_not_master", "relation_type_invalid",
-    "world_has_pc",
 )
 
 
@@ -378,10 +377,4 @@ def check_review(db: Session, draft: PcDraft) -> tuple[Violation, ...]:
     )).first()
     if pc is not None:
         found.append(Violation("pc_exists", None, "Ce joueur a déjà un personnage dans ce monde."))
-    any_pc = db.exec(select(Character.id).where(
-        Character.world_id == world_id, Character.character_type == "player",
-    )).first()
-    if any_pc is not None:
-        found.append(Violation("world_has_pc", None, "Ce monde a déjà un personnage joueur : l'approbation "
-                                                     "attend le sélecteur « PJ actif »."))
     return tuple(found)

@@ -33,7 +33,7 @@ rule that keeps the exemption honest — it does not merely restate R5.
 R7: `missing_usages`'s body references `current_prompt` (E2 depth, via the
 sole `prompt_version` read accessor — `prompt_version.py`'s allowlist bars a
 direct `PromptVersion` reference from this module) and `PromptTemplate.is_active`.
-R8: in `declare_day`, the `missing_usages` call appears strictly before the
+R8: in `day_declare.declare` (TICKET-0128), the `missing_usages` call appears strictly before the
 `write_batch` call — compare statement positions, not mere co-presence.
 R9: vacuity guard — any rule above that collected zero items is a FAILURE in
 its own right, so a broken parse cannot silently report green.
@@ -53,6 +53,7 @@ SEED_FILE = ROOT / "scripts" / "seed_pilot.py"
 ONE_SHOT_FILE = ROOT / "scripts" / "apply_ticket_0076_day_prompt_seed.py"
 COVERAGE_FILE = SRC / "prompt_coverage.py"
 DAY_ROUTE_FILE = SRC / "cockpit" / "routes" / "day.py"
+DAY_DECLARE_FILE = SRC / "cockpit" / "day_declare.py"
 PROMPT_REGISTRY_FILE = SRC / "prompt_registry.py"
 
 DAY_CONSTANTS = (
@@ -435,13 +436,13 @@ def check_missing_usages_depth() -> None:
 
 
 def check_guard_before_write_batch() -> None:
-    """R8. Call ORDER inside declare_day, not merely presence."""
-    tree = _parse(DAY_ROUTE_FILE)
+    """R8. Call ORDER inside day_declare.declare, not merely presence."""
+    tree = _parse(DAY_DECLARE_FILE)
     if tree is None:
         return
-    fn = _find_function(tree, "declare_day")
+    fn = _find_function(tree, "declare")
     if fn is None:
-        fail(f"day_prompt_delivery R8: {_rel(DAY_ROUTE_FILE)}: declare_day not found")
+        fail(f"day_prompt_delivery R8: {_rel(DAY_DECLARE_FILE)}: day_declare.declare not found")
         return
     missing_line = None
     write_batch_line = None
@@ -454,14 +455,14 @@ def check_guard_before_write_batch() -> None:
             write_batch_line = node.lineno
     _record("R8", int(missing_line is not None) + int(write_batch_line is not None))
     if missing_line is None:
-        fail(f"day_prompt_delivery R8: {_rel(DAY_ROUTE_FILE)}: declare_day does not call missing_usages(")
+        fail(f"day_prompt_delivery R8: {_rel(DAY_DECLARE_FILE)}: day_declare.declare does not call missing_usages(")
         return
     if write_batch_line is None:
-        fail(f"day_prompt_delivery R8: {_rel(DAY_ROUTE_FILE)}: declare_day does not call write_batch(")
+        fail(f"day_prompt_delivery R8: {_rel(DAY_DECLARE_FILE)}: day_declare.declare does not call write_batch(")
         return
     if not (missing_line < write_batch_line):
         fail(
-            f"day_prompt_delivery R8: {_rel(DAY_ROUTE_FILE)}: missing_usages( at line {missing_line} "
+            f"day_prompt_delivery R8: {_rel(DAY_DECLARE_FILE)}: missing_usages( at line {missing_line} "
             f"does not come before write_batch( at line {write_batch_line}"
         )
 

@@ -81,8 +81,9 @@ QC2 -- the « Quêtes » tab (static). `tabs.js`'s `quetes` entry mounts the
    /api/quest-offers` and saves with `PUT /api/quest-offers/`.
 QC3 -- Journée (static). `QuestPanel.svelte` and `quests.svelte.js` contain
    neither `agenda_id` nor `step_id`; `Journee.svelte` renders
-   `<QuestPanel` and plans with `planDay(id, questState.pin)`;
-   `journee.svelte.js` sends `quest_id` in the plan request's body.
+   `<QuestPanel` and declares with `submitDeclaration(questState.pin)`;
+   `journee.svelte.js` sends `quest_id: questId || null` in the
+   declaration's body (Q1, TICKET-0128).
 
 Fresh temp-file SQLite database (`WORLD_ENGINE_DATABASE_URL` set before any
 world_engine import) -- never Nia's DB. A rule that collects nothing fails.
@@ -839,11 +840,11 @@ def check_qc3() -> None:
             if token in text:
                 fail(f"QC3: {rel} names {token}")
     journee = _read("journee/Journee.svelte")
-    for needle in ("<QuestPanel", "planDay(id, questState.pin)"):
+    for needle in ("<QuestPanel", "submitDeclaration(questState.pin)"):
         if needle not in journee:
             fail(f"QC3: Journee.svelte lacks {needle}")
-    if "JSON.stringify({ quest_id: questId })" not in _read("journee/journee.svelte.js"):
-        fail("QC3: journee.svelte.js does not send quest_id in the plan body")
+    if "quest_id: questId || null" not in _read("journee/journee.svelte.js"):
+        fail("QC3: journee.svelte.js does not send quest_id in the declaration body")
 
 
 def main() -> int:

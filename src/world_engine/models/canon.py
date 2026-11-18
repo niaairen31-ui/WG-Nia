@@ -91,6 +91,13 @@ class World(SQLModel, table=True):
     # to `models.schedule.SCHEDULE_PHASES` by verify/checks/npc_schedule.py
     # (imported here would be an import cycle: schedule.py imports from canon).
     current_phase: str = Field(default="matin", sa_column_kwargs={"server_default": text("'matin'")})
+    # Creator-set « PJ actif » (v2.34, TICKET-0128, A1): the player character
+    # her cockpit acts for; NULL when none is chosen. Read only through
+    # `active_pc.resolve_active_pc`; cleared when that character is deleted.
+    active_pc_id: Optional[str] = Field(
+        default=None,
+        sa_column=Column(String, ForeignKey("character.id", ondelete="SET NULL"), nullable=True),
+    )
     created_at: datetime = _created_ts()
     updated_at: datetime = _created_ts()
 

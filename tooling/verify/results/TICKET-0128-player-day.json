@@ -1,0 +1,47 @@
+{
+  "ticket": "TICKET-0128-player-day",
+  "when": "2026-11-18T19:30:16.554218+00:00",
+  "green": true,
+  "checks": [
+    {
+      "check": "day_schema.py",
+      "status": "PASS",
+      "msg": "PASS: day_schema -- v2.34 (DS1-DS3): world.active_pc_id (SET NULL), pass_play's pin and publication, day_run_failure with its CHECKs and indexes; the migration refuses below v2.33, publishes the resolved days once (W1) and changes nothing twice"
+    },
+    {
+      "check": "pc_resolution.py",
+      "status": "PASS",
+      "msg": "PASS: pc_resolution -- PR1-PR5: one resolver walks the case table; no former resolver survives; the adapters answer 400 / 409 / the chosen PC; the active-PC routes refuse a foreign id with 422; deleting the active PC clears the choice; the writers never commit"
+    },
+    {
+      "check": "active_pc_selector.py",
+      "status": "PASS",
+      "msg": "PASS: active_pc_selector -- AS1-AS5: the header mounts the \u00ab PJ actif \u00bb selector after the world; it reads and sets /api/active-pc through api, then refreshes the shell and Cr\u00e9ation; Journ\u00e9e reloads on a new PC; the build carries it"
+    },
+    {
+      "check": "day_chain_world.py",
+      "status": "PASS",
+      "msg": "PASS: day_chain_world -- DW1-DW3"
+    },
+    {
+      "check": "day_runs.py",
+      "status": "PASS",
+      "msg": "PASS: day_runs -- DR1-DR7: failure codes, the worker's run and its failures, the startup sweep, relaunch and abandon, the declaration enqueues, the metric, the wiring"
+    },
+    {
+      "check": "day_publication.py",
+      "status": "PASS",
+      "msg": "PASS: day_publication -- DP1-DP5: the creator publishes a reviewed day once, the narrator's text kept; one unpublished day per character; a published day is never replayed"
+    },
+    {
+      "check": "player_journee.py",
+      "status": "PASS",
+      "msg": "PASS: player_journee -- PJ1-PJ4: the player's day keyed on his world and profile, its states, only the published narrative; he declares once his last day is published"
+    },
+    {
+      "check": "corpus_gate.py",
+      "status": "PASS",
+      "msg": "PASS: corpus_gate \u2014 208 check(s) discovered, 208 executed, 208 passed"
+    }
+  ]
+}
